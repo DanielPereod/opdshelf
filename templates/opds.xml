@@ -1,0 +1,23 @@
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+    <id>{{.BaseURL}}</id>
+    <title>OPDS Library</title>
+    <updated>{{.CurrentTime}}</updated>
+    <author>
+        <name>OPDS Library Manager</name>
+    </author>
+    <link rel="self" href="{{.BaseURL}}" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+    <link rel="start" href="{{.BaseURL}}" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+
+    {{range .Books}}
+    <entry>
+        <id>{{$.BaseURL}}/books/{{.Filename}}</id>
+        <title>{{.Title}}</title>
+        <updated>{{formatDate .LastUpdated}}</updated>
+        <link rel="http://opds-spec.org/acquisition"
+              href="{{$.BaseURL}}/books/{{.Filename}}"
+              type="{{.MimeType}}"
+              length="{{.Size}}"/>
+    </entry>
+    {{end}}
+</feed>
+

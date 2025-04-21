@@ -1,0 +1,54 @@
+<!-- templates/admin.html -->
+{{define "content"}}
+<div class="card">
+    <h2>Upload New Book</h2>
+    <form action="/upload" method="post" enctype="multipart/form-data">
+        <div class="form-group">
+            <label for="book">Select file (EPUB, PDF):</label>
+            <input type="file" id="book" name="book" accept=".epub,.pdf" required>
+        </div>
+        <button type="submit" class="btn">Upload Book</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>Book Collection</h2>
+    {{if .Books}}
+        <table>
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Format</th>
+                    <th>Size</th>
+                    <th>Last Updated</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Books}}
+                <tr>
+                    <td>{{.Title}}</td>
+                    <td>{{.MimeType}}</td>
+                    <td>{{formatSize .Size}}</td>
+                    <td>{{formatDate .LastUpdated}}</td>
+                    <td class="actions">
+                        <a href="/books/{{.Filename}}" class="btn btn-sm" download>Download</a>
+                        <form action="/delete/{{.Filename}}" method="post" onsubmit="return confirm('Are you sure you want to delete this book?');">
+                            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    {{else}}
+        <div class="alert alert-info">No books available in the library.</div>
+    {{end}}
+</div>
+
+<div class="card">
+    <h2>OPDS Information</h2>
+    <p>Your OPDS catalog URL: <a href="{{.BaseURL}}">{{.BaseURL}}</a></p>
+    <p>Add this URL to your OPDS-compatible reader to access your library.</p>
+</div>
+{{end}}

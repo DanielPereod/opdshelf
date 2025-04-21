@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  opds-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: koalilla/opds-server:latest
+    container_name: opds-server
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./books:/app/books
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - BOOKS_DIR=/app/books

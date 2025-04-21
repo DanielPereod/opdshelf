@@ -1,18 +1,47 @@
-version: '3.8'
-
+name: resilient_erik
 services:
   opds-server:
     build:
-      context: .
+      context: /tmp/casaos-compose-app-3364774096
       dockerfile: Dockerfile
-    image: koalilla/opds-server:latest
+    cpu_shares: 90
+    command: []
     container_name: opds-server
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./books:/app/books
-    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 15766M
     environment:
-      - PORT=3000
-      - HOST=0.0.0.0
       - BOOKS_DIR=/app/books
+      - HOST=0.0.0.0
+      - PORT=3000
+    hostname: opds-server
+    image: koalilla/opds-server:latest
+    labels:
+      icon: https://cdn.jsdelivr.net/gh/DanielPereod/opds-server-go/static/icon.png
+    ports:
+      - target: 3000
+        published: "3423"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: /DATA/Media/Books
+        target: /app/books
+    devices: []
+    cap_add: []
+    network_mode: bridge
+    privileged: false
+x-casaos:
+  author: self
+  category: self
+  hostname: ""
+  icon: https://cdn.jsdelivr.net/gh/DanielPereod/opds-server-go/static/icon.png
+  index: /admin
+  is_uncontrolled: false
+  port_map: "3423"
+  scheme: http
+  store_app_id: resilient_erik
+  title:
+    custom: OPDS Server
+    en_us: opds-server

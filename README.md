@@ -93,6 +93,66 @@ Access the admin panel at [http://localhost:3000/admin](http://localhost:3000/ad
 
 </details>
 
+<details>
+<summary><strong>Example: Docker Compose (CasaOS compatible)</strong></summary>
+<br>
+
+Here is an example `docker-compose.yml` you can use (compatible with CasaOS):
+
+```yaml
+name: resilient_erik
+services:
+  opds-server:
+    build:
+      context: /tmp/casaos-compose-app-3364774096
+      dockerfile: Dockerfile
+    cpu_shares: 90
+    command: []
+    container_name: opds-server
+    deploy:
+      resources:
+        limits:
+          memory: 15766M
+    environment:
+      - BOOKS_DIR=/app/books
+      - HOST=0.0.0.0
+      - PORT=3000
+    hostname: opds-server
+    image: koalilla/opds-server:latest
+    labels:
+      icon: https://cdn.jsdelivr.net/gh/DanielPereod/opdshelf/static/icon.png
+    ports:
+      - target: 3000
+        published: "3423"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: /DATA/Media/Books
+        target: /app/books
+    devices: []
+    cap_add: []
+    network_mode: bridge
+    privileged: false
+x-casaos:
+  author: self
+  category: self
+  hostname: ""
+  icon: https://cdn.jsdelivr.net/gh/DanielPereod/opdshelf/static/icon.png
+  index: /admin
+  is_uncontrolled: false
+  port_map: "3423"
+  scheme: http
+  store_app_id: resilient_erik
+  title:
+    custom: OPDShelf
+    en_us: opds-server
+```
+
+> **Note:**
+> To access the admin dashboard, navigate to `/admin` (for example: `http://localhost:3423/admin`).
+</details>
+
 <br>
 
 ## Common issues

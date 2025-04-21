@@ -1,8 +1,8 @@
 <p align="center"><em>What if you could host your own OPDS library server in seconds?</em></p>
-<h1 align="center">OPDS Server</h1>
+<h1 align="center">OPDShelf</h1>
 <p align="center"><a href="#installation">Install</a> • <a href="#configuration">Configuration</a> • <a href="https://github.com/koalilla/opds-server/issues">Issues</a></p>
 
-![](static/icon.png)
+![](static/screenshot.png)
 
 ## Features
 

@@ -73,6 +73,8 @@ func main() {
 
 	// Register mime types if needed
 	mime.AddExtensionType(".epub", "application/epub+zip")
+	mime.AddExtensionType(".fb2", "application/x-fictionbook+xml")
+	mime.AddExtensionType(".fb2.zip", "application/zip")
 
 	// Register template functions
 	templates := template.New("")

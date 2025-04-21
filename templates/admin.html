@@ -13,9 +13,8 @@
               class="fas fa-cloud-upload-alt text-3xl text-primary mb-2 group-hover:scale-110 transition-transform"
             ></i>
             <span class="font-semibold text-primary group-hover:underline">Click or drag to upload a book</span>
-            <span class="text-xs text-gray-500 mt-1">EPUB or PDF</span>
           </span>
-          <input type="file" id="book" name="book" accept=".epub,.pdf" required class="sr-only" />
+          <input type="file" id="book" name="book" accept=".epub,.pdf,.fb2,.fb2.zip" required class="sr-only" />
         </label>
         <div id="fileInfo" class="hidden mt-4 text-sm text-gray-700"></div>
       </div>
@@ -153,10 +152,15 @@
       if (files.length === 0) return;
 
       const file = files[0];
-      const validTypes = ["application/pdf", "application/epub+zip"];
-      if (!validTypes.includes(file.type)) {
+      const validTypes = [
+        "application/pdf",
+        "application/epub+zip",
+        "application/x-fictionbook+xml",
+        "application/zip"
+      ];
+      if (!validTypes.includes(file.type) && !/\.(fb2|fb2\.zip)$/i.test(file.name)) {
         fileInfo.classList.remove("hidden");
-        fileInfo.textContent = "Formato no válido. Solo EPUB o PDF.";
+        fileInfo.textContent = "Formato no válido. Solo EPUB, PDF o FB2.";
         return;
       }
 

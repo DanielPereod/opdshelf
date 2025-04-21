@@ -1,205 +1,230 @@
 {{define "layout.html"}}
 <!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<html lang="es" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OPDS Server Admin</title>
-    <style>
-        :root {
-            --primary-color: #3498db;
-            --secondary-color: #2980b9;
-            --danger-color: #e74c3c;
-            --danger-hover: #c0392b;
-            --light-color: #f8f9fa;
-            --dark-color: #343a40;
-            --border-radius: 4px;
-            --box-shadow: 0 1px 3px rgba(0,0,0,.1);
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style type="text/tailwindcss">
+      :root {
+        --primary: #2563eb;
+        --secondary: #64748b;
+        --background: #ffffff;
+        --background-dark: #1a1a1a;
+        --text: #1a1a1a;
+        --text-dark: #ffffff;
+        --card-background: #ffffff;
+        --card-background-dark: #2d2d2d;
+        --hover-background: #f3f4f6;
+        --hover-background-dark: #252525;
+        --hover-primary: rgba(77, 77, 77, 0.1);
+        --hover-primary-dark: rgba(37, 99, 235, 0.2);
+        --hover-danger: rgba(220, 38, 38, 0.1);
+        --hover-danger-dark: rgba(220, 38, 38, 0.2);
+        --row-even: #f9fafb;
+        --row-even-dark: #2b2b2b;
+        --row-odd: transparent;
+        --row-odd-dark: #1a1a1a;
+      }
+
+      [data-theme="dark"] {
+        background-color: var(--background-dark);
+        color: var(--text-dark);
+      }
+
+      [data-theme="dark"] .theme-card {
+        background-color: var(--card-background-dark);
+      }
+
+      [data-theme="dark"] .theme-hover:hover {
+        background-color: var(--hover-background-dark);
+      }
+
+      [data-theme="dark"] .theme-hover-primary:hover {
+        background-color: var(--hover-primary-dark);
+      }
+
+      [data-theme="dark"] .theme-hover-danger:hover {
+        background-color: var(--hover-danger-dark);
+      }
+
+      [data-theme="dark"] .theme-row-even {
+        background-color: var(--row-even-dark);
+      }
+
+      [data-theme="dark"] .theme-row-odd {
+        background-color: var(--row-odd-dark);
+      }
+
+      [data-theme="light"] {
+        background-color: var(--background);
+        color: var(--text);
+      }
+
+      [data-theme="light"] .theme-card {
+        background-color: var(--card-background);
+      }
+
+      [data-theme="light"] .theme-hover:hover {
+        background-color: var(--hover-background);
+      }
+
+      [data-theme="light"] .theme-hover-primary:hover {
+        background-color: var(--hover-primary);
+      }
+
+      [data-theme="light"] .theme-hover-danger:hover {
+        background-color: var(--hover-danger);
+      }
+
+      [data-theme="light"] .theme-row-even {
+        background-color: var(--row-even);
+      }
+
+      [data-theme="light"] .theme-row-odd {
+        background-color: var(--row-odd);
+      }
+
+      .mobile-menu-closed {
+        display: none;
+      }
+
+      @media (max-width: 640px) {
+        .mobile-menu {
+          position: fixed;
+          top: 64px;
+          left: 0;
+          right: 0;
+          padding: 1rem;
+          z-index: 50;
         }
 
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: var(--dark-color);
-            background-color: var(--light-color);
-            margin: 0;
-            padding: 0;
+        [data-theme="dark"] .mobile-menu {
+          background-color: var(--card-background-dark);
         }
 
-        .container {
-            max-width: 1000px;
-            margin: 0 auto;
-            padding: 2rem;
+        [data-theme="light"] .mobile-menu {
+          background-color: var(--card-background);
         }
-
-        header {
-            background-color: var(--primary-color);
-            color: white;
-            padding: 1rem 0;
-            margin-bottom: 2rem;
-            box-shadow: var(--box-shadow);
-        }
-
-        header .container {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0 2rem;
-        }
-
-        h1, h2, h3 {
-            color: var(--dark-color);
-            margin-top: 0;
-        }
-
-        header h1 {
-            color: white;
-            margin: 0;
-        }
-
-        nav a {
-            color: white;
-            text-decoration: none;
-            margin-left: 1rem;
-        }
-
-        nav a:hover {
-            text-decoration: underline;
-        }
-
-        .card {
-            background: white;
-            border-radius: var(--border-radius);
-            box-shadow: var(--box-shadow);
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-        }
-
-        .card h2 {
-            margin-top: 0;
-            border-bottom: 1px solid #eee;
-            padding-bottom: 0.5rem;
-        }
-
-        form {
-            margin: 1rem 0;
-        }
-
-        .form-group {
-            margin-bottom: 1rem;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 0.5rem;
-            font-weight: 500;
-        }
-
-        input[type="file"] {
-            display: block;
-            width: 100%;
-            padding: 0.5rem;
-            border: 1px solid #ddd;
-            border-radius: var(--border-radius);
-        }
-
-        .btn {
-            display: inline-block;
-            background: var(--primary-color);
-            color: white;
-            border: none;
-            padding: 0.5rem 1rem;
-            border-radius: var(--border-radius);
-            cursor: pointer;
-            text-decoration: none;
-            font-size: 1rem;
-        }
-
-        .btn:hover {
-            background: var(--secondary-color);
-        }
-
-        .btn-danger {
-            background: var(--danger-color);
-        }
-
-        .btn-danger:hover {
-            background: var(--danger-hover);
-        }
-
-        .btn-sm {
-            padding: 0.25rem 0.5rem;
-            font-size: 0.875rem;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 1rem;
-        }
-
-        th, td {
-            padding: 0.75rem;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-
-        th {
-            background-color: #f2f2f2;
-        }
-
-        tr:hover {
-            background-color: #f5f5f5;
-        }
-
-        .actions {
-            display: flex;
-            gap: 0.5rem;
-        }
-
-        footer {
-            text-align: center;
-            margin-top: 2rem;
-            padding: 1rem 0;
-            color: #666;
-            border-top: 1px solid #ddd;
-        }
-
-        .alert {
-            padding: 1rem;
-            border-radius: var(--border-radius);
-            margin-bottom: 1rem;
-        }
-
-        .alert-info {
-            background-color: #d1ecf1;
-            color: #0c5460;
-        }
+      }
     </style>
-</head>
-<body>
-    <header>
-        <div class="container">
-            <h1>OPDS Library Manager</h1>
-            <nav>
-                <a href="/">OPDS Feed</a>
-                <a href="/admin">Admin Panel</a>
-            </nav>
+  </head>
+  <body class="min-h-screen flex flex-col">
+    <header class="theme-card">
+      <nav class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-1 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <img src="/static/icon.png" alt="OPDS Library" class="h-14 w-14" />
+          <h2 class="text-xl font-semibold">OPDS Library Manager</h2>
         </div>
+        <!-- Desktop Menu -->
+        <div class="hidden sm:flex items-center space-x-6">
+          <a href="/" class="text-sm hover:text-primary transition-colors">OPDS Feed</a>
+          <a href="/admin" class="text-sm hover:text-primary transition-colors">Admin Panel</a>
+          <button class="p-2 rounded-full theme-hover transition-colors" onclick="toggleTheme()">
+            🌙
+          </button>
+        </div>
+        <!-- Mobile Menu Button -->
+        <button class="sm:hidden p-2 rounded-full theme-hover transition-colors" onclick="toggleMobileMenu()">
+          <i class="fas fa-bars"></i>
+        </button>
+      </nav>
+      <!-- Mobile Menu -->
+      <div id="mobile-menu" class="mobile-menu mobile-menu-closed theme-card shadow-lg sm:hidden">
+        <div class="flex flex-col space-y-4">
+          <a href="/" class="text-sm hover:text-primary transition-colors p-2 rounded theme-hover">OPDS Feed</a>
+          <a href="/admin" class="text-sm hover:text-primary transition-colors p-2 rounded theme-hover">Admin Panel</a>
+          <button class="p-2 rounded theme-hover transition-colors text-left" onclick="toggleTheme()">
+            Toggle Theme 🌙
+          </button>
+        </div>
+      </div>
     </header>
 
-    <div class="container">
+    <main class="flex-grow">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {{template "content" .}}
-    </div>
+      </div>
+    </main>
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('book');
+        const fileInfo  = document.getElementById('fileInfo');
 
-    <footer>
-        <div class="container">
-            <p>OPDS Library Manager © 2025</p>
-        </div>
-    </footer>
-</body>
+        // Prevenir comportamientos por defecto
+        ['dragenter','dragover','dragleave','drop'].forEach(evt => {
+          dropZone.addEventListener(evt, e => {
+            e.preventDefault();
+            e.stopPropagation();
+          });
+        });
+
+        // Efecto visual al arrastrar
+        dropZone.addEventListener('dragover', () => dropZone.classList.add('bg-primary/10'));
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('bg-primary/10'));
+
+        // Manejar la soltar
+        dropZone.addEventListener('drop', e => {
+          const files = e.dataTransfer.files;
+          if (files.length === 0) return;
+
+          const file = files[0];
+          const validTypes = ['application/pdf', 'application/epub+zip'];
+          if (!validTypes.includes(file.type)) {
+            fileInfo.classList.remove('hidden');
+            fileInfo.textContent = 'Formato no válido. Solo EPUB o PDF.';
+            return;
+          }
+
+          // Asignar al input y mostrar info
+          fileInput.files = files;
+          const sizeMB = (file.size / 1024 / 1024).toFixed(2);
+          fileInfo.classList.remove('hidden');
+          fileInfo.textContent = `Archivo seleccionado: ${file.name} (${sizeMB} MB)`;
+
+          // Auto-submit the form
+          const uploadForm = document.getElementById('uploadForm');
+          if (uploadForm) uploadForm.submit();
+        });
+
+        // También al cambiar por clic
+        fileInput.addEventListener('change', () => {
+          const file = fileInput.files[0];
+          if (!file) return;
+          const sizeMB = (file.size / 1024 / 1024).toFixed(2);
+          fileInfo.classList.remove('hidden');
+          fileInfo.textContent = `Archivo seleccionado: ${file.name} (${sizeMB} MB)`;
+
+          // Auto-submit the form
+          const uploadForm = document.getElementById('uploadForm');
+          if (uploadForm) uploadForm.submit();
+        });
+      });
+    </script>
+
+    <script>
+      function toggleTheme() {
+        const html = document.documentElement;
+        const newTheme = html.dataset.theme === "dark" ? "light" : "dark";
+        html.dataset.theme = newTheme;
+        localStorage.setItem("theme", newTheme);
+      }
+
+      function toggleMobileMenu() {
+        const mobileMenu = document.getElementById('mobile-menu');
+        mobileMenu.classList.toggle('mobile-menu-closed');
+      }
+
+      (function () {
+        const savedTheme = localStorage.getItem("theme");
+        if (savedTheme) {
+          document.documentElement.dataset.theme = savedTheme;
+        }
+      })();
+    </script>
+  </body>
 </html>
 {{end}}
-
-
-

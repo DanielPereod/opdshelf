@@ -1,54 +1,179 @@
 <!-- templates/admin.html -->
 {{define "content"}}
-<div class="card">
-    <h2>Upload New Book</h2>
-    <form action="/upload" method="post" enctype="multipart/form-data">
-        <div class="form-group">
-            <label for="book">Select file (EPUB, PDF):</label>
-            <input type="file" id="book" name="book" accept=".epub,.pdf" required>
-        </div>
-        <button type="submit" class="btn">Upload Book</button>
+<div class="space-y-8">
+  <div class="theme-card rounded-lg shadow p-6">
+    <form action="/upload" method="post" enctype="multipart/form-data" class="space-y-4" id="uploadForm">
+      <div
+        id="dropZone"
+        class="w-full py-6 border-2 border-dashed  rounded-lg transition hover:bg-primary/10 group"
+      >
+        <label for="book" class="flex flex-col items-center cursor-pointer w-full">
+          <span class="flex flex-col items-center">
+            <i
+              class="fas fa-cloud-upload-alt text-3xl text-primary mb-2 group-hover:scale-110 transition-transform"
+            ></i>
+            <span class="font-semibold text-primary group-hover:underline">Click or drag to upload a book</span>
+            <span class="text-xs text-gray-500 mt-1">EPUB or PDF</span>
+          </span>
+          <input type="file" id="book" name="book" accept=".epub,.pdf" required class="sr-only" />
+        </label>
+        <div id="fileInfo" class="hidden mt-4 text-sm text-gray-700"></div>
+      </div>
     </form>
-</div>
+  </div>
 
-<div class="card">
-    <h2>Book Collection</h2>
+  <div class="theme-card rounded-lg shadow p-6">
+    <h2 class="text-lg font-medium mb-4">Book Collection</h2>
     {{if .Books}}
-        <table>
-            <thead>
-                <tr>
-                    <th>Title</th>
-                    <th>Format</th>
-                    <th>Size</th>
-                    <th>Last Updated</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {{range .Books}}
-                <tr>
-                    <td>{{.Title}}</td>
-                    <td>{{.MimeType}}</td>
-                    <td>{{formatSize .Size}}</td>
-                    <td>{{formatDate .LastUpdated}}</td>
-                    <td class="actions">
-                        <a href="/books/{{.Filename}}" class="btn btn-sm" download>Download</a>
-                        <form action="/delete/{{.Filename}}" method="post" onsubmit="return confirm('Are you sure you want to delete this book?');">
-                            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
-                        </form>
-                    </td>
-                </tr>
-                {{end}}
-            </tbody>
-        </table>
+    <div class="overflow-x-auto">
+      <div class="min-w-full grid grid-cols-1 gap-4 sm:hidden">
+        {{range .Books}}
+        <div class="theme-card rounded-lg p-4 space-y-2">
+          <div class="font-medium">{{.Title}}</div>
+          <div class="text-sm grid grid-cols-2 gap-2">
+            <div class="text-gray-500">Format</div>
+            <div>{{.MimeType}}</div>
+            <div class="text-gray-500">Size</div>
+            <div>{{formatSize .Size}}</div>
+            <div class="text-gray-500">Last Updated</div>
+            <div>{{formatDate .LastUpdated}}</div>
+          </div>
+          <div class="flex justify-end space-x-2 pt-2">
+            <a
+              href="/books/{{.Filename}}"
+              class="inline-flex items-center justify-center w-8 h-8 text-primary theme-hover-primary rounded-full transition-colors"
+              download
+              title="Download"
+            >
+              <i class="fas fa-download text-sm"></i>
+            </a>
+            <form
+              action="/delete/{{.Filename}}"
+              method="post"
+              class="inline-block"
+              onsubmit="return confirm('Are you sure you want to delete this book?');"
+            >
+              <button
+                type="submit"
+                class="inline-flex items-center justify-center w-8 h-8 text-red-600 theme-hover-danger rounded-full transition-colors"
+                title="Delete"
+              >
+                <i class="fas fa-trash-alt text-sm"></i>
+              </button>
+            </form>
+          </div>
+        </div>
+        {{end}}
+      </div>
+      <table class="min-w-full hidden sm:table">
+        <thead class="border-b">
+          <tr>
+            <th class="text-left py-3 px-4 text-sm font-medium">Title</th>
+            <th class="text-left py-3 px-4 text-sm font-medium">Format</th>
+            <th class="text-left py-3 px-4 text-sm font-medium">Size</th>
+            <th class="text-left py-3 px-4 text-sm font-medium">Last Updated</th>
+            <th class="text-right py-3 px-4 text-sm font-medium">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y">
+          {{range .Books}}
+          <tr class="theme-hover">
+            <td class="py-3 px-4 text-sm">{{.Title}}</td>
+            <td class="py-3 px-4 text-sm">{{.MimeType}}</td>
+            <td class="py-3 px-4 text-sm">{{formatSize .Size}}</td>
+            <td class="py-3 px-4 text-sm">{{formatDate .LastUpdated}}</td>
+            <td class="py-3 px-4 text-right">
+              <div class="flex items-center justify-end space-x-2">
+                <a
+                  href="/books/{{.Filename}}"
+                  class="inline-flex items-center justify-center w-8 h-8 text-primary theme-hover-primary rounded-full transition-colors"
+                  download
+                  title="Download"
+                >
+                  <i class="fas fa-download text-sm"></i>
+                </a>
+                <form
+                  action="/delete/{{.Filename}}"
+                  method="post"
+                  class="inline-block"
+                  onsubmit="return confirm('Are you sure you want to delete this book?');"
+                >
+                  <button
+                    type="submit"
+                    class="inline-flex items-center justify-center w-8 h-8 text-red-600 theme-hover-danger rounded-full transition-colors"
+                    title="Delete"
+                  >
+                    <i class="fas fa-trash-alt text-sm"></i>
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
     {{else}}
-        <div class="alert alert-info">No books available in the library.</div>
+    <div class="text-sm text-gray-500 text-center py-4">No books available in the library.</div>
     {{end}}
-</div>
+  </div>
 
-<div class="card">
-    <h2>OPDS Information</h2>
-    <p>Your OPDS catalog URL: <a href="{{.BaseURL}}">{{.BaseURL}}</a></p>
-    <p>Add this URL to your OPDS-compatible reader to access your library.</p>
+  <div class="theme-card rounded-lg shadow p-6">
+    <h2 class="text-lg font-medium mb-4">OPDS Information</h2>
+    <p class="text-sm mb-2">
+      Your OPDS catalog URL:
+      <a href="{{.BaseURL}}" class="text-primary hover:underline">{{.BaseURL}}</a>
+    </p>
+    <p class="text-sm text-gray-500">Add this URL to your OPDS-compatible reader to access your library.</p>
+  </div>
 </div>
 {{end}}
+
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const dropZone = document.getElementById("dropZone");
+    const fileInput = document.getElementById("book");
+    const fileInfo = document.getElementById("fileInfo");
+
+    // Prevenir comportamientos por defecto
+    ["dragenter", "dragover", "dragleave", "drop"].forEach((evt) => {
+      dropZone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+    });
+
+    // Efecto visual al arrastrar
+    dropZone.addEventListener("dragover", () => dropZone.classList.add("bg-primary/10"));
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("bg-primary/10"));
+
+    // Manejar la soltar
+    dropZone.addEventListener("drop", (e) => {
+      const files = e.dataTransfer.files;
+      if (files.length === 0) return;
+
+      const file = files[0];
+      const validTypes = ["application/pdf", "application/epub+zip"];
+      if (!validTypes.includes(file.type)) {
+        fileInfo.classList.remove("hidden");
+        fileInfo.textContent = "Formato no válido. Solo EPUB o PDF.";
+        return;
+      }
+
+      // Asignar al input y mostrar info
+      fileInput.files = files;
+      const sizeMB = (file.size / 1024 / 1024).toFixed(2);
+      fileInfo.classList.remove("hidden");
+      fileInfo.textContent = `Archivo seleccionado: ${file.name} (${sizeMB} MB)`;
+    });
+
+    // También al cambiar por clic
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      const sizeMB = (file.size / 1024 / 1024).toFixed(2);
+      fileInfo.classList.remove("hidden");
+      fileInfo.textContent = `Archivo seleccionado: ${file.name} (${sizeMB} MB)`;
+    });
+  });
+</script>

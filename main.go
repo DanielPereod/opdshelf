@@ -41,6 +41,9 @@ type TemplateData struct {
 var templateFuncs = template.FuncMap{
 	"formatDate": formatDate,
 	"formatSize": formatSize,
+	"even": func(i int) bool {
+		return i%2 == 0
+	},
 }
 
 // formatDate formats a time.Time into a readable date string

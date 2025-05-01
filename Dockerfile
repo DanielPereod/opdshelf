@@ -24,12 +24,6 @@ FROM alpine:latest
 # Install certificates for HTTPS
 RUN apk --no-cache add ca-certificates
 
-# Install Calibre (for ebook-convert)
-RUN apk add --no-cache wget xz && \
-    wget -O /tmp/calibre.txz https://download.calibre-ebook.com/linux-installer.sh && \
-    sh /tmp/calibre.txz && \
-    rm /tmp/calibre.txz
-
 # Set working directory
 WORKDIR /app
 

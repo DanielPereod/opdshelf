@@ -46,20 +46,6 @@
             >
               <i class="fas fa-download text-sm"></i>
             </a>
-            <a
-              href="/convert/{{.Filename}}?to=epub"
-              class="inline-flex items-center justify-center w-8 h-8 text-green-600 theme-hover-primary rounded-full transition-colors"
-              title="Descargar como EPUB"
-            >
-              <i class="fas fa-book-open text-sm"></i>
-            </a>
-            <a
-              href="/convert/{{.Filename}}?to=mobi"
-              class="inline-flex items-center justify-center w-8 h-8 text-yellow-600 theme-hover-primary rounded-full transition-colors"
-              title="Descargar como MOBI"
-            >
-              <i class="fas fa-tablet-alt text-sm"></i>
-            </a>
             <form
               action="/delete/{{.Filename}}"
               method="post"
@@ -105,20 +91,6 @@
                 >
                   <i class="fas fa-download text-sm"></i>
                 </a>
-                <a
-                  href="/convert/{{.Filename}}?to=epub"
-                  class="inline-flex items-center justify-center w-8 h-8 text-green-600 theme-hover-primary rounded-full transition-colors"
-                  title="Descargar como EPUB"
-                >
-                  <i class="fas fa-book-open text-sm"></i>
-                </a>
-                <a
-                  href="/convert/{{.Filename}}?to=mobi"
-                  class="inline-flex items-center justify-center w-8 h-8 text-yellow-600 theme-hover-primary rounded-full transition-colors"
-                  title="Descargar como MOBI"
-                >
-                  <i class="fas fa-tablet-alt text-sm"></i>
-                </a>
                 <form
                   action="/delete/{{.Filename}}"
                   method="post"
@@ -162,13 +134,6 @@
     <h3 class="text-lg font-semibold mb-4">Download as...</h3>
     <div class="space-y-2">
       <button class="download-format w-full px-4 py-2 rounded bg-primary text-white hover:bg-primary/90" data-format="original">Original</button>
-      <button class="download-format w-full px-4 py-2 rounded bg-primary text-white hover:bg-primary/90" data-format="epub">EPUB</button>
-      <button class="download-format w-full px-4 py-2 rounded bg-primary text-white hover:bg-primary/90" data-format="pdf">PDF</button>
-      <button class="download-format w-full px-4 py-2 rounded bg-primary text-white hover:bg-primary/90" data-format="fb2">FB2</button>
-      <button class="download-format w-full px-4 py-2 rounded bg-primary text-white hover:bg-primary/90" data-format="mobi">MOBI</button>
-      <button class="download-format w-full px-4 py-2 rounded bg-primary text-white hover:bg-primary/90" data-format="azw3">AZW3</button>
-      <button class="download-format w-full px-4 py-2 rounded bg-primary text-white hover:bg-primary/90" data-format="txt">TXT</button>
-      <button class="download-format w-full px-4 py-2 rounded bg-primary text-white hover:bg-primary/90" data-format="html">HTML</button>
     </div>
     <button id="closeDownloadModal" class="mt-4 w-full px-4 py-2 rounded bg-gray-200 hover:bg-gray-300">Cancel</button>
   </div>
@@ -251,8 +216,6 @@
         let url = "";
         if (format === "original") {
           url = `/books/${selectedFilename}`;
-        } else {
-          url = `/convert/${selectedFilename}?to=${format}`;
         }
         window.location.href = url;
         modal.classList.add("hidden");

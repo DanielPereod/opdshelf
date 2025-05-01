@@ -32,6 +32,19 @@ services:
     cap_add: []
     network_mode: bridge
     privileged: false
+  calibre:
+    image: linuxserver/calibre
+    container_name: calibre
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Madrid
+    volumes:
+      - ./books:/books
+      - ./calibre-config:/config
+    ports:
+      - "8081:8080" # Interfaz web de Calibre
+    restart: unless-stopped
 x-casaos:
   author: self
   category: self

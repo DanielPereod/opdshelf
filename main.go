@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"io/ioutil"
 	"log"
 	"mime"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -94,6 +96,8 @@ func main() {
 	r.HandleFunc("/admin", adminHandler).Methods("GET")
 	r.HandleFunc("/upload", uploadHandler).Methods("POST")
 	r.HandleFunc("/delete/{filename}", deleteHandler).Methods("POST")
+	r.HandleFunc("/convert/{filename}", convertHandler).Methods("GET")
+	r.HandleFunc("/simple", simpleHandler).Methods("GET")
 
 	// Serve books directory
 	r.PathPrefix("/books/").Handler(http.StripPrefix("/books/", http.FileServer(http.Dir(BOOKS_DIR))))
@@ -237,6 +241,92 @@ func deleteHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect back to admin page
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+// Handler for file conversion and download
+func convertHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	filename := vars["filename"]
+	toFormat := r.URL.Query().Get("to")
+
+	if toFormat == "" {
+		http.Error(w, "Missing 'to' query parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Only allow certain formats
+	allowed := map[string]string{
+		"epub": ".epub",
+		"pdf":  ".pdf",
+		"fb2":  ".fb2",
+		"mobi": ".mobi",
+		"azw3": ".azw3",
+		"txt":  ".txt",
+		"html": ".html",
+	}
+	ext, ok := allowed[toFormat]
+	if !ok {
+		http.Error(w, "Format not supported", http.StatusBadRequest)
+		return
+	}
+
+	inputPath := filepath.Join(BOOKS_DIR, filepath.Clean(filename))
+	if _, err := os.Stat(inputPath); os.IsNotExist(err) {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	// Create a temp file for output
+	outFile, err := ioutil.TempFile("", "converted-*."+toFormat)
+	if err != nil {
+		http.Error(w, "Failed to create temp file", http.StatusInternalServerError)
+		return
+	}
+	outPath := outFile.Name()
+	outFile.Close()
+	defer os.Remove(outPath)
+
+	// Run ebook-convert
+	cmd := exec.Command("ebook-convert", inputPath, outPath)
+	if err := cmd.Run(); err != nil {
+		http.Error(w, "Conversion failed. Is Calibre installed?", http.StatusInternalServerError)
+		return
+	}
+
+	// Serve the converted file
+	outName := strings.TrimSuffix(filename, filepath.Ext(filename)) + ext
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+outName+"\"")
+	w.Header().Set("Content-Type", "application/octet-stream")
+	http.ServeFile(w, r, outPath)
+}
+
+// Handler for simple book list page
+func simpleHandler(w http.ResponseWriter, r *http.Request) {
+	books, err := getBooksList()
+	if err != nil {
+		http.Error(w, "Failed to read books directory", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintln(w, "<html><head><title>Simple Book List</title></head><body>")
+	fmt.Fprintln(w, "<h1>Book List</h1>")
+	if len(books) == 0 {
+		fmt.Fprintln(w, "<p>No books available.</p>")
+	} else {
+		fmt.Fprintln(w, "<ul>")
+		for _, book := range books {
+			fmt.Fprintf(w, "<li><b>%s</b> (%s, %s)", book.Title, book.MimeType, formatSize(book.Size))
+			fmt.Fprintf(w, " - <a href='/books/%s'>Original</a>", book.Filename)
+			fmt.Fprintf(w, " | <a href='/convert/%s?to=epub'>EPUB</a>", book.Filename)
+			fmt.Fprintf(w, " | <a href='/convert/%s?to=mobi'>MOBI</a>", book.Filename)
+			fmt.Fprintf(w, " | <a href='/convert/%s?to=pdf'>PDF</a>", book.Filename)
+			fmt.Fprintf(w, " | <a href='/convert/%s?to=fb2'>FB2</a>", book.Filename)
+			fmt.Fprintln(w, "</li>")
+		}
+		fmt.Fprintln(w, "</ul>")
+	}
+	fmt.Fprintln(w, "</body></html>")
 }
 
 // Add this function before getBooksList()

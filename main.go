@@ -19,6 +19,9 @@ const (
 	PORT      = "3000"
 	HOST      = "0.0.0.0"
 	BOOKS_DIR = "./books"
+	REVERSE_PROXY = false
+	REVERSE_PROXY_HOST = "0.0.0.0"
+	REVERSE_PROXY_PORT = "80"
 )
 
 // BookInfo represents metadata about a book
@@ -318,5 +321,9 @@ func getBaseURL(r *http.Request) string {
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	return fmt.Sprintf("%s://%s", scheme, r.Host)
+	if REVERSE_PROXY == false {
+		return fmt.Sprintf("%s://%s", scheme, r.Host)
+	} else {
+		return fmt.Sprintf("%s://%s:%s", scheme, REVERSE_PROXY_HOST, REVERSE_PROXY_PORT)
+	}
 }

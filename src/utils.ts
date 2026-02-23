@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import mime from 'mime-types';
 import { Book, SortMode } from './types';
+import { getConfig } from './config';
 
 const MIME_MAP: Record<string, string> = {
   'application/epub+zip': 'EPUB',
@@ -47,6 +48,8 @@ export const formatSize = (bytes: number): string => {
 };
 
 export const getBooks = async (dir: string): Promise<Book[]> => {
+  const config = getConfig();
+  
   try {
     if (!fs.existsSync(dir)) {
       await fs.promises.mkdir(dir, { recursive: true });
@@ -66,12 +69,15 @@ export const getBooks = async (dir: string): Promise<Book[]> => {
         const mimeType = mime.lookup(filePath) || 'application/octet-stream';
         books.push({
           title: path.basename(file, path.extname(file)),
-          filename: file,
+          filename: path.relative(config.BOOKS_DIR, filePath).replace(/\\/g, '/'),
           size: stats.size,
           mimeType,
-          lastUpdated: stats.mtime,
+          lastUpdated: stats.mtime.toISOString(),
           simpleMime: getSimpleMime(mimeType)
         });
+      } else if (stats.isDirectory()) {
+        const subBooks = await getBooks(filePath);
+        books.push(...subBooks);
       }
     }
 
@@ -87,9 +93,9 @@ export const sortBooks = (books: Book[], mode: SortMode): Book[] => {
     switch (mode) {
       case 'name-asc': return a.title.localeCompare(b.title);
       case 'name-desc': return b.title.localeCompare(a.title);
-      case 'date-asc': return a.lastUpdated.getTime() - b.lastUpdated.getTime();
+      case 'date-asc': return a.lastUpdated.localeCompare(b.lastUpdated);
       case 'date-desc':
-      default: return b.lastUpdated.getTime() - a.lastUpdated.getTime();
+      default: return b.lastUpdated.localeCompare(a.lastUpdated);
     }
   });
 };

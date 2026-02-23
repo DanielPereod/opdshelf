@@ -3,7 +3,7 @@ export interface Book {
   filename: string;
   size: number;
   mimeType: string;
-  lastUpdated: Date;
+  lastUpdated: string;
   // Helpers for sorting/filtering
   simpleMime?: string;
 }

@@ -7,5 +7,5 @@ export function registerHandlebarsHelpers() {
   Handlebars.registerHelper('eq', (a, b) => a === b);
   Handlebars.registerHelper('or', (a, b) => a || b);
   Handlebars.registerHelper('len', (arr: any[]) => arr?.length || 0);
-  Handlebars.registerHelper('urlEncode', (str: string) => encodeURIComponent(str));
+  Handlebars.registerHelper('urlEncode', (str: string) => str.split('/').map(encodeURIComponent).join('/'));
 }

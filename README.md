@@ -8,12 +8,26 @@
   <a href="#installation">Install</a> •
   <a href="#configuration">Configuration</a> •
   <a href="#opds-catalog">OPDS catalog</a> •
+  <a href="#upgrading-from-1x">Upgrading</a> •
   <a href="#faq">FAQ</a>
 </p>
 
 <p align="center">
-  <img src="static/screenshot.png" alt="OPDShelf Screenshot" width="800">
+  <img src="docs/screenshots/library.png" alt="OPDShelf library with the book details panel open" width="900">
 </p>
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/screenshots/grid-dark.png" alt="Cover grid in dark mode"></td>
+    <td width="33%"><img src="docs/screenshots/edit.png" alt="Editing metadata with ISBN lookup"></td>
+    <td width="33%"><img src="docs/screenshots/reader.png" alt="EPUB reader in the browser"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Cover grid, dark mode</sub></td>
+    <td align="center"><sub>Metadata editor with ISBN lookup</sub></td>
+    <td align="center"><sub>EPUB reader</sub></td>
+  </tr>
+</table>
 
 ---
 
@@ -44,12 +58,15 @@
 - Keyboard, touch swipe and mobile friendly
 
 🖥️ **Web admin panel**
+- Three-pane layout: sidebar with folders and formats, book list or cover grid, and a details panel
+- Quick filters for "Added this week" and "Missing details"
 - Drag-and-drop uploads of several books at once, into any folder
 - Rename, move and delete books
 - Edit title, authors, description, subjects and more, and change the cover. Book files are never modified
 - Fill in metadata and cover from an ISBN (Open Library, with Google Books as fallback)
-- Search, folder filter and sorting
-- Dark mode, works offline (no CDN)
+- Select several books to move or delete them at once
+- Search (press `/`), folder filter and sorting
+- Light and dark themes, works offline (no CDN)
 
 🔒 **Secure by default**
 - Optional username/password: Basic auth for readers, a login form for the panel
@@ -58,6 +75,8 @@
 ---
 
 ## Installation
+
+The Docker image `koalilla/opds-server` is published for **linux/amd64** and **linux/arm64**, so it runs on a PC, a NAS or a Raspberry Pi.
 
 ### Docker Compose (recommended)
 
@@ -81,6 +100,39 @@ docker compose up -d
 ```
 
 Open the admin panel at **http://localhost:3000/admin** and add **http://localhost:3000/** to your reader.
+
+The books folder must be writable: uploads, renames and deletes happen there, and edited metadata, custom covers and thumbnails are kept in `books/.opdshelf`. To keep the library read-only, mount it with `:ro` and point `DATA_DIR` to another volume (uploads and file changes from the panel will then fail):
+
+```yaml
+    volumes:
+      - /path/to/books:/app/books:ro
+      - ./data:/app/data
+    environment:
+      - DATA_DIR=/app/data
+```
+
+### Docker
+
+```bash
+docker run -d --name opdshelf -p 3000:3000 \
+  -v /path/to/books:/app/books \
+  -e ADMIN_USERNAME=admin -e ADMIN_PASSWORD=change-me \
+  --restart unless-stopped koalilla/opds-server:latest
+```
+
+### CasaOS
+
+1. In the CasaOS dashboard, open **App Store → Custom Install** (the `+` button).
+2. Use the import button (top right) and paste the Docker Compose file above, or fill in the form by hand:
+   - **Docker Image**: `koalilla/opds-server:latest`
+   - **Port**: host `3000` → container `3000`
+   - **Volume**: your books folder, e.g. `/DATA/Media/Books` → `/app/books`
+   - **Environment variables**: `ADMIN_USERNAME` and `ADMIN_PASSWORD` (optional, see [Configuration](#configuration))
+3. Install, then open `http://<casaos-ip>:3000/admin`.
+
+If your books are on a network share (SMB/NFS) mounted in CasaOS, add `WATCH=false` so new files are picked up on each request.
+
+To update, pull the latest image (in CasaOS: the app's settings → **Update**, or `docker compose pull && docker compose up -d`).
 
 ### From source
 
@@ -119,8 +171,6 @@ All settings are environment variables.
 
 Default extensions: `epub kepub pdf fb2 fbz mobi azw azw3 azw4 cbz cbr cb7 cbt djvu rtf txt html htm doc docx odt zip` (plus `.fb2.zip`).
 
-`REVERSE_PROXY=true` with `REVERSE_PROXY_HOST` from version 1 still works and is treated as `BASE_URL`.
-
 Hidden files and folders (starting with `.`) are ignored.
 
 PDF metadata and covers need `pdfinfo` and `pdftoppm` (poppler), and CBR/CB7/CBT support needs `bsdtar` (libarchive). Both are included in the Docker image; when running from source, install `poppler-utils` and `libarchive-tools` (or your distribution's equivalents). Without them those files are still listed and downloadable.
@@ -140,6 +190,28 @@ PDF metadata and covers need `pdfinfo` and `pdftoppm` (poppler), and CBR/CB7/CBT
 Feeds are paginated with `?page=N`. The old `/?sort=...` URLs redirect to `/opds/books`.
 
 When authentication is enabled, readers log in with HTTP Basic auth using the same username and password.
+
+### Other endpoints
+
+| URL | Content |
+|-----|---------|
+| `/admin` | Web panel |
+| `/read/<path>` | Read a book in the browser |
+| `/download/<path>` | Download the original file |
+| `/healthz` | Health check (used by the Docker image) |
+
+---
+
+## Upgrading from 1.x
+
+Version 2 is a rewrite in Rust of the original Bun server. The Docker image name, port (`3000`) and books volume (`/app/books`) are unchanged, so pulling the new image is usually enough. Things to know:
+
+- **The catalog root is now a navigation feed.** `/` lists "Recently added", "All books by title", folders, authors and search instead of every book. Readers that pinned `/` still work but show these entries first; point them to `/opds/books` for the old flat list. `/?sort=...` URLs redirect there.
+- **`BASE_URL` replaces `REVERSE_PROXY` / `REVERSE_PROXY_HOST`.** The old pair is still read and treated as `BASE_URL`, but new setups should use `BASE_URL`.
+- **Everyone has to log in again.** Session cookies are now signed, so cookies from 1.x are rejected.
+- **A `.opdshelf` folder appears inside the books folder** to hold edited metadata, custom covers and thumbnails. It is hidden from the library. Set `DATA_DIR` to store it elsewhere.
+- **Only book formats are listed.** Other files in the folder (audio, images, `.opf`, etc.) no longer show up. Adjust with `ALLOWED_EXTENSIONS` / `EXCLUDE_EXTENSIONS`.
+- Running from source now needs Rust instead of Bun (see [From source](#from-source)).
 
 ---
 
@@ -183,7 +255,19 @@ No. Edits and custom covers are saved in `DATA_DIR` and applied on top of what i
 <details>
 <summary><strong>I upgraded from 1.x and my reader shows folders instead of books</strong></summary>
 
-The root URL is now a navigation catalog. Open "Recently added" or "All books by title", or point the reader to `/opds/books`.
+The root URL is now a navigation catalog. Open "Recently added" or "All books by title", or point the reader to `/opds/books`. See [Upgrading from 1.x](#upgrading-from-1x).
+</details>
+
+<details>
+<summary><strong>New books don't appear until I reload</strong></summary>
+
+The folder is watched for changes. Some network shares (SMB, NFS, some FUSE mounts) don't report them; set `WATCH=false` and the library is rescanned on each request instead.
+</details>
+
+<details>
+<summary><strong>ISBN lookup doesn't find anything</strong></summary>
+
+It queries Open Library first and Google Books second, so the server needs outbound internet access. Some editions are simply missing from both.
 </details>
 
 ---

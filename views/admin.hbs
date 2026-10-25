@@ -1,378 +1,576 @@
-<div class="space-y-8 animate-fade-in-up">
-  <!-- Upload Section -->
-  <div class="theme-card p-8 text-center transition-transform hover:scale-[1.01] duration-300">
+<div class="app" id="app">
+  <aside class="side" id="side">
+    <div class="brand"><img src="/static/icon.png" alt="">OPDShelf</div>
+    <nav class="nav" aria-label="Shelves">
+      <button type="button" class="nav-item" data-shelf="all" aria-current="true">
+        <i class="fas fa-book"></i><span class="label">All books</span><span class="count">{{total}}</span>
+      </button>
+      <button type="button" class="nav-item" data-shelf="recent">
+        <i class="far fa-clock"></i><span class="label">Added this week</span><span class="count" id="recentCount"></span>
+      </button>
+      <button type="button" class="nav-item" data-shelf="incomplete">
+        <i class="fas fa-circle-exclamation"></i><span class="label">Missing details</span>
+        <span class="count{{#if incompleteCount}} strong{{/if}}">{{incompleteCount}}</span>
+      </button>
 
-    <form action="/book/upload" method="post" enctype="multipart/form-data" id="uploadForm">
-      <div id="dropZone"
-        class="group cursor-pointer rounded-2xl border-2 border-dashed border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 py-12 px-6 transition-all duration-300 hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/10 dark:hover:border-primary-500">
-        <div class="flex flex-col items-center space-y-4">
-          <div
-            class="p-4 bg-white dark:bg-neutral-800 rounded-full shadow-sm group-hover:scale-110 group-hover:text-primary-600 transition-all duration-300">
-            <i
-              class="fas fa-cloud-upload-alt text-4xl text-neutral-400 group-hover:text-primary-600 dark:text-neutral-500"></i>
-          </div>
-          <div class="space-y-2">
-            <h3 class="text-lg font-semibold text-neutral-900 dark:text-white">Upload a Book</h3>
-            <p class="text-sm text-neutral-500 dark:text-neutral-400 max-w-sm mx-auto">
-              Support for EPUB, PDF, FB2, MOBI, AZW, CBZ, CBR, DJVU, RTF, TXT
-            </p>
-          </div>
-          <button type="button" class="btn-primary mt-4"
-            onclick="document.getElementById('book').click(); event.stopPropagation();">
-            Choose File
-          </button>
-          <div id="fileInfo"
-            class="hidden mt-4 text-sm font-medium text-primary-600 bg-primary-50 dark:bg-primary-900/20 px-4 py-2 rounded-full animate-fade-in">
-          </div>
-        </div>
-      </div>
-      <input type="file" id="book" name="book"
-        accept=".epub,.pdf,.fb2,.fb2.zip,.cbz,.cbr,.cb7,.mobi,.azw,.azw3,.azw4,.djvu,.txt,.rtf,.html,.htm" required
-        class="hidden" onclick="event.stopPropagation();" />
-    </form>
-  </div>
-
-  <!-- Book Collection -->
-  <div>
-    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
-      <h2 class="text-2xl font-bold text-neutral-900 dark:text-white">Library Collection <span id="booksCount"
-          class="text-sm font-normal text-neutral-500 ml-2">({{len books}} books)</span></h2>
-      <div class="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-        <div class="relative flex-grow sm:w-64">
-          <input type="text" id="bookSearch" placeholder="Search books..." class="input-field">
-          <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"></i>
-        </div>
-        <div class="relative">
-          <select id="bookSort" class="input-field appearance-none cursor-pointer pr-10">
-            <option value="name-asc" {{#if (eq sortMode "name-asc" )}}selected{{/if}}>Name (A-Z)</option>
-            <option value="name-desc" {{#if (eq sortMode "name-desc" )}}selected{{/if}}>Name (Z-A)</option>
-            <option value="date-desc" {{#if (or (eq sortMode "" ) (eq sortMode "date-desc" ))}}selected{{/if}}>Newest
-              First</option>
-            <option value="date-asc" {{#if (eq sortMode "date-asc" )}}selected{{/if}}>Oldest First</option>
-          </select>
-          <i class="fas fa-sort-amount-down absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"></i>
-          <i
-            class="fas fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none text-xs"></i>
-        </div>
-      </div>
-    </div>
-
-    {{#if books}}
-    <div id="booksGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-      {{#each books}}
-      <div data-title="{{this.title}}" data-added="{{this.lastUpdated}}"
-        class="book-card dark:bg-dark-card bg-light-card group relative overflow-hidden hover:shadow-lg flex flex-col h-full focus:outline-none rounded"
-        tabindex="0"
-        onmouseover="document.getElementById('{{this.filename}}').classList.remove('hidden'); document.getElementById('{{this.filename}}').classList.add('flex')"
-        onmouseout="document.getElementById('{{this.filename}}').classList.add('hidden'); document.getElementById('{{this.filename}}').classList.remove('flex')">
-
-        <!-- Cover Image -->
-        <div class="aspect-[2/3] relative overflow-hidden bg-neutral-100 dark:bg-neutral-800">
-          <img src="/book/cover/{{this.filename}}" class="w-full h-full object-cover" alt="{{this.title}}"
-            loading="lazy" onerror="this.onerror=null;this.src='/static/no-cover-error.svg';">
-
-          <!-- Overlay Actions -->
-          <div class="flex flex-1 absolute bottom-0 w-full bg-light-card dark:bg-dark-card hidden"
-            id="{{this.filename}}">
-            <button onclick="openRenameModal('{{this.filename}}')"
-              class="py-2 flex-1 text-center text-primary-600 hover:bg-primary-600 hover:text-white  cursor-pointer"
-              title="Edit Filename">
-              <i class="fas fa-edit"></i>
-            </button>
-            <a href="/book/info/{{this.filename}}"
-              class="py-2 flex-1 text-center text-primary-600 hover:bg-primary-500 hover:text-white  cursor-pointer"
-              title="View Details">
-              <i class="fas fa-eye"></i>
-            </a>
-            <form action="/book/delete/{{this.filename}}" method="post"
-              onsubmit="return confirm('Delete {{this.title}}?');"
-              class="flex-1 text-center text-red-500 hover:bg-red-500 hover:text-white cursor-pointer">
-              <button type="submit" class="cursor-pointer py-2 h-full w-full" title="Delete">
-                <i class="fas fa-trash-alt"></i>
-              </button>
-            </form>
-          </div>
-        </div>
-
-        <!-- Content -->
-        <div class="px-4 py-2 flex flex-col flex-grow">
-          <h3 class="font-semibold text-neutral-900 dark:text-white text-sm line-clamp-2 mb-2 leading-tight"
-            title="{{this.title}}">{{this.title}}</h3>
-          <div
-            class="mt-auto flex items-center justify-between text-xs font-medium text-neutral-500 dark:text-neutral-400">
-            <span class="px-2 py-1 rounded bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300">
-              {{simpleMime this.mimeType}}
-            </span>
-            <span>{{formatSize this.size}}</span>
-          </div>
-        </div>
-      </div>
+      {{#if folderTree}}
+      <h2>Folders</h2>
+      {{#each folderTree}}
+      <button type="button" class="nav-item" data-shelf="folder" data-value="{{path}}" style="--depth: {{depth}}"
+        {{#if (eq path ../folder)}}data-initial{{/if}}>
+        <i class="far fa-folder"></i><span class="label" title="{{path}}">{{name}}</span><span class="count">{{count}}</span>
+      </button>
       {{/each}}
-    </div>
-    {{else}}
-    <div class="text-center py-20 rounded-2xl border-dashed border-2">
-      <div
-        class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-neutral-100 dark:bg-neutral-800 mb-4">
-        <i class="fas fa-book-open text-3xl text-neutral-400"></i>
+      {{/if}}
+
+      {{#if formatCounts}}
+      <h2>Formats</h2>
+      {{#each formatCounts}}
+      <button type="button" class="nav-item" data-shelf="format" data-value="{{name}}">
+        <i class="far fa-file"></i><span class="label">{{name}}</span><span class="count">{{count}}</span>
+      </button>
+      {{/each}}
+      {{/if}}
+    </nav>
+
+    <div class="side-foot">
+      <div class="opds-box">
+        <p>OPDS catalog for reader apps</p>
+        <div class="row">
+          <code class="mono" id="opdsUrl">{{baseUrl}}/</code>
+          <button type="button" class="icon-btn" id="copyOpds" title="Copy address"><i class="far fa-copy"></i></button>
+        </div>
       </div>
-      <h3 class="text-lg font-medium text-neutral-900 dark:text-white mb-1">No books yet</h3>
-      <p class="text-neutral-500">Upload some books to get started with your library.</p>
+      <div class="side-actions">
+        <button type="button" class="icon-btn" onclick="toggleTheme()" title="Light or dark">
+          <i class="fas fa-circle-half-stroke"></i>
+        </button>
+        {{#if authEnabled}}
+        <form action="/user/logout" method="post">
+          <input type="hidden" name="csrf" value="{{csrf}}">
+          <button type="submit" class="icon-btn" title="Sign out"><i class="fas fa-arrow-right-from-bracket"></i></button>
+        </form>
+        {{/if}}
+      </div>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <section class="main">
+    <header class="toolbar">
+      <button type="button" class="icon-btn menu-btn" id="menuBtn" title="Shelves"><i class="fas fa-bars"></i></button>
+      <h1><span id="shelfTitle">All books</span><small id="shownCount">{{total}}</small></h1>
+      <label class="search">
+        <i class="fas fa-magnifying-glass"></i>
+        <input type="search" id="bookSearch" class="input" placeholder="Search" aria-label="Search title, author or file">
+        <kbd>/</kbd>
+      </label>
+      <span class="spacer"></span>
+      <div class="segmented" role="group" aria-label="View">
+        <button type="button" class="icon-btn" data-view="list" title="List"><i class="fas fa-list"></i></button>
+        <button type="button" class="icon-btn" data-view="grid" title="Covers"><i class="fas fa-grip"></i></button>
+      </div>
+      <button type="button" class="btn btn-primary" id="uploadBtn">
+        <i class="fas fa-arrow-up-from-bracket"></i><span class="label">Upload</span>
+      </button>
+    </header>
+
+    {{#if notice}}
+    <div class="notice" role="status">
+      <i class="fas fa-check"></i>{{notice}}
+      <button type="button" class="icon-btn" data-dismiss title="Dismiss"><i class="fas fa-xmark"></i></button>
     </div>
     {{/if}}
-  </div>
-
-  <!-- OPDS Info -->
-  <div
-    class="theme-card p-6 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 bg-gradient-to-r from-neutral-50 to-white dark:from-neutral-800 dark:to-neutral-900">
-    <div class="flex items-center space-x-4">
-      <div class="p-3 bg-primary-100 dark:bg-primary-900/30 rounded-lg text-primary-600 dark:text-primary-400">
-        <i class="fas fa-rss text-xl"></i>
-      </div>
-      <div>
-        <h3 class="font-medium text-neutral-900 dark:text-white">OPDS Feed URL</h3>
-        <p class="text-sm text-neutral-500 dark:text-neutral-400">Add this to your reader app. Support sorting with
-          <code>?sort=name-asc|date-desc</code>
-        </p>
-      </div>
+    {{#if error}}
+    <div class="notice error" role="alert">
+      <i class="fas fa-circle-exclamation"></i>{{error}}
+      <button type="button" class="icon-btn" data-dismiss title="Dismiss"><i class="fas fa-xmark"></i></button>
     </div>
-    <div
-      class="flex items-center w-full sm:w-auto bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 rounded-lg p-2 shadow-sm">
-      <code id="opdsUrlDisplay"
-        class="text-sm text-neutral-600 dark:text-neutral-300 font-mono flex-grow px-2 truncate selection:bg-primary-100">{{baseUrl}}</code>
-      <button id="opdsCopyBtn" data-base-url="{{baseUrl}}"
-        class="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded text-neutral-400 hover:text-primary-600 transition-colors"
-        title="Copy URL">
-        <i class="far fa-copy"></i>
-      </button>
-    </div>
-  </div>
-</div>
+    {{/if}}
 
-<!-- Rename Modal -->
-<div id="renameModal"
-  class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm hidden animate-fade-in">
-  <div
-    class="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl p-6 w-full max-w-md transform transition-all scale-100">
-    <h3 class="text-xl font-bold mb-4 text-neutral-900 dark:text-white">Rename Book</h3>
-    <form action="/book/rename" method="post" id="renameForm">
-      <input type="hidden" id="oldFilename" name="oldFilename" value="">
-      <div class="space-y-4">
-        <div>
-          <label for="newFilename" class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Book
-            Name</label>
-          <div class="flex rounded-md shadow-sm">
-            <input type="text" id="newFilename" name="newFilename" required
-              class="input-field flex-1 min-w-0 rounded-r-none">
-            <span id="fileExtension"
-              class="inline-flex items-center px-3 rounded-r-lg border border-l-0 border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 text-sm">
-              .ext
-            </span>
-          </div>
-        </div>
-        <div class="flex justify-end space-x-3 pt-2">
-          <button type="button" onclick="closeRenameModal()"
-            class="px-4 py-2 rounded-lg text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors">
-            Cancel
-          </button>
-          <button type="submit"
-            class="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors shadow-lg shadow-primary-500/30">
-            Save Changes
-          </button>
-        </div>
+    <form class="bulk" id="bulkForm" action="/admin/bulk" method="post" hidden>
+      <input type="hidden" name="csrf" value="{{csrf}}">
+      <strong id="bulkCount"></strong>
+      <div class="bulk-move">
+        <input class="input" name="folder" id="bulkFolder" list="folderList" placeholder="Folder (empty for root)"
+          aria-label="Destination folder">
+        <button type="submit" class="btn" name="action" value="move"><i class="far fa-folder-open"></i>Move</button>
       </div>
+      <button type="button" class="btn" id="bulkDelete"><i class="far fa-trash-can"></i>Delete</button>
+      <button type="button" class="icon-btn" id="bulkClear" title="Clear selection"><i class="fas fa-xmark"></i></button>
     </form>
-  </div>
+
+    <div class="books" id="books">
+      {{#if books}}
+      <div class="cols">
+        <label class="pick"><input type="checkbox" id="pickAll" aria-label="Select all shown books"></label>
+        <span><button type="button" data-sort="name">Title</button></span>
+        <span class="c-folder">Folder</span>
+        <span class="c-fmt">Format</span>
+        <span class="c-meta">Details</span>
+        <span class="c-size num">Size</span>
+        <span class="c-added num"><button type="button" data-sort="date">Added</button></span>
+        <span class="c-read"></span>
+      </div>
+      <div class="list" id="bookList">
+        {{#each books}}
+        <div class="book{{#if (eq path ../book.path)}} selected{{/if}}" data-path="{{path}}" data-title="{{title}}"
+          data-authors="{{authors}}" data-folder="{{folder}}" data-format="{{format}}" data-added="{{modified}}"
+          data-incomplete="{{#if incomplete}}1{{/if}}">
+          <label class="pick"><input type="checkbox" name="path" value="{{path}}" form="bulkForm"
+              aria-label="Select {{title}}"></label>
+          <a class="book-link" href="/info/{{urlPath path}}">
+            <span class="thumb">
+              <span>{{format}}</span>
+              {{#if hasCover}}
+              <img src="/thumb/{{urlPath path}}?v={{coverVersion}}" alt="" loading="lazy" onerror="this.remove()">
+              {{/if}}
+            </span>
+            <span class="book-name">
+              <b title="{{title}}">{{title}}</b>
+              <span>{{#if authors}}{{authors}}{{else}}—{{/if}}</span>
+            </span>
+          </a>
+          <span class="c-folder" title="{{folder}}">{{folder}}</span>
+          <span class="c-fmt"><span class="badge">{{format}}</span></span>
+          <span class="c-meta">
+            {{#if noAuthors}}
+            <span class="status strong"><i class="fas fa-circle-exclamation"></i>No author</span>
+            {{else}}{{#unless hasCover}}
+            <span class="status strong"><i class="far fa-image"></i>No cover</span>
+            {{else}}{{#if edited}}
+            <span class="status"><i class="fas fa-pen"></i>Edited</span>
+            {{else}}
+            <span class="status"><i class="far fa-circle-check"></i>From file</span>
+            {{/if}}{{/unless}}{{/if}}
+          </span>
+          <span class="c-size c-num num">{{size}}</span>
+          <span class="c-added c-num num" data-date></span>
+          <span class="c-read">
+            {{#if readable}}
+            <a class="icon-btn" href="/read/{{urlPath path}}" title="Read"><i class="fas fa-book-open"></i></a>
+            {{/if}}
+          </span>
+        </div>
+        {{/each}}
+      </div>
+      <div class="empty" id="noMatches" hidden>
+        <i class="fas fa-magnifying-glass"></i>
+        <strong>No books match</strong>
+        Try another word or shelf.
+      </div>
+      {{else}}
+      <div class="empty">
+        <i class="fas fa-book"></i>
+        <strong>No books yet</strong>
+        Drop EPUB, PDF or comic files here, or use Upload.
+      </div>
+      {{/if}}
+    </div>
+
+    <div class="drop-hint"><i class="fas fa-inbox"></i>Drop files anywhere to upload them to <strong
+        id="dropTarget">the library root</strong></div>
+  </section>
+
+  <aside class="insp" id="insp" aria-label="Book" {{#unless book}}hidden{{/unless}}>
+    {{#if book}}{{> inspector}}{{/if}}
+  </aside>
 </div>
-<script data-total-books="{{len books}}">
-  document.addEventListener("DOMContentLoaded", () => {
-    const dropZone = document.getElementById("dropZone");
-    const fileInput = document.getElementById("book");
-    const fileInfo = document.getElementById("fileInfo");
 
-    ["dragenter", "dragover", "dragleave", "drop"].forEach((evt) => {
-      dropZone.addEventListener(evt, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+<datalist id="folderList">
+  {{#each folders}}<option value="{{this}}"></option>{{/each}}
+</datalist>
+
+<dialog id="uploadDialog">
+  <form class="dialog-body" action="/admin/upload" method="post" enctype="multipart/form-data" id="uploadForm">
+    <input type="hidden" name="csrf" value="{{csrf}}">
+    <h2>Upload books</h2>
+    <label class="field" for="uploadFolder"><span>Folder <em>empty for the root</em></span>
+      <input type="text" name="folder" id="uploadFolder" list="folderList" class="input"></label>
+    <label class="dropzone" id="dropZone">
+      <i class="fas fa-arrow-up-from-bracket"></i>
+      <strong>Choose files or drop them here</strong>
+      <span>{{formats}}</span>
+      <input type="file" id="uploadFiles" name="books" accept="{{accept}}" multiple required hidden>
+    </label>
+    <p id="uploadInfo" hidden></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close-dialog>Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="renameDialog">
+  <form class="dialog-body" action="/admin/rename" method="post">
+    <input type="hidden" name="csrf" value="{{csrf}}">
+    <input type="hidden" name="path" id="renamePath">
+    <h2>Rename or move</h2>
+    <label class="field" for="renameName"><span>File name</span>
+      <div class="name-row"><input type="text" name="name" id="renameName" class="input" required><span class="ext"
+          id="renameExt"></span></div>
+    </label>
+    <label class="field" for="renameFolder"><span>Folder <em>empty for the root</em></span>
+      <input type="text" name="folder" id="renameFolder" list="folderList" class="input"></label>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close-dialog>Cancel</button>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="deleteDialog">
+  <form class="dialog-body" action="/admin/delete" method="post">
+    <input type="hidden" name="csrf" value="{{csrf}}">
+    <input type="hidden" name="path" id="deletePath">
+    <h2>Delete this book?</h2>
+    <p><strong id="deleteTitle"></strong> will be removed from the disk. This cannot be undone.</p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close-dialog>Cancel</button>
+      <button type="submit" class="btn btn-primary">Delete</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="bulkDeleteDialog">
+  <div class="dialog-body">
+    <h2>Delete <span id="bulkDeleteCount"></span>?</h2>
+    <p>The files will be removed from the disk. This cannot be undone.</p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close-dialog>Cancel</button>
+      <button type="submit" class="btn btn-primary" form="bulkForm" name="action" value="delete">Delete</button>
+    </div>
+  </div>
+</dialog>
+
+<div class="drop-overlay" id="dropOverlay" hidden>
+  <div>Drop to upload to <span id="dropOverlayTarget">the library root</span></div>
+</div>
+
+<script data-accept="{{accept}}">
+  (function () {
+    const $ = (id) => document.getElementById(id);
+    const accepted = document.currentScript.dataset.accept.split(',');
+    const list = $('bookList');
+    const rows = list ? Array.from(list.querySelectorAll('.book')) : [];
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+    const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+    const state = { shelf: 'all', value: '', sort: 'date', query: '' };
+
+    // Dates, in the reader's own locale
+    const thisYear = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
+    const otherYear = new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' });
+    rows.forEach((row) => {
+      const date = new Date(row.dataset.added);
+      const cell = row.querySelector('[data-date]');
+      cell.textContent = (date.getFullYear() === new Date().getFullYear() ? thisYear : otherYear).format(date);
+      cell.title = date.toLocaleString();
+    });
+    $('recentCount').textContent = rows.filter((r) => Date.parse(r.dataset.added) > weekAgo).length;
+
+    // ------------------------------------------------------------ shelves, search, sort
+    function inShelf(row) {
+      const d = row.dataset;
+      switch (state.shelf) {
+        case 'recent': return Date.parse(d.added) > weekAgo;
+        case 'incomplete': return d.incomplete === '1';
+        case 'folder': return d.folder === state.value || d.folder.startsWith(state.value + '/');
+        case 'format': return d.format === state.value;
+        default: return true;
+      }
+    }
+
+    function refresh() {
+      const query = state.query.toLowerCase().trim();
+      let shown = 0;
+      rows.forEach((row) => {
+        const d = row.dataset;
+        const text = (d.title + ' ' + d.authors + ' ' + d.path).toLowerCase();
+        const visible = inShelf(row) && (!query || text.includes(query));
+        row.hidden = !visible;
+        if (visible) shown++;
+        else row.querySelector('.pick input').checked = false;
       });
+      rows.sort((a, b) => state.sort === 'name'
+        ? collator.compare(a.dataset.title, b.dataset.title)
+        : b.dataset.added.localeCompare(a.dataset.added));
+      rows.forEach((row) => list.appendChild(row));
+      $('shownCount').textContent = shown;
+      if ($('noMatches')) $('noMatches').hidden = shown > 0 || rows.length === 0;
+      document.querySelectorAll('[data-sort]').forEach((b) => {
+        if (b.dataset.sort === state.sort) b.setAttribute('aria-sort', b.dataset.sort === 'name' ? 'ascending' : 'descending');
+        else b.removeAttribute('aria-sort');
+      });
+      updateBulk();
+    }
+
+    function selectShelf(button) {
+      document.querySelectorAll('[data-shelf]').forEach((b) => b.setAttribute('aria-current', b === button));
+      state.shelf = button.dataset.shelf;
+      state.value = button.dataset.value || '';
+      $('shelfTitle').textContent = button.querySelector('.label').textContent;
+      const folder = state.shelf === 'folder' ? state.value : '';
+      $('dropTarget').textContent = folder || 'the library root';
+      $('dropOverlayTarget').textContent = folder || 'the library root';
+      $('uploadFolder').value = folder;
+      const url = new URL(location.href);
+      if (folder && url.pathname === '/admin') url.searchParams.set('folder', folder);
+      else url.searchParams.delete('folder');
+      history.replaceState(history.state, '', url);
+      closeMenu();
+      refresh();
+    }
+
+    document.querySelectorAll('[data-shelf]').forEach((b) => b.addEventListener('click', () => selectShelf(b)));
+    document.querySelectorAll('[data-sort]').forEach((b) => b.addEventListener('click', () => {
+      state.sort = b.dataset.sort;
+      storeSet('opdshelf:sort', state.sort);
+      refresh();
+    }));
+    $('bookSearch').addEventListener('input', (e) => { state.query = e.target.value; refresh(); });
+    document.addEventListener('keydown', (e) => {
+      const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+      if (e.key === '/' && !typing) { e.preventDefault(); $('bookSearch').focus(); }
     });
 
-    dropZone.addEventListener("dragover", () => {
-      dropZone.classList.add("border-primary-500", "bg-primary-50", "dark:bg-primary-900/10");
+    state.sort = storeGet('opdshelf:sort') === 'name' ? 'name' : 'date';
+    const initial = document.querySelector('[data-initial]');
+    if (initial) selectShelf(initial); else refresh();
+
+    // ------------------------------------------------------------ list or covers
+    function setView(view) {
+      $('books').classList.toggle('grid', view === 'grid');
+      document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.view === view));
+      storeSet('opdshelf:view', view);
+    }
+    document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
+    setView(storeGet('opdshelf:view') === 'grid' ? 'grid' : 'list');
+
+    // ------------------------------------------------------------ selection
+    function picked() {
+      return rows.filter((r) => !r.hidden && r.querySelector('.pick input').checked);
+    }
+    function updateBulk() {
+      const count = picked().length;
+      $('bulkForm').hidden = count === 0;
+      $('bulkCount').textContent = count + (count === 1 ? ' book selected' : ' books selected');
+      $('bulkDeleteCount').textContent = count + (count === 1 ? ' book' : ' books');
+      const shown = rows.filter((r) => !r.hidden).length;
+      if ($('pickAll')) {
+        $('pickAll').checked = count > 0 && count === shown;
+        $('pickAll').indeterminate = count > 0 && count < shown;
+      }
+    }
+    if (list) list.addEventListener('change', (e) => { if (e.target.matches('.pick input')) updateBulk(); });
+    if ($('pickAll')) $('pickAll').addEventListener('change', (e) => {
+      rows.forEach((r) => { if (!r.hidden) r.querySelector('.pick input').checked = e.target.checked; });
+      updateBulk();
     });
-    dropZone.addEventListener("dragleave", () => {
-      dropZone.classList.remove("border-primary-500", "bg-primary-50", "dark:bg-primary-900/10");
+    $('bulkClear').addEventListener('click', () => {
+      rows.forEach((r) => { r.querySelector('.pick input').checked = false; });
+      updateBulk();
     });
+    $('bulkDelete').addEventListener('click', () => $('bulkDeleteDialog').showModal());
 
-    dropZone.addEventListener("drop", (e) => {
-      dropZone.classList.remove("border-primary-500", "bg-primary-50", "dark:bg-primary-900/10");
-      const files = e.dataTransfer.files;
-      if (files.length === 0) return;
+    // ------------------------------------------------------------ inspector
+    const insp = $('insp');
+    function markSelected(path) {
+      rows.forEach((r) => r.classList.toggle('selected', r.dataset.path === path));
+    }
+    async function openPanel(href, push) {
+      try {
+        const url = new URL(href, location.href);
+        url.searchParams.set('panel', '1');
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(response.statusText);
+        insp.innerHTML = await response.text();
+        insp.hidden = false;
+        const path = insp.querySelector('[data-delete]').dataset.delete;
+        markSelected(path);
+        if (push) history.pushState({ panel: href }, '', href);
+      } catch (err) {
+        location.href = href;
+      }
+    }
+    function closePanel(push) {
+      insp.hidden = true;
+      insp.innerHTML = '';
+      markSelected(null);
+      if (push) {
+        const url = new URL('/admin', location.href);
+        if (state.shelf === 'folder') url.searchParams.set('folder', state.value);
+        history.pushState({ panel: null }, '', url);
+      }
+    }
 
-      const file = files[0];
-      const validTypes = [
-        "application/pdf",
-        "application/epub+zip",
-        "application/x-fictionbook+xml",
-        "application/zip",
-        "application/x-cbz",
-        "application/vnd.comicbook+zip",
-        "application/x-cbr",
-        "application/x-mobi",
-        "application/x-mobipocket-ebook",
-        "application/vnd.amazon.ebook",
-        "image/vnd.djvu",
-        "text/plain",
-        "text/rtf",
-        "application/rtf",
-        "text/html"
-      ];
-      // Regex fallback for files with missing/generic mime
-      const extRegex = /\.(epub|pdf|fb2|fb2\.zip|cbz|cbr|cb7|mobi|azw|azw3|azw4|djvu|txt|rtf|html|htm)$/i;
-
-      if (!validTypes.includes(file.type) && !extRegex.test(file.name)) {
-        fileInfo.classList.remove("hidden", "bg-primary-50", "text-primary-600");
-        fileInfo.classList.add("text-red-600", "bg-red-50");
-        fileInfo.textContent = "Invalid format. Supported: EPUB, PDF, FB2, MOBI, AZW, CBZ, CBR, DJVU, TXT, RTF";
+    document.addEventListener('click', (e) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      const link = e.target.closest('.book-link, [data-panel]');
+      if (link) { e.preventDefault(); openPanel(link.getAttribute('href'), true); return; }
+      if (e.target.closest('[data-close]')) { e.preventDefault(); closePanel(true); return; }
+      const del = e.target.closest('[data-delete]');
+      if (del) {
+        $('deletePath').value = del.dataset.delete;
+        $('deleteTitle').textContent = del.dataset.title;
+        $('deleteDialog').showModal();
         return;
       }
-
-      fileInput.files = files;
-      document.getElementById("uploadForm").submit();
+      const rename = e.target.closest('[data-rename]');
+      if (rename) { openRename(rename.dataset); return; }
+      if (e.target.closest('[data-close-dialog]')) e.target.closest('dialog').close();
+      if (e.target.closest('[data-dismiss]')) e.target.closest('.notice').remove();
+    });
+    window.addEventListener('popstate', () => {
+      const path = location.pathname;
+      if (path.startsWith('/info/') || path.startsWith('/admin/edit/')) openPanel(path, false);
+      else closePanel(false);
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !insp.hidden && !document.querySelector('dialog[open]')) closePanel(true);
     });
 
-    dropZone.addEventListener("click", () => fileInput.click());
-    fileInput.addEventListener("change", () => {
-      document.getElementById("uploadForm").submit();
-    });
-
-  });
-
-  // Rename Modal Logic
-  function openRenameModal(filename) {
-    const modal = document.getElementById('renameModal');
-    const oldInput = document.getElementById('oldFilename');
-    const newInput = document.getElementById('newFilename');
-    const extSpan = document.getElementById('fileExtension');
-
-    oldInput.value = filename;
-
-    const basename = filename.split('/').pop().split('\\').pop();
-    const lastDotIndex = basename.lastIndexOf('.');
-    if (lastDotIndex > 0) {
-      newInput.value = basename.substring(0, lastDotIndex);
-      extSpan.textContent = basename.substring(lastDotIndex);
-    } else {
-      newInput.value = filename;
-      extSpan.textContent = "";
+    // Remove the one-off notice from the address so a reload does not show it again
+    const clean = new URL(location.href);
+    if (clean.searchParams.has('notice') || clean.searchParams.has('error')) {
+      clean.searchParams.delete('notice');
+      clean.searchParams.delete('error');
+      history.replaceState(history.state, '', clean);
     }
 
-    modal.classList.remove('hidden');
-    newInput.focus();
-    newInput.select();
-  }
-
-  function closeRenameModal() {
-    const modal = document.getElementById('renameModal');
-    modal.classList.add('hidden');
-  }
-
-  // Close modal on click outside
-  document.getElementById('renameModal').addEventListener('click', (e) => {
-    if (e.target === document.getElementById('renameModal')) {
-      closeRenameModal();
-    }
-  });
-
-  // Search and Sort functionality
-  const searchInput = document.getElementById('bookSearch');
-  const sortSelect = document.getElementById('bookSort');
-  const booksGrid = document.getElementById('booksGrid');
-  const booksCount = document.getElementById('booksCount');
-  const totalBooks = parseInt(document.currentScript.dataset.totalBooks, 10) || 0;
-
-  function filterAndSortBooks() {
-    if (!booksGrid) return;
-
-    const query = searchInput.value.toLowerCase().trim();
-    const sortMode = sortSelect.value;
-    const bookCards = Array.from(booksGrid.querySelectorAll('.book-card'));
-    let visibleCount = 0;
-
-    // Filter
-    bookCards.forEach(card => {
-      const title = (card.dataset.title || '').toLowerCase();
-      if (title.includes(query)) {
-        card.style.display = '';
-        visibleCount++;
-      } else {
-        card.style.display = 'none';
-      }
-    });
-
-    // Sort
-    bookCards.sort((a, b) => {
-      if (sortMode === 'name-asc') {
-        return a.dataset.title.localeCompare(b.dataset.title);
-      } else if (sortMode === 'name-desc') {
-        return b.dataset.title.localeCompare(a.dataset.title);
-      } else if (sortMode === 'date-desc') {
-        return (new Date(b.dataset.added).getTime()) - (new Date(a.dataset.added).getTime());
-      } else if (sortMode === 'date-asc') {
-        return (new Date(a.dataset.added).getTime()) - (new Date(b.dataset.added).getTime());
-      }
-      return 0;
-    });
-
-    // Reorder DOM
-    bookCards.forEach(card => booksGrid.appendChild(card));
-
-    // Update count
-    if (booksCount) {
-      if (query) {
-        booksCount.textContent = `(${visibleCount} of ${totalBooks} books)`;
-      } else {
-        booksCount.textContent = `(${totalBooks} books)`;
+    // ------------------------------------------------------------ edit form (swapped in with the inspector)
+    let found = null;
+    async function lookup() {
+      const isbn = $('isbn').value.trim();
+      if (!isbn) return;
+      $('lookupError').hidden = true;
+      $('lookupResult').hidden = true;
+      $('lookupBtn').disabled = true;
+      try {
+        const response = await fetch('/admin/lookup?isbn=' + encodeURIComponent(isbn));
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || response.statusText);
+        found = data;
+        $('lookupSource').textContent = 'Found on ' + data.source;
+        $('lookupTitle').textContent = [data.title || '(no title)', data.authors.join(', ')].filter(Boolean).join(' · ');
+        $('lookupExtra').textContent = [data.publisher, data.date].filter(Boolean).join(', ');
+        $('lookupCover').hidden = !data.coverUrl;
+        if (data.coverUrl) $('lookupCover').src = data.coverUrl;
+        $('applyCoverLabel').hidden = !data.coverUrl;
+        $('lookupResult').hidden = false;
+      } catch (err) {
+        $('lookupError').textContent = err.message;
+        $('lookupError').hidden = false;
+      } finally {
+        $('lookupBtn').disabled = false;
       }
     }
-  }
-
-  const opdsUrlDisplay = document.getElementById('opdsUrlDisplay');
-  const opdsCopyBtn = document.getElementById('opdsCopyBtn');
-
-  function updateOpdsUrl() {
-    if (!opdsUrlDisplay || !opdsCopyBtn || !sortSelect) return;
-    const baseUrl = opdsCopyBtn.dataset.baseUrl;
-    const sortMode = sortSelect.value;
-    const fullUrl = `${baseUrl}/?sort=${sortMode}`;
-    opdsUrlDisplay.textContent = fullUrl;
-  }
-
-  if (opdsCopyBtn) {
-    opdsCopyBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(opdsUrlDisplay.textContent);
-      const icon = opdsCopyBtn.querySelector('i');
-      icon.classList.replace('far', 'fas');
-      icon.classList.replace('fa-copy', 'fa-check');
-      setTimeout(() => {
-        icon.classList.replace('fas', 'far');
-        icon.classList.replace('fa-check', 'fa-copy');
-      }, 2000);
+    function apply() {
+      if (!found) return;
+      const set = (id, value) => {
+        if (!value || $(id).value === value) return;
+        $(id).value = value;
+        $(id).classList.add('changed');
+      };
+      set('f-title', found.title);
+      set('f-authors', found.authors.join('; '));
+      set('f-publisher', found.publisher);
+      set('f-date', found.date);
+      set('f-language', found.language);
+      set('f-identifier', found.identifier);
+      set('f-subjects', found.subjects.join(', '));
+      set('f-description', found.description);
+      if (found.coverUrl && $('applyCover').checked) {
+        $('coverUrl').value = found.coverUrl;
+        $('coverPreview').src = found.coverUrl;
+        $('coverPreview').className = 'cover';
+        $('coverFile').value = '';
+      }
+      $('lookupResult').hidden = true;
+    }
+    insp.addEventListener('click', (e) => {
+      if (e.target.closest('#lookupBtn')) lookup();
+      if (e.target.closest('#applyBtn')) apply();
     });
-  }
-
-  if (searchInput && sortSelect && booksGrid) {
-    searchInput.addEventListener('input', filterAndSortBooks);
-    sortSelect.addEventListener('change', () => {
-      filterAndSortBooks();
-      updateOpdsUrl();
-      // Update URL without reloading to persist sort choice on refresh
-      const url = new URL(window.location);
-      url.searchParams.set('sort', sortSelect.value);
-      window.history.pushState({}, '', url);
+    insp.addEventListener('keydown', (e) => {
+      if (e.target.id === 'isbn' && e.key === 'Enter') { e.preventDefault(); lookup(); }
+    });
+    insp.addEventListener('change', (e) => {
+      if (e.target.id !== 'coverFile') return;
+      const file = e.target.files[0];
+      if (!file) return;
+      $('coverPreview').src = URL.createObjectURL(file);
+      $('coverPreview').className = 'cover';
+      $('coverUrl').value = '';
     });
 
-    // Initial sort and URL setup
-    filterAndSortBooks();
-    updateOpdsUrl();
-  }
+    // ------------------------------------------------------------ rename
+    function openRename(data) {
+      const name = data.name;
+      const lower = name.toLowerCase();
+      const dot = lower.endsWith('.fb2.zip') ? name.length - 8 : name.lastIndexOf('.');
+      $('renamePath').value = data.rename;
+      $('renameName').value = dot > 0 ? name.substring(0, dot) : name;
+      $('renameExt').textContent = dot > 0 ? name.substring(dot) : '';
+      $('renameExt').hidden = dot <= 0;
+      $('renameFolder').value = data.folder;
+      $('renameDialog').showModal();
+      $('renameName').select();
+    }
+
+    // ------------------------------------------------------------ upload
+    const isAccepted = (file) => accepted.some((ext) => file.name.toLowerCase().endsWith(ext));
+    function upload(files) {
+      if (!files.length) return;
+      const invalid = Array.from(files).filter((f) => !isAccepted(f));
+      const info = $('uploadInfo');
+      info.hidden = false;
+      if (invalid.length) {
+        info.textContent = 'Not a supported format: ' + invalid.map((f) => f.name).join(', ');
+        if (!$('uploadDialog').open) $('uploadDialog').showModal();
+        return;
+      }
+      info.textContent = files.length === 1 ? 'Uploading ' + files[0].name + '…' : 'Uploading ' + files.length + ' books…';
+      if (!$('uploadDialog').open) $('uploadDialog').showModal();
+      $('uploadForm').submit();
+    }
+    $('uploadBtn').addEventListener('click', () => { $('uploadInfo').hidden = true; $('uploadDialog').showModal(); });
+    $('uploadFiles').addEventListener('change', (e) => upload(e.target.files));
+
+    let dragDepth = 0;
+    const hasFiles = (e) => Array.from(e.dataTransfer.types).includes('Files');
+    document.addEventListener('dragenter', (e) => {
+      if (!hasFiles(e)) return;
+      dragDepth++;
+      $('dropOverlay').hidden = false;
+    });
+    document.addEventListener('dragleave', () => {
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (!dragDepth) $('dropOverlay').hidden = true;
+    });
+    document.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+    document.addEventListener('drop', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepth = 0;
+      $('dropOverlay').hidden = true;
+      $('uploadFiles').files = e.dataTransfer.files;
+      upload(e.dataTransfer.files);
+    });
+
+    // ------------------------------------------------------------ misc
+    const side = $('side');
+    function closeMenu() { side.classList.remove('open'); }
+    $('menuBtn').addEventListener('click', () => side.classList.toggle('open'));
+    $('scrim').addEventListener('click', closeMenu);
+
+    $('copyOpds').addEventListener('click', async () => {
+      const icon = $('copyOpds').querySelector('i');
+      try {
+        await navigator.clipboard.writeText($('opdsUrl').textContent);
+        icon.className = 'fas fa-check';
+        setTimeout(() => { icon.className = 'far fa-copy'; }, 1500);
+      } catch {
+        getSelection().selectAllChildren($('opdsUrl'));
+      }
+    });
+  })();
 </script>

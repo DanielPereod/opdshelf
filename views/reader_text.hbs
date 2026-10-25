@@ -1,0 +1,37 @@
+<div data-controls>
+  <button type="button" id="smaller" class="icon-btn" title="Smaller text"><i class="fas fa-minus"></i></button>
+  <button type="button" id="larger" class="icon-btn" title="Larger text"><i class="fas fa-plus"></i></button>
+</div>
+
+<main class="stage">
+  <div id="scroller" class="scroll-stage">
+    <article id="text" class="text-page">{{text}}</article>
+  </div>
+</main>
+
+<footer class="reader-foot">
+  <div class="track"><b id="progressBar"></b></div>
+  <span id="progress"></span>
+</footer>
+
+<script data-key="{{book.path}}">
+  (function () {
+    const positionKey = 'opdshelf:text:' + document.currentScript.dataset.key;
+    const scroller = document.getElementById('scroller');
+    const text = document.getElementById('text');
+    let size = parseInt(storeGet('opdshelf:textsize') || '18', 10);
+    const apply = () => { text.style.fontSize = size + 'px'; storeSet('opdshelf:textsize', size); };
+    apply();
+    document.getElementById('smaller').onclick = () => { size = Math.max(12, size - 2); apply(); };
+    document.getElementById('larger').onclick = () => { size = Math.min(36, size + 2); apply(); };
+    function showProgress() {
+      const max = scroller.scrollHeight - scroller.clientHeight;
+      const pct = max > 0 ? Math.round((scroller.scrollTop / max) * 100) : 100;
+      document.getElementById('progress').textContent = pct + '%';
+      document.getElementById('progressBar').style.width = pct + '%';
+    }
+    scroller.scrollTop = Number(storeGet(positionKey) || 0);
+    showProgress();
+    scroller.addEventListener('scroll', () => { storeSet(positionKey, scroller.scrollTop); showProgress(); }, { passive: true });
+  })();
+</script>

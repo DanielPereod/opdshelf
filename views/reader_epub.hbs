@@ -1,0 +1,148 @@
+<div data-controls>
+  <button type="button" id="tocBtn" class="icon-btn" title="Contents"><i class="fas fa-list-ul"></i></button>
+  <button type="button" id="smaller" class="icon-btn" title="Smaller text"><i class="fas fa-minus"></i></button>
+  <button type="button" id="larger" class="icon-btn" title="Larger text"><i class="fas fa-plus"></i></button>
+</div>
+
+<nav class="toc" id="toc" aria-label="Contents" hidden>
+  <h2>Contents</h2>
+  <div id="tocList"></div>
+</nav>
+
+<main class="stage">
+  <div id="viewer" class="epub-viewer"></div>
+  <button type="button" id="prev" class="page-turn prev" title="Previous page"><i class="fas fa-chevron-left"></i></button>
+  <button type="button" id="next" class="page-turn next" title="Next page"><i class="fas fa-chevron-right"></i></button>
+  <div id="status" class="loading"><span><i class="fas fa-spinner fa-spin"></i> Loading…</span></div>
+</main>
+
+<footer class="reader-foot">
+  <span id="chapter"></span>
+  <div class="track"><b id="progressBar"></b></div>
+  <span id="progress"></span>
+</footer>
+
+<script src="/static/vendor/epubjs/jszip.min.js"></script>
+<script src="/static/vendor/epubjs/epub.min.js"></script>
+<script data-url="/download/{{urlPath book.path}}?inline=1" data-key="{{book.path}}">
+  (function () {
+    const { url, key } = document.currentScript.dataset;
+    const positionKey = 'opdshelf:epub:' + key;
+    const status = document.getElementById('status');
+    const progress = document.getElementById('progress');
+    const progressBar = document.getElementById('progressBar');
+    const chapter = document.getElementById('chapter');
+    const toc = document.getElementById('toc');
+    const tocList = document.getElementById('tocList');
+
+    const book = ePub(url, { openAs: 'epub' });
+    const rendition = book.renderTo('viewer', { width: '100%', height: '100%', spread: 'auto' });
+
+    const papers = {
+      light: { background: '#ffffff', color: '#111111', link: '#111111' },
+      gray: { background: '#e9e9e9', color: '#1e1e1e', link: '#1e1e1e' },
+      dark: { background: '#0b0b0b', color: '#d0d0d0', link: '#ececec' },
+    };
+    Object.entries(papers).forEach(([name, p]) => rendition.themes.register(name, {
+      'body': { 'background': p.background + ' !important', 'color': p.color + ' !important' },
+      'a': { 'color': p.link + ' !important' },
+    }));
+    rendition.themes.select(readerPaper());
+    document.addEventListener('paperchange', (e) => rendition.themes.select(e.detail.paper));
+
+    let fontSize = parseInt(storeGet('opdshelf:fontsize') || '100', 10);
+    const applyFont = () => { rendition.themes.fontSize(fontSize + '%'); storeSet('opdshelf:fontsize', fontSize); };
+    applyFont();
+    document.getElementById('smaller').onclick = () => { fontSize = Math.max(60, fontSize - 10); applyFont(); };
+    document.getElementById('larger').onclick = () => { fontSize = Math.min(250, fontSize + 10); applyFont(); };
+
+    // The contents sit beside the page on wide screens and over it on phones
+    const wide = window.matchMedia('(min-width: 761px)');
+    function showToc(open) {
+      toc.hidden = !open;
+      document.getElementById('tocBtn').setAttribute('aria-pressed', open);
+      if (wide.matches) storeSet('opdshelf:toc', open ? '1' : '0');
+      requestAnimationFrame(() => { if (rendition.manager) rendition.resize(); });
+    }
+    showToc(wide.matches && storeGet('opdshelf:toc') !== '0');
+    document.getElementById('tocBtn').onclick = () => showToc(toc.hidden);
+
+    rendition.display(storeGet(positionKey) || undefined)
+      .catch(() => rendition.display())
+      .then(() => status.remove())
+      .catch((err) => { status.textContent = 'Cannot open this book: ' + err; });
+
+    const prev = () => rendition.prev();
+    const next = () => rendition.next();
+    document.getElementById('prev').onclick = prev;
+    document.getElementById('next').onclick = next;
+    const onKey = (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'PageUp') prev();
+      if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') next();
+      if (e.key === 'Escape' && !wide.matches) showToc(false);
+    };
+    document.addEventListener('keydown', onKey);
+    rendition.on('keydown', onKey);
+
+    // Swipe inside the book
+    let touchX = null;
+    rendition.on('touchstart', (e) => { touchX = e.changedTouches[0].screenX; });
+    rendition.on('touchend', (e) => {
+      if (touchX === null) return;
+      const dx = e.changedTouches[0].screenX - touchX;
+      if (Math.abs(dx) > 50) (dx < 0 ? next : prev)();
+      touchX = null;
+    });
+
+    const tocButtons = [];
+    book.loaded.navigation.then((nav) => {
+      const add = (items, depth) => items.forEach((item) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = item.label.trim();
+        button.style.setProperty('--depth', depth);
+        button.dataset.href = item.href;
+        button.onclick = () => {
+          rendition.display(item.href);
+          if (!wide.matches) showToc(false);
+        };
+        tocList.append(button);
+        tocButtons.push(button);
+        if (item.subitems) add(item.subitems, depth + 1);
+      });
+      add(nav.toc, 0);
+      if (!tocButtons.length) tocList.textContent = 'This book has no table of contents.';
+    });
+    const baseHref = (href) => (href || '').split('#')[0].split('/').pop();
+    function markChapter(href) {
+      let current = null;
+      tocButtons.forEach((b) => {
+        const match = baseHref(b.dataset.href) === baseHref(href);
+        if (match && !current) current = b;
+        b.setAttribute('aria-current', 'false');
+      });
+      if (current) {
+        current.setAttribute('aria-current', 'true');
+        chapter.textContent = current.textContent;
+      }
+    }
+
+    let locationsReady = false;
+    book.ready.then(() => book.locations.generate(1600)).then(() => {
+      locationsReady = true;
+      const current = rendition.currentLocation();
+      if (current && current.start) showProgress(current.start.cfi);
+    });
+    function showProgress(cfi) {
+      if (!locationsReady) return;
+      const pct = Math.round(book.locations.percentageFromCfi(cfi) * 100);
+      progress.textContent = pct + '%';
+      progressBar.style.width = pct + '%';
+    }
+    rendition.on('relocated', (location) => {
+      storeSet(positionKey, location.start.cfi);
+      showProgress(location.start.cfi);
+      markChapter(location.start.href);
+    });
+  })();
+</script>

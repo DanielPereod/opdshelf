@@ -1,0 +1,43 @@
+[package]
+name = "opdshelf"
+version = "2.0.0"
+edition = "2021"
+description = "Self-hosted OPDS library server"
+license = "MIT"
+
+[dependencies]
+axum = { version = "0.8", features = ["multipart"] }
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+encoding_rs = "0.8"
+form_urlencoded = "1"
+handlebars = { version = "6", features = ["rust-embed"] }
+hmac = "0.12"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+mime_guess = "2"
+notify = "8"
+percent-encoding = "2"
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+roxmltree = "0.20"
+rust-embed = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+subtle = "2"
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["fs", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+walkdir = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tempfile = "3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

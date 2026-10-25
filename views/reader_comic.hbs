@@ -1,0 +1,83 @@
+<div data-controls>
+  <span id="counter" class="count"></span>
+  <button type="button" id="direction" class="icon-btn" title="Reading direction"><i class="fas fa-right-left"></i></button>
+</div>
+
+<main class="stage" id="stage">
+  <div class="comic-stage">
+    <img id="pageImg" alt="">
+    <button type="button" id="left" class="tap left" title="Previous page"></button>
+    <button type="button" id="right" class="tap right" title="Next page"></button>
+  </div>
+  <div id="status" class="loading"><span><i class="fas fa-spinner fa-spin"></i> Loading…</span></div>
+</main>
+
+<footer class="reader-foot">
+  <input id="slider" type="range" min="1" value="1" aria-label="Page">
+</footer>
+
+<script data-path="{{urlPath book.path}}" data-key="{{book.path}}">
+  (function () {
+    const { path, key } = document.currentScript.dataset;
+    const positionKey = 'opdshelf:comic:' + key;
+    const img = document.getElementById('pageImg');
+    const counter = document.getElementById('counter');
+    const slider = document.getElementById('slider');
+    const status = document.getElementById('status');
+    let count = 0;
+    let current = 0;
+    let rtl = storeGet('opdshelf:comic-rtl') === '1';
+
+    const src = (n) => `/page/${path}?n=${n}`;
+
+    function show(n) {
+      if (n < 0 || n >= count) return;
+      current = n;
+      img.src = src(n);
+      counter.textContent = (n + 1) + ' / ' + count;
+      slider.value = n + 1;
+      storeSet(positionKey, n);
+      // Preload the next pages
+      [n + 1, n + 2].filter((p) => p < count).forEach((p) => { new Image().src = src(p); });
+    }
+
+    const next = () => show(current + 1);
+    const prev = () => show(current - 1);
+    document.getElementById('left').onclick = () => (rtl ? next : prev)();
+    document.getElementById('right').onclick = () => (rtl ? prev : next)();
+    document.getElementById('direction').onclick = () => {
+      rtl = !rtl;
+      storeSet('opdshelf:comic-rtl', rtl ? '1' : '0');
+      slider.style.direction = rtl ? 'rtl' : 'ltr';
+      document.getElementById('direction').setAttribute('aria-pressed', rtl);
+    };
+    document.getElementById('direction').setAttribute('aria-pressed', rtl);
+    slider.style.direction = rtl ? 'rtl' : 'ltr';
+    slider.oninput = () => show(Number(slider.value) - 1);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') (rtl ? next : prev)();
+      if (e.key === 'ArrowRight' || e.key === ' ') (rtl ? prev : next)();
+    });
+
+    let touchX = null;
+    const stage = document.getElementById('stage');
+    stage.addEventListener('touchstart', (e) => { touchX = e.changedTouches[0].screenX; }, { passive: true });
+    stage.addEventListener('touchend', (e) => {
+      if (touchX === null) return;
+      const dx = e.changedTouches[0].screenX - touchX;
+      if (Math.abs(dx) > 50) ((dx < 0) !== rtl ? next : prev)();
+      touchX = null;
+    });
+
+    img.onload = () => { status.hidden = true; };
+    fetch(`/pages/${path}`)
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+      .then((data) => {
+        count = data.count;
+        if (count === 0) throw new Error('no images found');
+        slider.max = count;
+        show(Math.min(Number(storeGet(positionKey) || 0), count - 1));
+      })
+      .catch((err) => { status.textContent = 'Cannot open this comic: ' + err.message; });
+  })();
+</script>

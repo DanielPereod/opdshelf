@@ -1,42 +1,24 @@
-<div class="flex items-center justify-center min-h-[calc(100vh-16rem)]">
-  <div class="theme-card w-full max-w-md p-8 animate-fade-in-up">
-    <div class="text-center mb-4">
-      <div
-        class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary-100 dark:bg-primary-900/30 mb-4">
-        <i class="fas fa-user-shield text-2xl text-primary-600 dark:text-primary-400"></i>
-      </div>
-      <h2 class="text-2xl font-bold text-neutral-900 dark:text-white">Admin Login</h2>
-      <p class="text-sm text-neutral-500 dark:text-neutral-400 mt-2">Please sign in to continue</p>
+<main class="login">
+  <form action="/user/login" method="POST" class="login-card">
+    <div class="brand"><img src="/static/icon.png" alt="">OPDShelf</div>
+    <div>
+      <h1>Sign in</h1>
+      <p>Your library and reading apps are waiting.</p>
     </div>
 
-    <form action="/user/login" method="POST" class="space-y-6">
-      <div class="mb-4">
-        <label for="username"
-          class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Username</label>
-        <div class="relative">
-          <div class="h-full absolute inset-y-0 left-0 w-10 ml-px flex items-center justify-center pointer-events-none">
-            <i class="fas fa-user text-neutral-400"></i>
-          </div>
-          <input type="text" id="username" name="username" required class="input-field"
-            placeholder="Enter your username">
-        </div>
-      </div>
+    {{#if error}}
+    <div class="notice error"><i class="fas fa-circle-exclamation"></i>{{error}}</div>
+    {{/if}}
 
-      <div class="mb-4">
-        <label for="password"
-          class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Password</label>
-        <div class="relative">
-          <div class="h-full absolute inset-y-0 left-0 w-10 ml-px flex items-center justify-center pointer-events-none">
-            <i class="fas fa-lock text-neutral-400"></i>
-          </div>
-          <input type="password" id="password" name="password" required class="input-field" placeholder="••••••••">
-        </div>
-      </div>
+    <label class="field" for="username">
+      <span>Username</span>
+      <input type="text" id="username" name="username" autocomplete="username" required class="input" autofocus>
+    </label>
+    <label class="field" for="password">
+      <span>Password</span>
+      <input type="password" id="password" name="password" autocomplete="current-password" required class="input">
+    </label>
 
-      <button type="submit" class="w-full btn-primary flex justify-center items-center gap-2">
-        <span>Sign In</span>
-        <i class="fas fa-arrow-right text-sm opacity-80"></i>
-      </button>
-    </form>
-  </div>
-</div>
+    <button type="submit" class="btn btn-primary btn-wide">Sign in</button>
+  </form>
+</main>

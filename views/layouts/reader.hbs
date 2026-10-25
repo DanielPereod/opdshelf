@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{title}}</title>
+  <link rel="icon" href="/static/icon.png" type="image/png">
+  <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css" />
+  <link rel="stylesheet" href="/static/styles/app.css">
+  <script>
+    function storeGet(key) {
+      try { return localStorage.getItem(key); } catch { return null; }
+    }
+
+    function storeSet(key, value) {
+      try { localStorage.setItem(key, value); } catch { }
+    }
+
+    (function () {
+      const savedTheme = storeGet("theme");
+      const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (savedTheme === 'dark' || (!savedTheme && systemDark)) {
+        document.documentElement.classList.add('dark');
+      }
+    })();
+
+    // Page colour of the reader: light, gray or dark
+    function readerPaper() {
+      const saved = storeGet('opdshelf:paper');
+      if (['light', 'gray', 'dark'].includes(saved)) return saved;
+      return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+    }
+  </script>
+</head>
+
+<body>
+  <div class="reader" id="reader">
+    <header class="reader-bar">
+      <a href="/info/{{urlPath book.path}}" class="icon-btn" title="Back to the library"><i class="fas fa-arrow-left"></i></a>
+      <div class="title" title="{{book.title}}">{{book.title}}{{#if book.authors}} <span>· {{book.authors}}</span>{{/if}}</div>
+      <div id="controls"></div>
+      <div class="segmented" role="group" aria-label="Page colour">
+        <button type="button" class="icon-btn" data-paper="light" title="Light page"><i class="far fa-sun"></i></button>
+        <button type="button" class="icon-btn" data-paper="gray" title="Gray page"><i class="fas fa-circle-half-stroke"></i></button>
+        <button type="button" class="icon-btn" data-paper="dark" title="Dark page"><i class="far fa-moon"></i></button>
+      </div>
+    </header>
+
+    {{{body}}}
+  </div>
+
+  <script>
+    // Each reader declares its toolbar buttons in a [data-controls] element
+    document.querySelectorAll('[data-controls]').forEach((el) => {
+      document.getElementById('controls').append(...el.children);
+      el.remove();
+    });
+
+    function setPaper(paper) {
+      document.getElementById('reader').dataset.paper = paper;
+      document.querySelectorAll('[data-paper]').forEach((b) => {
+        if (b.tagName === 'BUTTON') b.setAttribute('aria-pressed', b.dataset.paper === paper);
+      });
+      document.dispatchEvent(new CustomEvent('paperchange', { detail: { paper } }));
+    }
+    document.querySelectorAll('button[data-paper]').forEach((b) => b.addEventListener('click', () => {
+      storeSet('opdshelf:paper', b.dataset.paper);
+      setPaper(b.dataset.paper);
+    }));
+    setPaper(readerPaper());
+  </script>
+</body>
+
+</html>

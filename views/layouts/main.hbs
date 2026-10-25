@@ -1,111 +1,37 @@
 <!DOCTYPE html>
-<html lang="es" data-theme="light">
+<html lang="en">
 
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{title}}</title>
   <link rel="icon" href="/static/icon.png" type="image/png">
-
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css" />
   <link rel="stylesheet" href="/static/styles/app.css">
-
   <script>
-    (function () {
-      const savedTheme = localStorage.getItem("theme");
-      const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    function storeGet(key) {
+      try { return localStorage.getItem(key); } catch { return null; }
+    }
 
-      if (savedTheme === 'dark' || (!savedTheme && systemDark)) {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
+    function storeSet(key, value) {
+      try { localStorage.setItem(key, value); } catch { }
+    }
+
+    function toggleTheme() {
+      const dark = document.documentElement.classList.toggle('dark');
+      storeSet('theme', dark ? 'dark' : 'light');
+    }
+
+    (function () {
+      const saved = storeGet('theme');
+      const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (saved === 'dark' || (!saved && systemDark)) document.documentElement.classList.add('dark');
     })();
   </script>
 </head>
 
-<body class="min-h-screen flex flex-col bg-primary-white dark:bg-black">
-  <header class="sticky top-0 z-50 dark:bg-black bg-white">
-    <nav class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-      <div class="flex items-center space-x-3">
-        <img src="/static/icon.png" alt="OPDShelf"
-          class="relative h-10 w-10 transform transition-transform group-hover:scale-105" />
-        <h1 class="text-xl font-bold bg-clip text-black dark:text-white">
-          OPDShelf</h1>
-      </div>
-
-      <!-- Desktop Menu -->
-      <div class="hidden sm:flex items-center space-x-2">
-        <a href="/"
-          class="px-4 py-2 font-medium text-sm text-neutral-600 dark:text-neutral-300 hover:text-primary-600 dark:hover:text-primary-400 transition-colors">OPDS
-          Feed</a>
-        <a href="/admin"
-          class="px-4 py-2 font-medium text-sm text-neutral-600 dark:text-neutral-300 hover:text-primary-600 dark:hover:text-primary-400 transition-colors">Admin
-          Panel</a>
-        <div class="w-px h-4 bg-neutral-200 dark:bg-neutral-700 mx-2"></div>
-        <button class="btn-icon" onclick="toggleTheme()" title="Toggle Theme">
-          <i class="fas h-4 w-4 fa-moon dark:!hidden"></i>
-          <i class="fas h-4 w-4 fa-sun !hidden dark:!block"></i>
-        </button>
-      </div>
-
-      <!-- Mobile Menu Button -->
-      <button class="sm:hidden btn-icon" onclick="toggleMobileMenu()">
-        <i class="fas fa-bars"></i>
-      </button>
-    </nav>
-
-    <!-- Mobile Menu -->
-    <div id="mobile-menu"
-      class="hidden sm:hidden bg-white dark:bg-dark-card border-b border-neutral-200 dark:border-neutral-800 absolute w-full shadow-lg">
-      <div class="px-4 py-3 flex flex-col space-y-2">
-        <a href="/"
-          class="p-3 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200 font-medium transition-colors">
-          <i class="fas fa-rss w-6"></i> OPDS Feed
-        </a>
-        <a href="/admin"
-          class="p-3 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200 font-medium transition-colors">
-          <i class="fas fa-cog w-6"></i> Admin Panel
-        </a>
-        <button
-          class="p-3 w-full text-left flex items-center rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200 font-medium transition-colors"
-          onclick="toggleTheme()">
-          <i class="fas fa-moon w-6 dark:!hidden"></i>
-          <i class="fas fa-sun w-6 !hidden dark:!block"></i>
-          Toggle Theme
-        </button>
-      </div>
-    </div>
-  </header>
-
-  <main class="flex-grow">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fade-in-up">
-      {{{body}}}
-    </div>
-  </main>
-
-  <script>
-    function toggleTheme() {
-      const html = document.documentElement;
-      if (html.classList.contains('dark')) {
-        html.classList.remove('dark');
-        localStorage.setItem('theme', 'light');
-      } else {
-        html.classList.add('dark');
-        localStorage.setItem('theme', 'dark');
-      }
-    }
-
-    function toggleMobileMenu() {
-      const mobileMenu = document.getElementById('mobile-menu');
-      mobileMenu.classList.toggle('hidden');
-    }
-
-
-  </script>
+<body>
+  {{{body}}}
 </body>
 
 </html>

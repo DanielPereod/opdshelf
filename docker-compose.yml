@@ -1,13 +1,16 @@
-version: '3.8'
 services:
-  opds-server:
+  opdshelf:
     image: koalilla/opds-server:latest
-    container_name: opds-server
+    # To build from source instead: build: .
+    container_name: opdshelf
     ports:
       - "3000:3000"
     volumes:
       - ./books:/app/books
-    restart: unless-stopped
     environment:
-      - PORT=3000
-      - HOST=0.0.0.0
+      # Leave both empty to disable authentication
+      - ADMIN_USERNAME=
+      - ADMIN_PASSWORD=
+      # Public URL when running behind a reverse proxy, e.g. https://books.example.com
+      - BASE_URL=
+    restart: unless-stopped

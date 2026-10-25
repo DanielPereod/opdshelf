@@ -21,8 +21,8 @@ export async function getEpubInfo(filePath: string): Promise<BookInfo | null> {
 
     const document = new DOMParser().parseFromString(new TextDecoder().decode(file[contentOPF]), "text/xml");
     const coverID = document.querySelector("meta[name='cover']")?.getAttribute("content");
-    const converRoute = path.join(route, document.querySelector(`item[id='${coverID}']`)?.getAttribute("href")!).replace(/\\/g, "/");
-    const coverImage = file[converRoute];
+    const coverHref = coverID ? document.querySelector(`item[id='${coverID}']`)?.getAttribute("href") : null;
+    const coverImage = coverHref ? file[path.posix.join(route, coverHref)] : undefined;
 
     const bookInfo: BookInfo = {
       title: document.querySelector("dc\\:title")?.textContent,

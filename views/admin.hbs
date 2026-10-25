@@ -62,30 +62,27 @@
       {{#each books}}
       <div data-title="{{this.title}}" data-added="{{this.lastUpdated}}"
         class="book-card dark:bg-dark-card bg-light-card group relative overflow-hidden hover:shadow-lg flex flex-col h-full focus:outline-none rounded"
-        tabindex="0"
-        onmouseover="document.getElementById('{{this.filename}}').classList.remove('hidden'); document.getElementById('{{this.filename}}').classList.add('flex')"
-        onmouseout="document.getElementById('{{this.filename}}').classList.add('hidden'); document.getElementById('{{this.filename}}').classList.remove('flex')">
+        tabindex="0">
 
         <!-- Cover Image -->
         <div class="aspect-[2/3] relative overflow-hidden bg-neutral-100 dark:bg-neutral-800">
-          <img src="/book/cover/{{this.filename}}" class="w-full h-full object-cover" alt="{{this.title}}"
+          <img src="/book/cover/{{urlEncode this.filename}}" class="w-full h-full object-cover" alt="{{this.title}}"
             loading="lazy" onerror="this.onerror=null;this.src='/static/no-cover-error.svg';">
 
           <!-- Overlay Actions -->
-          <div class="flex flex-1 absolute bottom-0 w-full bg-light-card dark:bg-dark-card hidden"
-            id="{{this.filename}}">
-            <button onclick="openRenameModal('{{this.filename}}')"
+          <div class="flex-1 absolute bottom-0 w-full bg-light-card dark:bg-dark-card hidden group-hover:flex group-focus-within:flex">
+            <button data-filename="{{this.filename}}" onclick="openRenameModal(this.dataset.filename)"
               class="py-2 flex-1 text-center text-primary-600 hover:bg-primary-600 hover:text-white  cursor-pointer"
               title="Edit Filename">
               <i class="fas fa-edit"></i>
             </button>
-            <a href="/book/info/{{this.filename}}"
+            <a href="/book/info/{{urlEncode this.filename}}"
               class="py-2 flex-1 text-center text-primary-600 hover:bg-primary-500 hover:text-white  cursor-pointer"
               title="View Details">
               <i class="fas fa-eye"></i>
             </a>
-            <form action="/book/delete/{{this.filename}}" method="post"
-              onsubmit="return confirm('Delete {{this.title}}?');"
+            <form action="/book/delete/{{urlEncode this.filename}}" method="post" data-title="{{this.title}}"
+              onsubmit="return confirm('Delete ' + this.dataset.title + '?');"
               class="flex-1 text-center text-red-500 hover:bg-red-500 hover:text-white cursor-pointer">
               <button type="submit" class="cursor-pointer py-2 h-full w-full" title="Delete">
                 <i class="fas fa-trash-alt"></i>

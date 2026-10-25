@@ -1,16 +1,12 @@
-import { getCookie } from "hono/cookie";
-import { checkBasicAuth } from "../helpers/auth";
+import { setCookie } from "hono/cookie";
+import { checkBasicAuth, checkCredentials, checkSession, createSessionToken, isAuthEnabled, SESSION_COOKIE } from "../helpers/auth";
 import { renderView } from "../helpers/renderers";
 import { Hono } from "hono";
 
 const app = new Hono();
 
 app.use("/login", async (c, next) => {
-  const session = getCookie(c, 'auth_session');
-  const username = process.env.ADMIN_USERNAME;
-  const password = process.env.ADMIN_PASSWORD;
-
-  if (session === 'valid' || checkBasicAuth(c) || (!username || !password)) {
+  if (!isAuthEnabled() || checkSession(c) || checkBasicAuth(c)) {
     return c.redirect('/admin');
   }
 
@@ -26,10 +22,9 @@ app.get('/login', async (c) => {
 
 app.post('/login', async (c) => {
   const { username, password } = await c.req.parseBody();
-  if (username === process.env.ADMIN_USERNAME && password === process.env.ADMIN_PASSWORD) {
-    // Set a session cookie that lasts 24 hours
-    c.header('Set-Cookie', `auth_session=valid; Path=/; HttpOnly; Max-Age=1296000; SameSite=Lax`);
-    c.header('WWW-Authenticate', 'Basic realm="OPDShelf"')
+  if (checkCredentials(username, password)) {
+    // Set a session cookie that lasts 15 days
+    setCookie(c, SESSION_COOKIE, createSessionToken(), { path: '/', httpOnly: true, maxAge: 1296000, sameSite: 'Lax' });
     return c.redirect('/admin');
   }
   return c.redirect('/user/login');

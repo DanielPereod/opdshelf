@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
-import { getCookie } from 'hono/cookie';
 import Handlebars from 'handlebars';
 import { getConfig } from '../config';
 import { getBooks, sortBooks, formatSize, getSimpleMime } from '../utils';
@@ -10,7 +9,7 @@ import user from './user';
 import { renderView, renderXml } from '../helpers/renderers';
 import { getBaseUrl } from '../helpers/general';
 import { registerHandlebarsHelpers } from '../helpers/handlebars';
-import { checkBasicAuth } from '../helpers/auth';
+import { checkBasicAuth, checkSession, isAuthEnabled } from '../helpers/auth';
 
 registerHandlebarsHelpers()
 const app = new Hono();
@@ -18,11 +17,7 @@ const config = getConfig();
 
 app.use('/static/*', serveStatic({ root: './' }));
 app.use('*', async (c, next) => {
-  const session = getCookie(c, 'auth_session');
-  const username = process.env.ADMIN_USERNAME;
-  const password = process.env.ADMIN_PASSWORD;
-
-  if (c.req.path.startsWith('/user/') || c.req.path.startsWith('/static/') || session === 'valid' || checkBasicAuth(c) || (!username || !password)) {
+  if (c.req.path.startsWith('/user/') || c.req.path.startsWith('/static/') || !isAuthEnabled() || checkSession(c) || checkBasicAuth(c)) {
     return next();
   }
 

@@ -14,7 +14,7 @@
       <div
         class="w-[128px] md:w-32 lg:w-64 bg-neutral-100 dark:bg-neutral-900 border-r border-neutral-200 dark:border-neutral-700 flex-shrink-0">
         <div class="aspect-[2/3] relative group">
-          <img src="/book/cover/{{filename}}" alt="{{book.title}}" class="w-full h-full object-cover"
+          <img src="/book/cover/{{urlEncode filename}}" alt="{{book.title}}" class="w-full h-full object-cover"
             onerror="this.onerror=null;this.src='/static/no-cover-error.svg';">
         </div>
       </div>
@@ -32,8 +32,8 @@
 
           <!-- Description -->
           {{#if book.description}}
-          <div class="prose dark:prose-invert max-w-none mb-8 text-neutral-600 dark:text-neutral-300">
-            {{{book.description}}}
+          <div class="prose dark:prose-invert max-w-none mb-8 whitespace-pre-line text-neutral-600 dark:text-neutral-300">
+            {{book.description}}
           </div>
           {{/if}}
 
@@ -69,7 +69,7 @@
 
         <!-- Actions -->
         <div class="flex flex-col sm:flex-row gap-4 mt-auto pt-6">
-          <a href="/book/{{filename}}" download
+          <a href="/book/{{urlEncode filename}}" download
             class="btn-primary flex-1 text-center justify-center inline-flex items-center px-6 py-3 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-semibold">
             <i class="fas fa-download mr-2"></i> Download Book
           </a>

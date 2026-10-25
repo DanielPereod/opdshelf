@@ -5,16 +5,22 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Hono } from "hono";
 import { getConfig } from '../config';
-import { BookInfo } from "../types";
+import { DOMParser } from "linkedom";
 
 const app = new Hono();
 const config = getConfig();
 
-app.get('/:filename', async (c) => {
-  const filePath = path.join(config.BOOKS_DIR, c.req.param('filename'));
+// Only allow plain filenames inside BOOKS_DIR, rejecting anything like "../"
+const resolveBookPath = (filename: string): string | null => {
+  const booksDir = path.resolve(config.BOOKS_DIR);
+  const filePath = path.resolve(booksDir, path.basename(filename));
+  return path.dirname(filePath) === booksDir && !path.basename(filePath).startsWith('.') ? filePath : null;
+};
 
-  console.log(filePath);
-  if (fs.existsSync(filePath)) {
+app.get('/:filename', async (c) => {
+  const filePath = resolveBookPath(c.req.param('filename'));
+
+  if (filePath && fs.existsSync(filePath)) {
     const stat = fs.statSync(filePath);
     c.header('Content-Type', mime.lookup(filePath) || 'application/octet-stream');
     c.header('Content-Length', stat.size.toString());
@@ -30,7 +36,8 @@ app.post('/upload', async (c) => {
   if (file instanceof File) {
     if (!file.name) return c.text('No filename', 400);
 
-    const dest = path.join(config.BOOKS_DIR, file.name);
+    const dest = resolveBookPath(file.name);
+    if (!dest) return c.text('Invalid filename', 400);
     console.log(`Uploading ${file.name}`);
 
     try {
@@ -45,10 +52,10 @@ app.post('/upload', async (c) => {
 });
 
 app.post('/delete/:filename', async (c) => {
-  const filePath = path.join(config.BOOKS_DIR, path.basename(c.req.param('filename')));
+  const filePath = resolveBookPath(c.req.param('filename'));
 
   try {
-    if (fs.existsSync(filePath)) await fs.promises.unlink(filePath);
+    if (filePath && fs.existsSync(filePath)) await fs.promises.unlink(filePath);
   } catch (err) {
     console.error(err);
   }
@@ -65,11 +72,11 @@ app.post('/rename', async (c) => {
 
     if (!path.extname(safeNew)) safeNew += path.extname(safeOld);
 
-    const oldPath = path.join(config.BOOKS_DIR, safeOld);
-    const newPath = path.join(config.BOOKS_DIR, safeNew);
+    const oldPath = resolveBookPath(safeOld);
+    const newPath = resolveBookPath(safeNew);
 
     try {
-      if (fs.existsSync(oldPath) && !fs.existsSync(newPath)) {
+      if (oldPath && newPath && fs.existsSync(oldPath) && !fs.existsSync(newPath)) {
         await fs.promises.rename(oldPath, newPath);
       }
     } catch (err) {
@@ -82,11 +89,15 @@ app.post('/rename', async (c) => {
 
 app.get('/info/:filename', async (c) => {
   const filename = c.req.param('filename');
-  const filePath = path.join(config.BOOKS_DIR, filename);
-  if (!fs.existsSync(filePath)) return c.notFound();
+  const filePath = resolveBookPath(filename);
+  if (!filePath || !fs.existsSync(filePath)) return c.notFound();
 
   const bookInfo = await getBookInfo(filePath);
   if (bookInfo) {
+    // EPUB descriptions often contain HTML: keep only the text so it is rendered escaped
+    if (bookInfo.description) {
+      bookInfo.description = new DOMParser().parseFromString(`<html><body>${bookInfo.description}</body></html>`, 'text/html').body.textContent?.trim();
+    }
     const html = await renderView('book_details', {
       book: bookInfo,
       filename: filename,
@@ -99,11 +110,11 @@ app.get('/info/:filename', async (c) => {
 });
 
 app.get('/cover/:filename', async (c) => {
-  const filePath = path.join(config.BOOKS_DIR, c.req.param('filename'));
-  if (!fs.existsSync(filePath)) return c.notFound();
+  const filePath = resolveBookPath(c.req.param('filename'));
+  if (!filePath || !fs.existsSync(filePath)) return c.notFound();
 
   const bookInfo = await getBookInfo(filePath);
-  if (bookInfo) {
+  if (bookInfo?.cover) {
     c.header('Cache-Control', 'public, max-age=86400');
     return c.body(bookInfo.cover as any);
   }

@@ -1,11 +1,18 @@
 <div data-controls>
-  <button id="smaller" class="btn-icon" title="Smaller text"><i class="fas fa-minus"></i></button>
-  <button id="larger" class="btn-icon" title="Larger text"><i class="fas fa-plus"></i></button>
+  <button type="button" id="smaller" class="icon-btn" title="Smaller text"><i class="fas fa-minus"></i></button>
+  <button type="button" id="larger" class="icon-btn" title="Larger text"><i class="fas fa-plus"></i></button>
 </div>
 
-<main id="scroller" class="flex-1 min-h-0 overflow-auto">
-  <article id="text" class="max-w-3xl mx-auto px-5 py-8 whitespace-pre-wrap break-words leading-relaxed font-serif">{{text}}</article>
+<main class="stage">
+  <div id="scroller" class="scroll-stage">
+    <article id="text" class="text-page">{{text}}</article>
+  </div>
 </main>
+
+<footer class="reader-foot">
+  <div class="track"><b id="progressBar"></b></div>
+  <span id="progress"></span>
+</footer>
 
 <script data-key="{{book.path}}">
   (function () {
@@ -17,7 +24,14 @@
     apply();
     document.getElementById('smaller').onclick = () => { size = Math.max(12, size - 2); apply(); };
     document.getElementById('larger').onclick = () => { size = Math.min(36, size + 2); apply(); };
+    function showProgress() {
+      const max = scroller.scrollHeight - scroller.clientHeight;
+      const pct = max > 0 ? Math.round((scroller.scrollTop / max) * 100) : 100;
+      document.getElementById('progress').textContent = pct + '%';
+      document.getElementById('progressBar').style.width = pct + '%';
+    }
     scroller.scrollTop = Number(storeGet(positionKey) || 0);
-    scroller.addEventListener('scroll', () => storeSet(positionKey, scroller.scrollTop), { passive: true });
+    showProgress();
+    scroller.addEventListener('scroll', () => { storeSet(positionKey, scroller.scrollTop); showProgress(); }, { passive: true });
   })();
 </script>

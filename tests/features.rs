@@ -392,3 +392,57 @@ async fn web_reader() {
     let admin = t.text("/admin").await;
     assert!(admin.contains("/read/b.epub") && !admin.contains("/read/m.mobi"));
 }
+
+#[tokio::test]
+async fn bulk_move_and_delete() {
+    let t = app_with(&[]);
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(t.books().join(name), "x").unwrap();
+    }
+    let csrf = t.csrf().await;
+
+    let (status, _, _) = t
+        .post_form("/admin/bulk", "csrf=bad&action=delete&path=a.txt")
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(t.books().join("a.txt").exists());
+
+    // The form repeats `path` for every selected book
+    let (_, headers, _) = t
+        .post_form(
+            "/admin/bulk",
+            &format!("csrf={csrf}&action=move&folder=Pila&path=a.txt&path=b.txt"),
+        )
+        .await;
+    assert!(headers["location"].contains("notice"));
+    assert!(t.books().join("Pila/a.txt").exists() && t.books().join("Pila/b.txt").exists());
+
+    // A path outside the library is skipped and reported
+    let (_, headers, _) = t
+        .post_form(
+            "/admin/bulk",
+            &format!("csrf={csrf}&action=delete&path=Pila%2Fa.txt&path=..%2Fsecret.txt"),
+        )
+        .await;
+    assert!(headers["location"].contains("error"));
+    assert!(!t.books().join("Pila/a.txt").exists());
+    assert!(t.books().join("c.txt").exists());
+
+    let (_, headers, _) = t
+        .post_form("/admin/bulk", &format!("csrf={csrf}&action=move&folder=..%2Fout&path=c.txt"))
+        .await;
+    assert!(headers["location"].contains("error"));
+    assert!(t.books().join("c.txt").exists());
+}
+
+#[tokio::test]
+async fn inspector_panel_is_a_fragment() {
+    let t = app_with(&[]);
+    std::fs::write(t.books().join("a.txt"), "x").unwrap();
+    let full = t.text("/info/a.txt").await;
+    assert!(full.contains("<html") && full.contains(r#"href="/info/a.txt""#));
+    let panel = t.text("/info/a.txt?panel=1").await;
+    assert!(!panel.contains("<html") && panel.contains("/download/a.txt"));
+    let edit = t.text("/admin/edit/a.txt?panel=1").await;
+    assert!(!edit.contains("<html") && edit.contains(r#"name="csrf" value=""#));
+}

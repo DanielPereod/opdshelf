@@ -1,18 +1,19 @@
 <div data-controls>
-  <span id="counter" class="text-xs text-neutral-500 tabular-nums px-2"></span>
-  <button id="direction" class="btn-icon" title="Reading direction"><i class="fas fa-exchange-alt"></i></button>
+  <span id="counter" class="count"></span>
+  <button type="button" id="direction" class="icon-btn" title="Reading direction"><i class="fas fa-right-left"></i></button>
 </div>
 
-<main id="stage" class="relative flex-1 min-h-0 flex items-center justify-center bg-neutral-100 dark:bg-black select-none">
-  <img id="pageImg" alt="" class="max-h-full max-w-full object-contain">
-  <button id="left" class="absolute left-0 top-0 bottom-0 w-1/3 cursor-pointer" title="Previous page"></button>
-  <button id="right" class="absolute right-0 top-0 bottom-0 w-1/3 cursor-pointer" title="Next page"></button>
-  <div id="status" class="absolute inset-0 flex items-center justify-center text-neutral-500 pointer-events-none">
-    <i class="fas fa-spinner fa-spin mr-2"></i> Loading…
+<main class="stage" id="stage">
+  <div class="comic-stage">
+    <img id="pageImg" alt="">
+    <button type="button" id="left" class="tap left" title="Previous page"></button>
+    <button type="button" id="right" class="tap right" title="Next page"></button>
   </div>
+  <div id="status" class="loading"><span><i class="fas fa-spinner fa-spin"></i> Loading…</span></div>
 </main>
-<footer class="h-10 shrink-0 flex items-center px-4">
-  <input id="slider" type="range" min="1" value="1" class="w-full accent-primary-600" aria-label="Page">
+
+<footer class="reader-foot">
+  <input id="slider" type="range" min="1" value="1" aria-label="Page">
 </footer>
 
 <script data-path="{{urlPath book.path}}" data-key="{{book.path}}">
@@ -48,7 +49,9 @@
       rtl = !rtl;
       storeSet('opdshelf:comic-rtl', rtl ? '1' : '0');
       slider.style.direction = rtl ? 'rtl' : 'ltr';
+      document.getElementById('direction').setAttribute('aria-pressed', rtl);
     };
+    document.getElementById('direction').setAttribute('aria-pressed', rtl);
     slider.style.direction = rtl ? 'rtl' : 'ltr';
     slider.oninput = () => show(Number(slider.value) - 1);
     document.addEventListener('keydown', (e) => {
@@ -66,7 +69,7 @@
       touchX = null;
     });
 
-    img.onload = () => status.classList.add('hidden');
+    img.onload = () => { status.hidden = true; };
     fetch(`/pages/${path}`)
       .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((data) => {

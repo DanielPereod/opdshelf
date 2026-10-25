@@ -12,7 +12,7 @@ use crate::lookup::normalize_isbn;
 use crate::metadata::BookMeta;
 use crate::paths;
 use crate::store::MetaOverride;
-use crate::web::{admin_redirect, book_json, page, AppState};
+use crate::web::{admin_redirect, book_json, fragment, library_data, page, with_selection, AdminQuery, AppState};
 
 fn split_list(value: &str, separator: char) -> Vec<String> {
     value
@@ -26,25 +26,21 @@ fn edit_url(rel: &str) -> String {
     format!("/admin/edit/{}", paths::url_encode(rel))
 }
 
-#[derive(Deserialize)]
-pub struct NoticeQuery {
-    notice: Option<String>,
-    error: Option<String>,
-}
-
 pub async fn edit_page(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(path): Path<String>,
-    Query(query): Query<NoticeQuery>,
+    Query(query): Query<AdminQuery>,
 ) -> Response {
     let Some(book) = state.library.book(&path).await else {
         return StatusCode::NOT_FOUND.into_response();
     };
     let meta = &book.meta;
     let isbn = meta.identifier.as_deref().and_then(normalize_isbn);
-    let data = json!({
+    let selection = json!({
         "book": book_json(&book),
+        "tab": "edit",
+        "editTab": true,
         "fields": {
             "title": book.title,
             "authors": meta.authors.join("; "),
@@ -56,13 +52,15 @@ pub async fn edit_page(
             "identifier": meta.identifier,
         },
         "isbn": isbn,
-        "notice": query.notice,
-        "error": query.error,
     });
+    if query.wants_panel() {
+        return fragment(&state, "inspector", selection);
+    }
+    let data = with_selection(library_data(&state, &query).await, selection);
     page(
         &state,
         &headers,
-        "edit",
+        "admin",
         &format!("Edit {} - OPDShelf", book.title),
         data,
     )

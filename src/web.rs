@@ -79,6 +79,7 @@ pub fn router(config: Config) -> Router {
         .route("/admin/upload", post(upload).layer(DefaultBodyLimit::max(upload_limit)))
         .route("/admin/delete", post(delete))
         .route("/admin/rename", post(rename))
+        .route("/admin/bulk", post(bulk))
         .route("/admin/edit/{*path}", get(edit::edit_page))
         .route(
             "/admin/edit",
@@ -168,6 +169,18 @@ pub fn page_with_layout(
         .into_response()
 }
 
+/// Renders `view` on its own, for the parts of the panel that are swapped in with fetch.
+pub fn fragment(state: &AppState, view: &str, data: serde_json::Value) -> Response {
+    let mut data = data;
+    let map = data.as_object_mut().expect("fragment data is an object");
+    map.insert("csrf".into(), json!(state.auth.csrf_token()));
+    let html = state.templates.render(view, &data).unwrap_or_else(|err| {
+        tracing::error!("template {view}: {err}");
+        String::from("Template error")
+    });
+    ([(header::CACHE_CONTROL, "no-store")], Html(html)).into_response()
+}
+
 pub fn admin_redirect(folder: &str, notice: Option<&str>, error: Option<&str>) -> Response {
     let mut url = String::from("/admin");
     let mut params = Vec::new();
@@ -200,21 +213,32 @@ pub fn book_json(book: &Book) -> serde_json::Value {
         "coverVersion": covers::version(book),
         "readable": book.readable,
         "edited": book.edited,
+        "noAuthors": book.authors.is_empty(),
+        "incomplete": book.authors.is_empty() || !book.has_cover,
     })
 }
 
 // ---------------------------------------------------------------------------
 // Admin
 
-#[derive(Deserialize)]
-struct AdminQuery {
+#[derive(Deserialize, Default)]
+pub struct AdminQuery {
     sort: Option<String>,
     folder: Option<String>,
     notice: Option<String>,
     error: Option<String>,
+    /// Set when the inspector asks for just its own HTML.
+    panel: Option<String>,
 }
 
-async fn admin(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<AdminQuery>) -> Response {
+impl AdminQuery {
+    pub fn wants_panel(&self) -> bool {
+        self.panel.is_some()
+    }
+}
+
+/// Everything the library page needs: the books, the folder tree and format counts.
+pub async fn library_data(state: &AppState, query: &AdminQuery) -> serde_json::Value {
     let snapshot = state.library.scan().await;
     let mut books = snapshot.books.clone();
     let sort = SortMode::parse(query.sort.as_deref());
@@ -229,21 +253,64 @@ async fn admin(State(state): State<AppState>, headers: HeaderMap, Query(query): 
     extensions.sort();
     let folder = query
         .folder
-        .and_then(|f| paths::sanitize(&f))
+        .as_deref()
+        .and_then(paths::sanitize)
         .filter(|f| snapshot.folders.contains(f))
         .unwrap_or_default();
 
-    let data = json!({
+    let folder_tree: Vec<_> = snapshot
+        .folders
+        .iter()
+        .map(|f| {
+            let prefix = format!("{f}/");
+            let count = books
+                .iter()
+                .filter(|b| b.folder == *f || b.folder.starts_with(&prefix))
+                .count();
+            json!({
+                "path": f,
+                "name": paths::file_name(f),
+                "depth": f.matches('/').count(),
+                "count": count,
+            })
+        })
+        .collect();
+    let mut formats: Vec<(String, usize)> = Vec::new();
+    for book in &books {
+        match formats.iter_mut().find(|(name, _)| *name == book.format) {
+            Some((_, count)) => *count += 1,
+            None => formats.push((book.format.clone(), 1)),
+        }
+    }
+    formats.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    json!({
         "books": books.iter().map(book_json).collect::<Vec<_>>(),
+        "total": books.len(),
+        "incompleteCount": books.iter().filter(|b| b.authors.is_empty() || !b.has_cover).count(),
         "folders": snapshot.folders,
+        "folderTree": folder_tree,
+        "formatCounts": formats.iter().map(|(name, count)| json!({ "name": name, "count": count })).collect::<Vec<_>>(),
         "folder": folder,
         "sortMode": sort.as_str(),
         "accept": extensions.join(","),
         "formats": extensions.iter().map(|e| e.trim_start_matches('.').to_uppercase()).collect::<Vec<_>>().join(", "),
         "notice": query.notice,
         "error": query.error,
-    });
-    page(&state, &headers, "admin", "OPDShelf Admin", data)
+    })
+}
+
+/// Adds the selected book to the library data, for the inspector.
+pub fn with_selection(mut data: serde_json::Value, selection: serde_json::Value) -> serde_json::Value {
+    if let (Some(map), serde_json::Value::Object(extra)) = (data.as_object_mut(), selection) {
+        map.extend(extra);
+    }
+    data
+}
+
+async fn admin(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<AdminQuery>) -> Response {
+    let data = library_data(&state, &query).await;
+    page(&state, &headers, "admin", "OPDShelf", data)
 }
 
 fn unique_destination(dir: &std::path::Path, name: &str) -> PathBuf {
@@ -356,22 +423,48 @@ async fn delete(State(state): State<AppState>, Form(form): Form<DeleteForm>) -> 
     let Some((rel, path)) = state.library.book_path(&form.path) else {
         return admin_redirect("", None, Some("Book not found"));
     };
-    match tokio::fs::remove_file(&path).await {
-        Ok(()) => {
-            state.library.forget(&rel);
-            state.library.invalidate();
-            if let Err(err) = state.library.store().remove(&rel) {
-                tracing::warn!("cannot remove edited metadata of {rel}: {err}");
-            }
-            tracing::info!("deleted {rel}");
-            admin_redirect(
-                paths::parent(&rel),
-                Some(&format!("Deleted {}", paths::file_name(&rel))),
-                None,
-            )
-        }
+    match delete_book(&state, &rel, &path).await {
+        Ok(()) => admin_redirect(
+            paths::parent(&rel),
+            Some(&format!("Deleted {}", paths::file_name(&rel))),
+            None,
+        ),
         Err(err) => admin_redirect(paths::parent(&rel), None, Some(&format!("Delete failed: {err}"))),
     }
+}
+
+async fn delete_book(state: &AppState, rel: &str, path: &std::path::Path) -> std::io::Result<()> {
+    tokio::fs::remove_file(path).await?;
+    state.library.forget(rel);
+    state.library.invalidate();
+    if let Err(err) = state.library.store().remove(rel) {
+        tracing::warn!("cannot remove edited metadata of {rel}: {err}");
+    }
+    tracing::info!("deleted {rel}");
+    Ok(())
+}
+
+/// Moves a book to `new_rel`, taking its edited metadata along.
+async fn move_book(state: &AppState, rel: &str, old_path: &std::path::Path, new_rel: &str) -> Result<(), String> {
+    let new_path = state.library.root().join(new_rel);
+    if new_path.exists() {
+        return Err(format!("{new_rel} already exists"));
+    }
+    let result = async {
+        if let Some(parent) = new_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        tokio::fs::rename(old_path, &new_path).await
+    }
+    .await;
+    result.map_err(|err| err.to_string())?;
+    state.library.forget(rel);
+    state.library.invalidate();
+    if let Err(err) = state.library.store().rename(rel, new_rel) {
+        tracing::warn!("cannot move edited metadata of {rel}: {err}");
+    }
+    tracing::info!("renamed {rel} to {new_rel}");
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -412,29 +505,78 @@ async fn rename(State(state): State<AppState>, Form(form): Form<RenameForm>) -> 
     if new_rel == rel {
         return admin_redirect(&folder, None, None);
     }
-    let new_path = state.library.root().join(&new_rel);
-    if new_path.exists() {
-        return admin_redirect(paths::parent(&rel), None, Some(&format!("{new_rel} already exists")));
-    }
-    let result = async {
-        if let Some(parent) = new_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-        tokio::fs::rename(&old_path, &new_path).await
-    }
-    .await;
-    match result {
-        Ok(()) => {
-            state.library.forget(&rel);
-            state.library.invalidate();
-            if let Err(err) = state.library.store().rename(&rel, &new_rel) {
-                tracing::warn!("cannot move edited metadata of {rel}: {err}");
-            }
-            tracing::info!("renamed {rel} to {new_rel}");
-            admin_redirect(&folder, Some(&format!("Renamed to {new_rel}")), None)
-        }
+    match move_book(&state, &rel, &old_path, &new_rel).await {
+        Ok(()) => admin_redirect(&folder, Some(&format!("Renamed to {new_rel}")), None),
         Err(err) => admin_redirect(paths::parent(&rel), None, Some(&format!("Rename failed: {err}"))),
     }
+}
+
+/// Deletes or moves several books at once. The form repeats `path` once per book.
+async fn bulk(State(state): State<AppState>, body: axum::body::Bytes) -> Response {
+    let mut csrf = String::new();
+    let mut action = String::new();
+    let mut target = String::new();
+    let mut selected = Vec::new();
+    for (key, value) in form_urlencoded::parse(&body) {
+        match key.as_ref() {
+            "csrf" => csrf = value.into_owned(),
+            "action" => action = value.into_owned(),
+            "folder" => target = value.trim().to_string(),
+            "path" => selected.push(value.into_owned()),
+            _ => {}
+        }
+    }
+    if !state.auth.check_csrf(&csrf) {
+        return (StatusCode::FORBIDDEN, "Invalid CSRF token").into_response();
+    }
+    let folder = if target.is_empty() {
+        String::new()
+    } else {
+        match paths::sanitize(&target) {
+            Some(f) => f,
+            None => return admin_redirect("", None, Some("Invalid folder name")),
+        }
+    };
+
+    let mut done = 0;
+    let mut failed = Vec::new();
+    for path in &selected {
+        let Some((rel, file)) = state.library.book_path(path) else {
+            failed.push(format!("{path}: not found"));
+            continue;
+        };
+        let result = match action.as_str() {
+            "delete" => delete_book(&state, &rel, &file).await.map_err(|e| e.to_string()),
+            "move" => {
+                let name = paths::file_name(&rel);
+                let new_rel = if folder.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{folder}/{name}")
+                };
+                if new_rel == rel {
+                    Ok(())
+                } else {
+                    move_book(&state, &rel, &file, &new_rel).await
+                }
+            }
+            _ => return (StatusCode::BAD_REQUEST, "Unknown action").into_response(),
+        };
+        match result {
+            Ok(()) => done += 1,
+            Err(err) => failed.push(format!("{}: {err}", paths::file_name(&rel))),
+        }
+    }
+    let notice = (done > 0).then(|| match action.as_str() {
+        "delete" => format!("Deleted {done} book(s)"),
+        _ => format!(
+            "Moved {done} book(s) to {}",
+            if folder.is_empty() { "the library root" } else { &folder }
+        ),
+    });
+    let error = (!failed.is_empty()).then(|| failed.join("; "));
+    let back = if action == "move" { folder.as_str() } else { "" };
+    admin_redirect(back, notice.as_deref(), error.as_deref())
 }
 
 // ---------------------------------------------------------------------------
@@ -534,22 +676,27 @@ async fn serve_cover(
     }
 }
 
-async fn info(State(state): State<AppState>, headers: HeaderMap, Path(path): Path<String>) -> Response {
+async fn info(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(path): Path<String>,
+    Query(query): Query<AdminQuery>,
+) -> Response {
     let Some(book) = state.library.book(&path).await else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let data = json!({
+    let selection = json!({
         "book": book_json(&book),
         "meta": book.meta,
         "mime": book.mime,
+        "tab": "info",
+        "infoTab": true,
     });
-    page(
-        &state,
-        &headers,
-        "book_details",
-        &format!("{} - OPDShelf", book.title),
-        data,
-    )
+    if query.wants_panel() {
+        return fragment(&state, "inspector", selection);
+    }
+    let data = with_selection(library_data(&state, &query).await, selection);
+    page(&state, &headers, "admin", &format!("{} - OPDShelf", book.title), data)
 }
 
 // ---------------------------------------------------------------------------
@@ -563,7 +710,7 @@ async fn login_page(State(state): State<AppState>, headers: HeaderMap, Query(que
         &state,
         &headers,
         "login",
-        "Login - OPDShelf",
+        "Sign in - OPDShelf",
         json!({ "error": query.error }),
     )
 }

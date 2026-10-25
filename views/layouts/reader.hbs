@@ -24,22 +24,31 @@
         document.documentElement.classList.add('dark');
       }
     })();
+
+    // Page colour of the reader: light, gray or dark
+    function readerPaper() {
+      const saved = storeGet('opdshelf:paper');
+      if (['light', 'gray', 'dark'].includes(saved)) return saved;
+      return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+    }
   </script>
 </head>
 
-<body class="h-dvh flex flex-col overflow-hidden bg-white dark:bg-black text-neutral-900 dark:text-neutral-100">
-  <header
-    class="flex items-center gap-2 px-2 sm:px-4 h-12 shrink-0 border-b border-neutral-200 dark:border-neutral-800">
-    <a href="/info/{{urlPath book.path}}" class="btn-icon" title="Back to details"><i class="fas fa-arrow-left"></i></a>
-    <h1 class="flex-1 min-w-0 truncate text-sm font-semibold" title="{{book.title}}">{{book.title}}</h1>
-    <div id="controls" class="flex items-center gap-1"></div>
-    <button class="btn-icon" onclick="toggleReaderTheme()" title="Toggle theme">
-      <i class="fas fa-moon dark:!hidden"></i>
-      <i class="fas fa-sun !hidden dark:!inline-block"></i>
-    </button>
-  </header>
+<body>
+  <div class="reader" id="reader">
+    <header class="reader-bar">
+      <a href="/info/{{urlPath book.path}}" class="icon-btn" title="Back to the library"><i class="fas fa-arrow-left"></i></a>
+      <div class="title" title="{{book.title}}">{{book.title}}{{#if book.authors}} <span>· {{book.authors}}</span>{{/if}}</div>
+      <div id="controls"></div>
+      <div class="segmented" role="group" aria-label="Page colour">
+        <button type="button" class="icon-btn" data-paper="light" title="Light page"><i class="far fa-sun"></i></button>
+        <button type="button" class="icon-btn" data-paper="gray" title="Gray page"><i class="fas fa-circle-half-stroke"></i></button>
+        <button type="button" class="icon-btn" data-paper="dark" title="Dark page"><i class="far fa-moon"></i></button>
+      </div>
+    </header>
 
-  {{{body}}}
+    {{{body}}}
+  </div>
 
   <script>
     // Each reader declares its toolbar buttons in a [data-controls] element
@@ -48,11 +57,18 @@
       el.remove();
     });
 
-    function toggleReaderTheme() {
-      const dark = document.documentElement.classList.toggle('dark');
-      storeSet('theme', dark ? 'dark' : 'light');
-      document.dispatchEvent(new CustomEvent('themechange', { detail: { dark } }));
+    function setPaper(paper) {
+      document.getElementById('reader').dataset.paper = paper;
+      document.querySelectorAll('[data-paper]').forEach((b) => {
+        if (b.tagName === 'BUTTON') b.setAttribute('aria-pressed', b.dataset.paper === paper);
+      });
+      document.dispatchEvent(new CustomEvent('paperchange', { detail: { paper } }));
     }
+    document.querySelectorAll('button[data-paper]').forEach((b) => b.addEventListener('click', () => {
+      storeSet('opdshelf:paper', b.dataset.paper);
+      setPaper(b.dataset.paper);
+    }));
+    setPaper(readerPaper());
   </script>
 </body>
 

@@ -1,13 +1,19 @@
 <div data-controls>
-  <span id="pageInfo" class="text-xs text-neutral-500 tabular-nums px-2"></span>
-  <button id="zoomOut" class="btn-icon" title="Zoom out"><i class="fas fa-search-minus"></i></button>
-  <button id="zoomIn" class="btn-icon" title="Zoom in"><i class="fas fa-search-plus"></i></button>
-  <a href="/download/{{urlPath book.path}}" class="btn-icon" title="Download"><i class="fas fa-download"></i></a>
+  <button type="button" id="zoomOut" class="icon-btn" title="Zoom out"><i class="fas fa-magnifying-glass-minus"></i></button>
+  <button type="button" id="zoomIn" class="icon-btn" title="Zoom in"><i class="fas fa-magnifying-glass-plus"></i></button>
+  <a href="/download/{{urlPath book.path}}" class="icon-btn" title="Download"><i class="fas fa-download"></i></a>
 </div>
 
-<main id="pages" class="flex-1 min-h-0 overflow-auto bg-neutral-200 dark:bg-neutral-900 py-4">
-  <div id="status" class="text-center text-neutral-500 py-20"><i class="fas fa-spinner fa-spin mr-2"></i> Loading…</div>
+<main class="stage">
+  <div id="pages" class="scroll-stage pdf-pages">
+    <div id="status" class="loading"><span><i class="fas fa-spinner fa-spin"></i> Loading…</span></div>
+  </div>
 </main>
+
+<footer class="reader-foot">
+  <span id="pageInfo"></span>
+  <div class="track"><b id="progressBar"></b></div>
+</footer>
 
 <div id="pdfData" hidden data-url="/download/{{urlPath book.path}}?inline=1" data-key="{{book.path}}"></div>
 <script type="module">
@@ -62,7 +68,7 @@
     for (let i = 1; i <= pdf.numPages; i++) {
       const wrapper = document.createElement('div');
       wrapper.dataset.page = i;
-      wrapper.className = 'mx-auto mb-4 bg-white shadow';
+      wrapper.className = 'pdf-page';
       wrapper.style.width = base.width * scale + 'px';
       wrapper.style.height = base.height * scale + 'px';
       container.append(wrapper);
@@ -90,13 +96,18 @@
 
   container.addEventListener('scroll', () => {
     const page = currentPage();
-    pageInfo.textContent = page + ' / ' + pdf.numPages;
+    showPage(page);
     storeSet(positionKey, page);
   }, { passive: true });
 
   document.getElementById('zoomIn').onclick = () => { const p = currentPage(); scale = Math.min(4, scale * 1.2); build(p); };
   document.getElementById('zoomOut').onclick = () => { const p = currentPage(); scale = Math.max(0.3, scale / 1.2); build(p); };
 
+  function showPage(page) {
+    pageInfo.textContent = page + ' / ' + pdf.numPages;
+    document.getElementById('progressBar').style.width = Math.round((page / pdf.numPages) * 100) + '%';
+  }
+
   build(Number(storeGet(positionKey) || 1));
-  pageInfo.textContent = currentPage() + ' / ' + pdf.numPages;
+  showPage(currentPage());
 </script>

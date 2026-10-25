@@ -1,0 +1,23 @@
+<div data-controls>
+  <button id="smaller" class="btn-icon" title="Smaller text"><i class="fas fa-minus"></i></button>
+  <button id="larger" class="btn-icon" title="Larger text"><i class="fas fa-plus"></i></button>
+</div>
+
+<main id="scroller" class="flex-1 min-h-0 overflow-auto">
+  <article id="text" class="max-w-3xl mx-auto px-5 py-8 whitespace-pre-wrap break-words leading-relaxed font-serif">{{text}}</article>
+</main>
+
+<script data-key="{{book.path}}">
+  (function () {
+    const positionKey = 'opdshelf:text:' + document.currentScript.dataset.key;
+    const scroller = document.getElementById('scroller');
+    const text = document.getElementById('text');
+    let size = parseInt(storeGet('opdshelf:textsize') || '18', 10);
+    const apply = () => { text.style.fontSize = size + 'px'; storeSet('opdshelf:textsize', size); };
+    apply();
+    document.getElementById('smaller').onclick = () => { size = Math.max(12, size - 2); apply(); };
+    document.getElementById('larger').onclick = () => { size = Math.min(36, size + 2); apply(); };
+    scroller.scrollTop = Number(storeGet(positionKey) || 0);
+    scroller.addEventListener('scroll', () => storeSet(positionKey, scroller.scrollTop), { passive: true });
+  })();
+</script>

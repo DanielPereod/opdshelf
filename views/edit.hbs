@@ -1,0 +1,204 @@
+<div class="max-w-5xl mx-auto animate-fade-in-up">
+  <div class="mb-6 flex items-center justify-between gap-4">
+    <a href="/info/{{urlPath book.path}}"
+      class="inline-flex items-center text-neutral-600 dark:text-neutral-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors">
+      <i class="fas fa-arrow-left mr-2"></i> Back to book
+    </a>
+    {{#if book.edited}}
+    <form action="/admin/reset" method="post"
+      onsubmit="return confirm('Discard your changes and use the metadata from the file?');">
+      <input type="hidden" name="csrf" value="{{csrf}}">
+      <input type="hidden" name="path" value="{{book.path}}">
+      <button type="submit" class="text-sm text-red-600 hover:underline cursor-pointer">
+        <i class="fas fa-undo mr-1"></i> Restore file metadata
+      </button>
+    </form>
+    {{/if}}
+  </div>
+
+  {{#if notice}}
+  <div class="mb-6 rounded-xl bg-primary-50 dark:bg-primary-900/20 px-4 py-3 text-sm text-primary-700 dark:text-primary-300">
+    <i class="fas fa-check-circle mr-2"></i>{{notice}}
+  </div>
+  {{/if}}
+  {{#if error}}
+  <div class="mb-6 rounded-xl bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+    <i class="fas fa-exclamation-circle mr-2"></i>{{error}}
+  </div>
+  {{/if}}
+
+  <!-- ISBN lookup -->
+  <div class="theme-card p-6 mb-6">
+    <h2 class="font-semibold text-neutral-900 dark:text-white mb-1">Fill in from ISBN</h2>
+    <p class="text-sm text-neutral-500 dark:text-neutral-400 mb-4">Searches Open Library and Google Books. You can
+      review the result before applying it.</p>
+    <div class="flex flex-col sm:flex-row gap-3">
+      <div class="relative flex-1">
+        <i class="fas fa-barcode absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"></i>
+        <input type="text" id="isbn" value="{{isbn}}" placeholder="978-…" class="input-field" inputmode="numeric">
+      </div>
+      <button type="button" id="lookupBtn" class="btn-primary"><i class="fas fa-search mr-2"></i> Search</button>
+    </div>
+    <div id="lookupResult" class="hidden mt-4 rounded-xl border border-neutral-200 dark:border-neutral-700 p-4">
+      <div class="flex gap-4">
+        <img id="lookupCover" alt="" class="hidden w-20 h-30 object-cover rounded shadow-sm flex-shrink-0">
+        <div class="min-w-0 flex-1 text-sm">
+          <p class="text-xs text-neutral-400 mb-1" id="lookupSource"></p>
+          <p class="font-semibold text-neutral-900 dark:text-white" id="lookupTitle"></p>
+          <p class="text-neutral-600 dark:text-neutral-300" id="lookupAuthors"></p>
+          <p class="text-neutral-500 mt-1" id="lookupExtra"></p>
+        </div>
+      </div>
+      <div class="mt-4 flex flex-wrap gap-3 items-center">
+        <button type="button" id="applyBtn" class="btn-primary">Apply to the form</button>
+        <label class="text-sm text-neutral-600 dark:text-neutral-300 inline-flex items-center gap-2">
+          <input type="checkbox" id="applyCover" checked class="accent-primary-600"> Use this cover
+        </label>
+      </div>
+    </div>
+    <p id="lookupError" class="hidden mt-3 text-sm text-red-600"></p>
+  </div>
+
+  <form action="/admin/edit" method="post" enctype="multipart/form-data" class="theme-card p-6">
+    <input type="hidden" name="csrf" value="{{csrf}}">
+    <input type="hidden" name="path" value="{{book.path}}">
+    <input type="hidden" name="cover_url" id="coverUrl" value="">
+
+    <div class="flex flex-col md:flex-row gap-8">
+      <!-- Cover -->
+      <div class="md:w-48 flex-shrink-0 space-y-3">
+        <div class="aspect-[2/3] rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800">
+          {{#if book.hasCover}}
+          <img id="coverPreview" src="/cover/{{urlPath book.path}}" alt="" class="w-full h-full object-cover"
+            onerror="this.onerror=null;this.src='/static/no-cover-error.svg';">
+          {{else}}
+          <img id="coverPreview" src="/static/no-cover-error.svg" alt="" class="w-full h-full object-cover">
+          {{/if}}
+        </div>
+        <label class="btn-primary w-full cursor-pointer text-sm">
+          <i class="fas fa-image mr-2"></i> Change cover
+          <input type="file" name="cover" id="coverFile" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden">
+        </label>
+        {{#if book.hasCover}}
+        <label class="text-sm text-neutral-600 dark:text-neutral-300 inline-flex items-center gap-2">
+          <input type="checkbox" name="remove_cover" value="1" class="accent-primary-600"> Use the file's cover
+        </label>
+        {{/if}}
+      </div>
+
+      <!-- Fields -->
+      <div class="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <label class="sm:col-span-2 block">
+          <span class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Title</span>
+          <input type="text" name="title" id="f-title" value="{{fields.title}}" class="input-field !pl-3">
+        </label>
+        <label class="sm:col-span-2 block">
+          <span class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Authors
+            <span class="font-normal text-neutral-400">(separate with ;)</span></span>
+          <input type="text" name="authors" id="f-authors" value="{{fields.authors}}" class="input-field !pl-3">
+        </label>
+        <label class="block">
+          <span class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Publisher</span>
+          <input type="text" name="publisher" id="f-publisher" value="{{fields.publisher}}" class="input-field !pl-3">
+        </label>
+        <label class="block">
+          <span class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Date</span>
+          <input type="text" name="date" id="f-date" value="{{fields.date}}" class="input-field !pl-3">
+        </label>
+        <label class="block">
+          <span class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Language</span>
+          <input type="text" name="language" id="f-language" value="{{fields.language}}" placeholder="es, en…"
+            class="input-field !pl-3">
+        </label>
+        <label class="block">
+          <span class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">ISBN / identifier</span>
+          <input type="text" name="identifier" id="f-identifier" value="{{fields.identifier}}" class="input-field !pl-3">
+        </label>
+        <label class="sm:col-span-2 block">
+          <span class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Subjects
+            <span class="font-normal text-neutral-400">(separate with ,)</span></span>
+          <input type="text" name="subjects" id="f-subjects" value="{{fields.subjects}}" class="input-field !pl-3">
+        </label>
+        <label class="sm:col-span-2 block">
+          <span class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Description</span>
+          <textarea name="description" id="f-description" rows="7"
+            class="input-field !pl-3">{{fields.description}}</textarea>
+        </label>
+      </div>
+    </div>
+
+    <div class="mt-6 flex justify-end gap-3">
+      <a href="/info/{{urlPath book.path}}"
+        class="px-4 py-2 rounded-lg text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors">Cancel</a>
+      <button type="submit" class="btn-primary"><i class="fas fa-save mr-2"></i> Save</button>
+    </div>
+    <p class="mt-4 text-xs text-neutral-400 text-right">Changes are stored by OPDShelf; the book file is not modified.</p>
+  </form>
+</div>
+
+<script>
+  (function () {
+    const $ = (id) => document.getElementById(id);
+    let found = null;
+
+    $('coverFile').addEventListener('change', () => {
+      const file = $('coverFile').files[0];
+      if (file) {
+        $('coverPreview').src = URL.createObjectURL(file);
+        $('coverUrl').value = '';
+      }
+    });
+
+    async function lookup() {
+      const isbn = $('isbn').value.trim();
+      if (!isbn) return;
+      $('lookupError').classList.add('hidden');
+      $('lookupResult').classList.add('hidden');
+      $('lookupBtn').disabled = true;
+      try {
+        const response = await fetch('/admin/lookup?isbn=' + encodeURIComponent(isbn));
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || response.statusText);
+        found = data;
+        $('lookupSource').textContent = 'Found on ' + data.source;
+        $('lookupTitle').textContent = data.title || '(no title)';
+        $('lookupAuthors').textContent = data.authors.join(', ');
+        $('lookupExtra').textContent = [data.publisher, data.date].filter(Boolean).join(' · ');
+        if (data.coverUrl) {
+          $('lookupCover').src = data.coverUrl;
+          $('lookupCover').classList.remove('hidden');
+        } else {
+          $('lookupCover').classList.add('hidden');
+        }
+        $('applyCover').parentElement.classList.toggle('hidden', !data.coverUrl);
+        $('lookupResult').classList.remove('hidden');
+      } catch (err) {
+        $('lookupError').textContent = err.message;
+        $('lookupError').classList.remove('hidden');
+      } finally {
+        $('lookupBtn').disabled = false;
+      }
+    }
+    $('lookupBtn').addEventListener('click', lookup);
+    $('isbn').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); lookup(); } });
+
+    $('applyBtn').addEventListener('click', () => {
+      if (!found) return;
+      const set = (id, value) => { if (value) $(id).value = value; };
+      set('f-title', found.title);
+      set('f-authors', found.authors.join('; '));
+      set('f-publisher', found.publisher);
+      set('f-date', found.date);
+      set('f-language', found.language);
+      set('f-identifier', found.identifier);
+      if (found.subjects.length) $('f-subjects').value = found.subjects.join(', ');
+      set('f-description', found.description);
+      if (found.coverUrl && $('applyCover').checked) {
+        $('coverUrl').value = found.coverUrl;
+        $('coverPreview').src = found.coverUrl;
+        $('coverFile').value = '';
+      }
+      $('lookupResult').classList.add('hidden');
+    });
+  })();
+</script>

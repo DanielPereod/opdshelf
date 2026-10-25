@@ -24,6 +24,8 @@ fn app_with(vars: &[(&str, &str)]) -> TestApp {
     std::fs::create_dir_all(&books).unwrap();
     let mut env: HashMap<String, String> = vars.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
     env.insert("BOOKS_DIR".into(), books.to_string_lossy().into_owned());
+    // Tests write files and query right away, so rescan on every request
+    env.entry("WATCH".into()).or_insert_with(|| "false".into());
     TestApp {
         app: router(Config::from_lookup(|k| env.get(k).cloned())),
         dir,
@@ -343,7 +345,8 @@ async fn opds_catalog() {
     assert!(books.contains("<title>Don Quijote</title>"));
     assert!(books.contains("<name>Cervantes</name>"));
     assert!(books.contains("/download/Comics/Saga/01%20%26%20co.cbz"));
-    assert!(books.contains("/cover/quijote.epub"));
+    assert!(books.contains("/cover/quijote.epub?v="));
+    assert!(books.contains("/thumb/quijote.epub?v="));
     assert!(books.contains(r#"type="application/epub+zip""#));
     for updated in doc.descendants().filter(|n| n.has_tag_name("updated")) {
         chrono::DateTime::parse_from_rfc3339(updated.text().unwrap()).expect("RFC 3339 dates");

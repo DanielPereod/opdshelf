@@ -118,14 +118,18 @@ impl Feed {
             let _ = write!(e, r#"<summary type="text">{}</summary>"#, escape(description));
         }
         if let Some(mime) = book.cover_mime() {
-            for rel in ["http://opds-spec.org/image", "http://opds-spec.org/image/thumbnail"] {
-                let _ = write!(
-                    e,
-                    r#"<link rel="{rel}" href="{base}/cover/{}" type="{}"/>"#,
-                    escape(&url),
-                    escape(mime)
-                );
-            }
+            let version = crate::covers::version(book);
+            let _ = write!(
+                e,
+                r#"<link rel="http://opds-spec.org/image" href="{base}/cover/{}?v={version}" type="{}"/>"#,
+                escape(&url),
+                escape(mime)
+            );
+            let _ = write!(
+                e,
+                r#"<link rel="http://opds-spec.org/image/thumbnail" href="{base}/thumb/{}?v={version}" type="image/jpeg"/>"#,
+                escape(&url)
+            );
         }
         let _ = write!(
             e,

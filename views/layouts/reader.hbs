@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{title}}</title>
+  <link rel="icon" href="/static/icon.png" type="image/png">
+  <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css" />
+  <link rel="stylesheet" href="/static/styles/app.css">
+  <script>
+    function storeGet(key) {
+      try { return localStorage.getItem(key); } catch { return null; }
+    }
+
+    function storeSet(key, value) {
+      try { localStorage.setItem(key, value); } catch { }
+    }
+
+    (function () {
+      const savedTheme = storeGet("theme");
+      const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (savedTheme === 'dark' || (!savedTheme && systemDark)) {
+        document.documentElement.classList.add('dark');
+      }
+    })();
+  </script>
+</head>
+
+<body class="h-dvh flex flex-col overflow-hidden bg-white dark:bg-black text-neutral-900 dark:text-neutral-100">
+  <header
+    class="flex items-center gap-2 px-2 sm:px-4 h-12 shrink-0 border-b border-neutral-200 dark:border-neutral-800">
+    <a href="/info/{{urlPath book.path}}" class="btn-icon" title="Back to details"><i class="fas fa-arrow-left"></i></a>
+    <h1 class="flex-1 min-w-0 truncate text-sm font-semibold" title="{{book.title}}">{{book.title}}</h1>
+    <div id="controls" class="flex items-center gap-1"></div>
+    <button class="btn-icon" onclick="toggleReaderTheme()" title="Toggle theme">
+      <i class="fas fa-moon dark:!hidden"></i>
+      <i class="fas fa-sun !hidden dark:!inline-block"></i>
+    </button>
+  </header>
+
+  {{{body}}}
+
+  <script>
+    // Each reader declares its toolbar buttons in a [data-controls] element
+    document.querySelectorAll('[data-controls]').forEach((el) => {
+      document.getElementById('controls').append(...el.children);
+      el.remove();
+    });
+
+    function toggleReaderTheme() {
+      const dark = document.documentElement.classList.toggle('dark');
+      storeSet('theme', dark ? 'dark' : 'light');
+      document.dispatchEvent(new CustomEvent('themechange', { detail: { dark } }));
+    }
+  </script>
+</body>
+
+</html>

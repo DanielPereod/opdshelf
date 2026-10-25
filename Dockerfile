@@ -18,6 +18,8 @@ COPY --from=assets /app/static ./static
 RUN cargo build --release --locked
 
 FROM alpine:3.22
+# pdfinfo/pdftoppm for PDF covers, bsdtar for CBR/CB7/CBT comics
+RUN apk add --no-cache poppler-utils libarchive-tools
 COPY --from=builder /app/target/release/opdshelf /usr/local/bin/opdshelf
 WORKDIR /app
 RUN mkdir -p /app/books

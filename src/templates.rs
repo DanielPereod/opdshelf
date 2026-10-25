@@ -28,7 +28,12 @@ pub fn registry() -> Handlebars<'static> {
 }
 
 /// Renders `view` inside the main layout.
-pub fn render_page(hbs: &Handlebars, view: &str, mut data: Value) -> String {
+pub fn render_page(hbs: &Handlebars, view: &str, data: Value) -> String {
+    render_with_layout(hbs, view, "layouts/main", data)
+}
+
+/// Renders `view` inside `layout`, which receives the view's HTML as `body`.
+pub fn render_with_layout(hbs: &Handlebars, view: &str, layout: &str, mut data: Value) -> String {
     let render = |name: &str, data: &Value| {
         hbs.render(name, data).unwrap_or_else(|err| {
             tracing::error!("template {name}: {err}");
@@ -39,5 +44,5 @@ pub fn render_page(hbs: &Handlebars, view: &str, mut data: Value) -> String {
     if let Value::Object(map) = &mut data {
         map.insert("body".into(), Value::String(body));
     }
-    render("layouts/main", &data)
+    render(layout, &data)
 }

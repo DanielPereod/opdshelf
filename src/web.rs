@@ -17,8 +17,10 @@ use tower_http::services::ServeFile;
 use crate::auth::Auth;
 use crate::config::Config;
 use crate::library::{format_size, Book, Library, SortMode};
+use crate::lookup::Lookup;
+use crate::store::Store;
 use crate::templates::{self, Static};
-use crate::{opds, paths};
+use crate::{covers, edit, opds, paths, reader};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -26,13 +28,19 @@ pub struct AppState {
     pub library: Library,
     pub auth: Auth,
     pub templates: Arc<Handlebars<'static>>,
+    pub lookup: Lookup,
 }
 
 pub fn router(config: Config) -> Router {
     let state = AppState {
-        library: Library::new(config.books_dir.clone(), config.allowed_extensions.clone()),
+        library: Library::new(
+            config.books_dir.clone(),
+            config.allowed_extensions.clone(),
+            Store::open(&config.data_dir),
+        ),
         auth: Auth::new(&config),
         templates: Arc::new(templates::registry()),
+        lookup: Lookup::new(&config.openlibrary_url, &config.google_books_url),
         config: Arc::new(config),
     };
     let upload_limit = state.config.max_upload_bytes;
@@ -40,8 +48,13 @@ pub fn router(config: Config) -> Router {
     // Read every book's metadata in the background so the first feed request is fast
     if let Ok(runtime) = tokio::runtime::Handle::try_current() {
         let library = state.library.clone();
+        let watch = state.config.watch;
+        let interval = std::time::Duration::from_secs(state.config.scan_interval_secs);
         runtime.spawn(async move {
-            let books = library.scan().await.books.len();
+            if watch {
+                crate::watch::start(library.clone(), interval);
+            }
+            let books = library.snapshot().await.books.len();
             tracing::info!("library ready: {books} books");
         });
     }
@@ -57,11 +70,22 @@ pub fn router(config: Config) -> Router {
         .route("/opds/opensearch.xml", get(opds::opensearch))
         .route("/download/{*path}", get(download))
         .route("/cover/{*path}", get(cover))
+        .route("/thumb/{*path}", get(thumb))
         .route("/info/{*path}", get(info))
+        .route("/read/{*path}", get(reader::read))
+        .route("/pages/{*path}", get(reader::pages))
+        .route("/page/{*path}", get(reader::page))
         .route("/admin", get(admin))
         .route("/admin/upload", post(upload).layer(DefaultBodyLimit::max(upload_limit)))
         .route("/admin/delete", post(delete))
         .route("/admin/rename", post(rename))
+        .route("/admin/edit/{*path}", get(edit::edit_page))
+        .route(
+            "/admin/edit",
+            post(edit::save).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
+        )
+        .route("/admin/reset", post(edit::reset))
+        .route("/admin/lookup", get(edit::lookup))
         .route("/user/login", get(login_page).post(login))
         .route("/user/logout", post(logout))
         .route("/static/{*path}", get(static_file))
@@ -114,14 +138,25 @@ fn is_https(state: &AppState, headers: &HeaderMap) -> bool {
     base_url(state, headers).starts_with("https://")
 }
 
-fn page(state: &AppState, headers: &HeaderMap, view: &str, title: &str, data: serde_json::Value) -> Response {
+pub fn page(state: &AppState, headers: &HeaderMap, view: &str, title: &str, data: serde_json::Value) -> Response {
+    page_with_layout(state, headers, view, "layouts/main", title, data)
+}
+
+pub fn page_with_layout(
+    state: &AppState,
+    headers: &HeaderMap,
+    view: &str,
+    layout: &str,
+    title: &str,
+    data: serde_json::Value,
+) -> Response {
     let mut data = data;
     let map = data.as_object_mut().expect("page data is an object");
     map.insert("title".into(), json!(title));
     map.insert("csrf".into(), json!(state.auth.csrf_token()));
     map.insert("authEnabled".into(), json!(state.auth.enabled()));
     map.insert("baseUrl".into(), json!(base_url(state, headers)));
-    let html = templates::render_page(&state.templates, view, data);
+    let html = templates::render_with_layout(&state.templates, view, layout, data);
     (
         [
             (header::CACHE_CONTROL, "no-store"),
@@ -133,7 +168,7 @@ fn page(state: &AppState, headers: &HeaderMap, view: &str, title: &str, data: se
         .into_response()
 }
 
-fn admin_redirect(folder: &str, notice: Option<&str>, error: Option<&str>) -> Response {
+pub fn admin_redirect(folder: &str, notice: Option<&str>, error: Option<&str>) -> Response {
     let mut url = String::from("/admin");
     let mut params = Vec::new();
     if !folder.is_empty() {
@@ -151,7 +186,7 @@ fn admin_redirect(folder: &str, notice: Option<&str>, error: Option<&str>) -> Re
     Redirect::to(&url).into_response()
 }
 
-fn book_json(book: &Book) -> serde_json::Value {
+pub fn book_json(book: &Book) -> serde_json::Value {
     json!({
         "path": book.path,
         "folder": book.folder,
@@ -162,6 +197,9 @@ fn book_json(book: &Book) -> serde_json::Value {
         "size": format_size(book.size),
         "modified": book.modified.to_rfc3339(),
         "hasCover": book.has_cover,
+        "coverVersion": covers::version(book),
+        "readable": book.readable,
+        "edited": book.edited,
     })
 }
 
@@ -283,6 +321,7 @@ async fn upload(State(state): State<AppState>, mut multipart: Multipart) -> Resp
                 .await;
                 match result {
                     Ok(dest) => {
+                        state.library.invalidate();
                         tracing::info!("uploaded {}", dest.display());
                         saved.push(name);
                     }
@@ -320,6 +359,10 @@ async fn delete(State(state): State<AppState>, Form(form): Form<DeleteForm>) -> 
     match tokio::fs::remove_file(&path).await {
         Ok(()) => {
             state.library.forget(&rel);
+            state.library.invalidate();
+            if let Err(err) = state.library.store().remove(&rel) {
+                tracing::warn!("cannot remove edited metadata of {rel}: {err}");
+            }
             tracing::info!("deleted {rel}");
             admin_redirect(
                 paths::parent(&rel),
@@ -383,6 +426,10 @@ async fn rename(State(state): State<AppState>, Form(form): Form<RenameForm>) -> 
     match result {
         Ok(()) => {
             state.library.forget(&rel);
+            state.library.invalidate();
+            if let Err(err) = state.library.store().rename(&rel, &new_rel) {
+                tracing::warn!("cannot move edited metadata of {rel}: {err}");
+            }
             tracing::info!("renamed {rel} to {new_rel}");
             admin_redirect(&folder, Some(&format!("Renamed to {new_rel}")), None)
         }
@@ -397,6 +444,11 @@ async fn download(State(state): State<AppState>, Path(path): Path<String>, reque
     let Some((rel, file)) = state.library.book_path(&path) else {
         return StatusCode::NOT_FOUND.into_response();
     };
+    // ?inline=1 lets the web reader open the file instead of downloading it
+    let inline = request
+        .uri()
+        .query()
+        .is_some_and(|q| q.split('&').any(|p| p == "inline=1"));
     let mime = crate::library::mime_for(&rel);
     let mut response = match ServeFile::new_with_mime(
         &file,
@@ -420,7 +472,8 @@ async fn download(State(state): State<AppState>, Path(path): Path<String>, reque
         })
         .collect();
     let disposition = format!(
-        "attachment; filename=\"{ascii}\"; filename*=UTF-8''{}",
+        "{}; filename=\"{ascii}\"; filename*=UTF-8''{}",
+        if inline { "inline" } else { "attachment" },
         paths::url_encode(name)
     );
     if let Ok(value) = HeaderValue::from_str(&disposition) {
@@ -429,29 +482,48 @@ async fn download(State(state): State<AppState>, Path(path): Path<String>, reque
     response
 }
 
-async fn cover(State(state): State<AppState>, headers: HeaderMap, Path(path): Path<String>) -> Response {
+async fn cover(state: State<AppState>, headers: HeaderMap, path: Path<String>) -> Response {
+    serve_cover(state, headers, path, false).await
+}
+
+async fn thumb(state: State<AppState>, headers: HeaderMap, path: Path<String>) -> Response {
+    serve_cover(state, headers, path, true).await
+}
+
+async fn serve_cover(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(path): Path<String>,
+    thumbnail: bool,
+) -> Response {
     let Some(book) = state.library.book(&path).await else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let Some(source) = book.meta.cover.clone() else {
+    if !book.has_cover {
         return StatusCode::NOT_FOUND.into_response();
-    };
-    let etag = format!("\"{:x}-{:x}\"", book.size, book.modified.timestamp());
+    }
+    let etag = covers::etag(&book);
     if headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok()) == Some(etag.as_str()) {
         return StatusCode::NOT_MODIFIED.into_response();
     }
     let Some((_, file)) = state.library.book_path(&book.path) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let source_for_read = source.clone();
-    let image = tokio::task::spawn_blocking(move || crate::metadata::read_cover(&file, &source_for_read))
-        .await
-        .ok()
-        .flatten();
+    let store = state.library.store().clone();
+    let image = tokio::task::spawn_blocking(move || {
+        if thumbnail {
+            covers::thumbnail(&store, &book, &file)
+        } else {
+            covers::cover(&store, &book, &file)
+        }
+    })
+    .await
+    .ok()
+    .flatten();
     match image {
-        Some(image) => (
+        Some((image, mime)) => (
             [
-                (header::CONTENT_TYPE, source.mime().to_string()),
+                (header::CONTENT_TYPE, mime),
                 (header::CACHE_CONTROL, "private, max-age=86400".to_string()),
                 (header::ETAG, etag),
             ],
@@ -534,7 +606,10 @@ async fn logout(State(state): State<AppState>, Form(form): Form<CsrfForm>) -> Re
 async fn static_file(Path(path): Path<String>) -> Response {
     match Static::get(&path) {
         Some(file) => {
-            let mime = mime_guess::from_path(&path).first_or_octet_stream();
+            let mime = match paths::extension(&path).as_str() {
+                "mjs" => mime_guess::mime::APPLICATION_JAVASCRIPT,
+                _ => mime_guess::from_path(&path).first_or_octet_stream(),
+            };
             (
                 [
                     (header::CONTENT_TYPE, mime.to_string()),

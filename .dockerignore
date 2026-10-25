@@ -1,6 +1,10 @@
-books/
 .git
-.gitignore
-README.md
+.github
+target
+node_modules
+books
+static/styles/app.css
+static/vendor
 Dockerfile
 docker-compose.yml
+README.md

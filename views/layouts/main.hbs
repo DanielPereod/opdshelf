@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es" data-theme="light">
+<html lang="en" data-theme="light">
 
 <head>
   <meta charset="UTF-8" />
@@ -7,10 +7,7 @@
   <title>{{title}}</title>
   <link rel="icon" href="/static/icon.png" type="image/png">
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css" />
   <link rel="stylesheet" href="/static/styles/app.css">
 
   <script>
@@ -50,6 +47,12 @@
           <i class="fas h-4 w-4 fa-moon dark:!hidden"></i>
           <i class="fas h-4 w-4 fa-sun !hidden dark:!block"></i>
         </button>
+        {{#if authEnabled}}
+        <form action="/user/logout" method="post">
+          <input type="hidden" name="csrf" value="{{csrf}}">
+          <button type="submit" class="btn-icon" title="Log out"><i class="fas fa-sign-out-alt"></i></button>
+        </form>
+        {{/if}}
       </div>
 
       <!-- Mobile Menu Button -->
@@ -77,6 +80,15 @@
           <i class="fas fa-sun w-6 !hidden dark:!block"></i>
           Toggle Theme
         </button>
+        {{#if authEnabled}}
+        <form action="/user/logout" method="post">
+          <input type="hidden" name="csrf" value="{{csrf}}">
+          <button type="submit"
+            class="p-3 w-full text-left flex items-center rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200 font-medium transition-colors">
+            <i class="fas fa-sign-out-alt w-6"></i> Log out
+          </button>
+        </form>
+        {{/if}}
       </div>
     </div>
   </header>

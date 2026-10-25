@@ -1,42 +1,33 @@
-FROM oven/bun:1-alpine AS base
-
-# Install dependencies only when needed
-FROM base AS deps
+# Front-end assets (Tailwind CSS and Font Awesome)
+FROM node:22-alpine AS assets
 WORKDIR /app
-COPY package.json bun.lock* ./
-RUN bun install --frozen-lockfile
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY static ./static
+COPY views ./views
+RUN npm run build
 
-# Rebuild the source code only when needed
-FROM base AS builder
+# Server binary; templates and static files are embedded into it
+FROM rust:1-alpine AS builder
+RUN apk add --no-cache musl-dev
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN bun run build:css
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+COPY views ./views
+COPY --from=assets /app/static ./static
+RUN cargo build --release --locked
 
-# Production image, copy all the files and run next
-FROM base AS runner
+FROM alpine:3.22
+COPY --from=builder /app/target/release/opdshelf /usr/local/bin/opdshelf
 WORKDIR /app
-
-ENV NODE_ENV=production
-ENV PORT=3000
-ENV HOST=0.0.0.0
-ENV BOOKS_DIR=/app/books
-
-# Copy built files
-COPY --from=builder /app/src ./src
-COPY --from=builder /app/views ./views
-COPY --from=builder /app/static ./static
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
-
-# Create books directory
 RUN mkdir -p /app/books
 
-# Expose the port
+ENV PORT=3000 \
+    HOST=0.0.0.0 \
+    BOOKS_DIR=/app/books
+
 EXPOSE 3000
-
-# Create volume for persistent storage of books
 VOLUME ["/app/books"]
+HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- "http://127.0.0.1:${PORT}/healthz" || exit 1
 
-# Run the application
-CMD ["bun", "run", "src/index.ts"]
+CMD ["opdshelf"]

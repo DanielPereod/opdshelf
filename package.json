@@ -1,35 +1,16 @@
 {
-  "name": "opdshelf",
-  "version": "1.0.0",
-  "description": "OPDS Server using Bun + Hono",
-  "main": "src/index.ts",
+  "name": "opdshelf-assets",
+  "private": true,
+  "description": "Front-end assets for OPDShelf (the server itself is written in Rust)",
   "scripts": {
-    "dev": "bun run --hot src/index.ts",
-    "build:css": "bunx @tailwindcss/cli -i ./static/styles/index.css -o ./static/styles/app.css",
-    "watch:css": "bunx @tailwindcss/cli -i ./static/styles/index.css -o ./static/styles/app.css --watch",
-    "start": "bun run src/index.ts"
-  },
-  "dependencies": {
-    "@tailwindcss/postcss": "^4.1.18",
-    "adm-zip": "^0.5.10",
-    "fast-xml-parser": "^5.3.3",
-    "fflate": "^0.8.2",
-    "fs-extra": "^11.2.0",
-    "handlebars": "^4.7.8",
-    "hono": "^4.0.0",
-    "jsdom": "^27.4.0",
-    "linkedom": "^0.18.12",
-    "mime-types": "^2.1.35",
-    "postcss": "^8.5.6",
-    "tailwindcss": "^4.1.18"
+    "build": "npm run build:css && npm run build:vendor",
+    "build:css": "tailwindcss -i ./static/styles/index.css -o ./static/styles/app.css --minify",
+    "watch:css": "tailwindcss -i ./static/styles/index.css -o ./static/styles/app.css --watch",
+    "build:vendor": "mkdir -p static/vendor/fontawesome && cp -r node_modules/@fortawesome/fontawesome-free/css node_modules/@fortawesome/fontawesome-free/webfonts static/vendor/fontawesome/"
   },
   "devDependencies": {
+    "@fortawesome/fontawesome-free": "6.7.2",
     "@tailwindcss/cli": "^4.1.18",
-    "@types/adm-zip": "^0.5.5",
-    "@types/bun": "^1.3.8",
-    "@types/fs-extra": "^11.0.4",
-    "@types/jsdom": "^27.0.0",
-    "@types/mime-types": "^2.1.4",
-    "bun-types": "latest"
+    "tailwindcss": "^4.1.18"
   }
 }

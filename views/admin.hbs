@@ -1,8 +1,19 @@
 <div class="space-y-8 animate-fade-in-up">
-  <!-- Upload Section -->
-  <div class="theme-card p-8 text-center transition-transform hover:scale-[1.01] duration-300">
+  {{#if notice}}
+  <div class="rounded-xl bg-primary-50 dark:bg-primary-900/20 px-4 py-3 text-sm text-primary-700 dark:text-primary-300">
+    <i class="fas fa-check-circle mr-2"></i>{{notice}}
+  </div>
+  {{/if}}
+  {{#if error}}
+  <div class="rounded-xl bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+    <i class="fas fa-exclamation-circle mr-2"></i>{{error}}
+  </div>
+  {{/if}}
 
-    <form action="/book/upload" method="post" enctype="multipart/form-data" id="uploadForm">
+  <!-- Upload Section -->
+  <div class="theme-card p-8 text-center">
+    <form action="/admin/upload" method="post" enctype="multipart/form-data" id="uploadForm">
+      <input type="hidden" name="csrf" value="{{csrf}}">
       <div id="dropZone"
         class="group cursor-pointer rounded-2xl border-2 border-dashed border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 py-12 px-6 transition-all duration-300 hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/10 dark:hover:border-primary-500">
         <div class="flex flex-col items-center space-y-4">
@@ -12,47 +23,64 @@
               class="fas fa-cloud-upload-alt text-4xl text-neutral-400 group-hover:text-primary-600 dark:text-neutral-500"></i>
           </div>
           <div class="space-y-2">
-            <h3 class="text-lg font-semibold text-neutral-900 dark:text-white">Upload a Book</h3>
-            <p class="text-sm text-neutral-500 dark:text-neutral-400 max-w-sm mx-auto">
-              Support for EPUB, PDF, FB2, MOBI, AZW, CBZ, CBR, DJVU, RTF, TXT
+            <h3 class="text-lg font-semibold text-neutral-900 dark:text-white">Upload books</h3>
+            <p class="text-sm text-neutral-500 dark:text-neutral-400 max-w-md mx-auto">
+              Drop one or more files here. Supported: {{formats}}
             </p>
           </div>
-          <button type="button" class="btn-primary mt-4"
+          <div class="relative w-full max-w-xs" onclick="event.stopPropagation();">
+            <input type="text" name="folder" list="folderList" value="{{folder}}" placeholder="Folder (optional)"
+              class="input-field text-sm" aria-label="Destination folder">
+            <i class="fas fa-folder absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"></i>
+          </div>
+          <button type="button" class="btn-primary"
             onclick="document.getElementById('book').click(); event.stopPropagation();">
-            Choose File
+            Choose files
           </button>
           <div id="fileInfo"
             class="hidden mt-4 text-sm font-medium text-primary-600 bg-primary-50 dark:bg-primary-900/20 px-4 py-2 rounded-full animate-fade-in">
           </div>
         </div>
       </div>
-      <input type="file" id="book" name="book"
-        accept=".epub,.pdf,.fb2,.fb2.zip,.cbz,.cbr,.cb7,.mobi,.azw,.azw3,.azw4,.djvu,.txt,.rtf,.html,.htm" required
-        class="hidden" onclick="event.stopPropagation();" />
+      <input type="file" id="book" name="books" accept="{{accept}}" multiple required class="hidden"
+        onclick="event.stopPropagation();" />
     </form>
+    <datalist id="folderList">
+      {{#each folders}}<option value="{{this}}"></option>{{/each}}
+    </datalist>
   </div>
 
   <!-- Book Collection -->
   <div>
-    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
-      <h2 class="text-2xl font-bold text-neutral-900 dark:text-white">Library Collection <span id="booksCount"
+    <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between mb-6 gap-4">
+      <h2 class="text-2xl font-bold text-neutral-900 dark:text-white">Library <span id="booksCount"
           class="text-sm font-normal text-neutral-500 ml-2">({{len books}} books)</span></h2>
-      <div class="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+      <div class="flex flex-col sm:flex-row gap-4 w-full lg:w-auto">
         <div class="relative flex-grow sm:w-64">
-          <input type="text" id="bookSearch" placeholder="Search books..." class="input-field">
+          <input type="text" id="bookSearch" placeholder="Search title or author..." class="input-field">
           <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"></i>
         </div>
+        {{#if folders}}
+        <div class="relative">
+          <select id="folderFilter" class="input-field appearance-none cursor-pointer pr-10">
+            <option value="">All folders</option>
+            {{#each folders}}
+            <option value="{{this}}" {{#if (eq this ../folder)}}selected{{/if}}>{{this}}</option>
+            {{/each}}
+          </select>
+          <i class="fas fa-folder-open absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"></i>
+          <i class="fas fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none text-xs"></i>
+        </div>
+        {{/if}}
         <div class="relative">
           <select id="bookSort" class="input-field appearance-none cursor-pointer pr-10">
-            <option value="name-asc" {{#if (eq sortMode "name-asc" )}}selected{{/if}}>Name (A-Z)</option>
-            <option value="name-desc" {{#if (eq sortMode "name-desc" )}}selected{{/if}}>Name (Z-A)</option>
-            <option value="date-desc" {{#if (or (eq sortMode "" ) (eq sortMode "date-desc" ))}}selected{{/if}}>Newest
-              First</option>
-            <option value="date-asc" {{#if (eq sortMode "date-asc" )}}selected{{/if}}>Oldest First</option>
+            <option value="name-asc" {{#if (eq sortMode "name-asc")}}selected{{/if}}>Name (A-Z)</option>
+            <option value="name-desc" {{#if (eq sortMode "name-desc")}}selected{{/if}}>Name (Z-A)</option>
+            <option value="date-desc" {{#if (eq sortMode "date-desc")}}selected{{/if}}>Newest first</option>
+            <option value="date-asc" {{#if (eq sortMode "date-asc")}}selected{{/if}}>Oldest first</option>
           </select>
           <i class="fas fa-sort-amount-down absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"></i>
-          <i
-            class="fas fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none text-xs"></i>
+          <i class="fas fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none text-xs"></i>
         </div>
       </div>
     </div>
@@ -60,30 +88,38 @@
     {{#if books}}
     <div id="booksGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
       {{#each books}}
-      <div data-title="{{this.title}}" data-added="{{this.lastUpdated}}"
+      <div data-title="{{this.title}}" data-authors="{{this.authors}}" data-folder="{{this.folder}}"
+        data-added="{{this.modified}}"
         class="book-card dark:bg-dark-card bg-light-card group relative overflow-hidden hover:shadow-lg flex flex-col h-full focus:outline-none rounded"
         tabindex="0">
 
         <!-- Cover Image -->
         <div class="aspect-[2/3] relative overflow-hidden bg-neutral-100 dark:bg-neutral-800">
-          <img src="/book/cover/{{urlEncode this.filename}}" class="w-full h-full object-cover" alt="{{this.title}}"
+          {{#if this.hasCover}}
+          <img src="/cover/{{urlPath this.path}}" class="w-full h-full object-cover" alt="{{this.title}}"
             loading="lazy" onerror="this.onerror=null;this.src='/static/no-cover-error.svg';">
+          {{else}}
+          <img src="/static/no-cover-error.svg" class="w-full h-full object-cover" alt="{{this.title}}">
+          {{/if}}
 
           <!-- Overlay Actions -->
           <div class="flex-1 absolute bottom-0 w-full bg-light-card dark:bg-dark-card hidden group-hover:flex group-focus-within:flex">
-            <button data-filename="{{this.filename}}" onclick="openRenameModal(this.dataset.filename)"
-              class="py-2 flex-1 text-center text-primary-600 hover:bg-primary-600 hover:text-white  cursor-pointer"
-              title="Edit Filename">
+            <button type="button" data-path="{{this.path}}" data-name="{{this.fileName}}" data-folder="{{this.folder}}"
+              onclick="openRenameModal(this.dataset)"
+              class="py-2 flex-1 text-center text-primary-600 hover:bg-primary-600 hover:text-white cursor-pointer"
+              title="Rename or move">
               <i class="fas fa-edit"></i>
             </button>
-            <a href="/book/info/{{urlEncode this.filename}}"
-              class="py-2 flex-1 text-center text-primary-600 hover:bg-primary-500 hover:text-white  cursor-pointer"
-              title="View Details">
+            <a href="/info/{{urlPath this.path}}"
+              class="py-2 flex-1 text-center text-primary-600 hover:bg-primary-500 hover:text-white cursor-pointer"
+              title="View details">
               <i class="fas fa-eye"></i>
             </a>
-            <form action="/book/delete/{{urlEncode this.filename}}" method="post" data-title="{{this.title}}"
+            <form action="/admin/delete" method="post" data-title="{{this.title}}"
               onsubmit="return confirm('Delete ' + this.dataset.title + '?');"
               class="flex-1 text-center text-red-500 hover:bg-red-500 hover:text-white cursor-pointer">
+              <input type="hidden" name="csrf" value="{{../csrf}}">
+              <input type="hidden" name="path" value="{{this.path}}">
               <button type="submit" class="cursor-pointer py-2 h-full w-full" title="Delete">
                 <i class="fas fa-trash-alt"></i>
               </button>
@@ -93,14 +129,21 @@
 
         <!-- Content -->
         <div class="px-4 py-2 flex flex-col flex-grow">
-          <h3 class="font-semibold text-neutral-900 dark:text-white text-sm line-clamp-2 mb-2 leading-tight"
+          <h3 class="font-semibold text-neutral-900 dark:text-white text-sm line-clamp-2 leading-tight"
             title="{{this.title}}">{{this.title}}</h3>
+          {{#if this.authors}}
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 line-clamp-1 mt-1" title="{{this.authors}}">{{this.authors}}</p>
+          {{/if}}
+          {{#if this.folder}}
+          <p class="text-xs text-neutral-400 dark:text-neutral-500 line-clamp-1 mt-1" title="{{this.folder}}">
+            <i class="fas fa-folder mr-1"></i>{{this.folder}}</p>
+          {{/if}}
           <div
-            class="mt-auto flex items-center justify-between text-xs font-medium text-neutral-500 dark:text-neutral-400">
+            class="mt-auto pt-2 flex items-center justify-between text-xs font-medium text-neutral-500 dark:text-neutral-400">
             <span class="px-2 py-1 rounded bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300">
-              {{simpleMime this.mimeType}}
+              {{this.format}}
             </span>
-            <span>{{formatSize this.size}}</span>
+            <span>{{this.size}}</span>
           </div>
         </div>
       </div>
@@ -126,17 +169,16 @@
         <i class="fas fa-rss text-xl"></i>
       </div>
       <div>
-        <h3 class="font-medium text-neutral-900 dark:text-white">OPDS Feed URL</h3>
-        <p class="text-sm text-neutral-500 dark:text-neutral-400">Add this to your reader app. Support sorting with
-          <code>?sort=name-asc|date-desc</code>
-        </p>
+        <h3 class="font-medium text-neutral-900 dark:text-white">OPDS catalog URL</h3>
+        <p class="text-sm text-neutral-500 dark:text-neutral-400">Add this to your reader app. It includes
+          recent books, folders, authors and search.</p>
       </div>
     </div>
     <div
       class="flex items-center w-full sm:w-auto bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 rounded-lg p-2 shadow-sm">
       <code id="opdsUrlDisplay"
-        class="text-sm text-neutral-600 dark:text-neutral-300 font-mono flex-grow px-2 truncate selection:bg-primary-100">{{baseUrl}}</code>
-      <button id="opdsCopyBtn" data-base-url="{{baseUrl}}"
+        class="text-sm text-neutral-600 dark:text-neutral-300 font-mono flex-grow px-2 truncate selection:bg-primary-100">{{baseUrl}}/</code>
+      <button id="opdsCopyBtn" type="button"
         class="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded text-neutral-400 hover:text-primary-600 transition-colors"
         title="Copy URL">
         <i class="far fa-copy"></i>
@@ -150,20 +192,30 @@
   class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm hidden animate-fade-in">
   <div
     class="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl p-6 w-full max-w-md transform transition-all scale-100">
-    <h3 class="text-xl font-bold mb-4 text-neutral-900 dark:text-white">Rename Book</h3>
-    <form action="/book/rename" method="post" id="renameForm">
-      <input type="hidden" id="oldFilename" name="oldFilename" value="">
+    <h3 class="text-xl font-bold mb-4 text-neutral-900 dark:text-white">Rename or move book</h3>
+    <form action="/admin/rename" method="post" id="renameForm">
+      <input type="hidden" name="csrf" value="{{csrf}}">
+      <input type="hidden" id="renamePath" name="path" value="">
       <div class="space-y-4">
         <div>
-          <label for="newFilename" class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Book
-            Name</label>
-          <div class="flex rounded-md shadow-sm">
-            <input type="text" id="newFilename" name="newFilename" required
+          <label for="newFilename" class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">File
+            name</label>
+          <div class="flex rounded-md shadow-sm relative">
+            <i class="fas fa-file absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"></i>
+            <input type="text" id="newFilename" name="name" required
               class="input-field flex-1 min-w-0 rounded-r-none">
             <span id="fileExtension"
               class="inline-flex items-center px-3 rounded-r-lg border border-l-0 border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 text-sm">
               .ext
             </span>
+          </div>
+        </div>
+        <div>
+          <label for="newFolder" class="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Folder
+            <span class="font-normal text-neutral-400">(empty for the root)</span></label>
+          <div class="relative">
+            <i class="fas fa-folder absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"></i>
+            <input type="text" id="newFolder" name="folder" list="folderList" class="input-field">
           </div>
         </div>
         <div class="flex justify-end space-x-3 pt-2">
@@ -173,18 +225,39 @@
           </button>
           <button type="submit"
             class="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors shadow-lg shadow-primary-500/30">
-            Save Changes
+            Save changes
           </button>
         </div>
       </div>
     </form>
   </div>
 </div>
-<script data-total-books="{{len books}}">
+<script data-total-books="{{len books}}" data-accept="{{accept}}">
+  const totalBooks = parseInt(document.currentScript.dataset.totalBooks, 10) || 0;
+  const acceptedExtensions = document.currentScript.dataset.accept.split(',');
+
   document.addEventListener("DOMContentLoaded", () => {
     const dropZone = document.getElementById("dropZone");
     const fileInput = document.getElementById("book");
     const fileInfo = document.getElementById("fileInfo");
+    const uploadForm = document.getElementById("uploadForm");
+
+    const isAccepted = (file) => acceptedExtensions.some((ext) => file.name.toLowerCase().endsWith(ext));
+
+    function submitFiles(files) {
+      if (files.length === 0) return;
+      const invalid = Array.from(files).filter((f) => !isAccepted(f));
+      if (invalid.length > 0) {
+        fileInfo.classList.remove("hidden", "bg-primary-50", "text-primary-600");
+        fileInfo.classList.add("text-red-600", "bg-red-50");
+        fileInfo.textContent = "Unsupported format: " + invalid.map((f) => f.name).join(", ");
+        return;
+      }
+      fileInfo.classList.remove("hidden", "text-red-600", "bg-red-50");
+      fileInfo.classList.add("bg-primary-50", "text-primary-600");
+      fileInfo.textContent = files.length === 1 ? "Uploading " + files[0].name + "..." : "Uploading " + files.length + " books...";
+      uploadForm.submit();
+    }
 
     ["dragenter", "dragover", "dragleave", "drop"].forEach((evt) => {
       dropZone.addEventListener(evt, (e) => {
@@ -192,161 +265,112 @@
         e.stopPropagation();
       });
     });
-
     dropZone.addEventListener("dragover", () => {
       dropZone.classList.add("border-primary-500", "bg-primary-50", "dark:bg-primary-900/10");
     });
     dropZone.addEventListener("dragleave", () => {
       dropZone.classList.remove("border-primary-500", "bg-primary-50", "dark:bg-primary-900/10");
     });
-
     dropZone.addEventListener("drop", (e) => {
       dropZone.classList.remove("border-primary-500", "bg-primary-50", "dark:bg-primary-900/10");
-      const files = e.dataTransfer.files;
-      if (files.length === 0) return;
-
-      const file = files[0];
-      const validTypes = [
-        "application/pdf",
-        "application/epub+zip",
-        "application/x-fictionbook+xml",
-        "application/zip",
-        "application/x-cbz",
-        "application/vnd.comicbook+zip",
-        "application/x-cbr",
-        "application/x-mobi",
-        "application/x-mobipocket-ebook",
-        "application/vnd.amazon.ebook",
-        "image/vnd.djvu",
-        "text/plain",
-        "text/rtf",
-        "application/rtf",
-        "text/html"
-      ];
-      // Regex fallback for files with missing/generic mime
-      const extRegex = /\.(epub|pdf|fb2|fb2\.zip|cbz|cbr|cb7|mobi|azw|azw3|azw4|djvu|txt|rtf|html|htm)$/i;
-
-      if (!validTypes.includes(file.type) && !extRegex.test(file.name)) {
-        fileInfo.classList.remove("hidden", "bg-primary-50", "text-primary-600");
-        fileInfo.classList.add("text-red-600", "bg-red-50");
-        fileInfo.textContent = "Invalid format. Supported: EPUB, PDF, FB2, MOBI, AZW, CBZ, CBR, DJVU, TXT, RTF";
-        return;
-      }
-
-      fileInput.files = files;
-      document.getElementById("uploadForm").submit();
+      fileInput.files = e.dataTransfer.files;
+      submitFiles(fileInput.files);
     });
-
     dropZone.addEventListener("click", () => fileInput.click());
-    fileInput.addEventListener("change", () => {
-      document.getElementById("uploadForm").submit();
-    });
-
+    fileInput.addEventListener("change", () => submitFiles(fileInput.files));
   });
 
   // Rename Modal Logic
-  function openRenameModal(filename) {
-    const modal = document.getElementById('renameModal');
-    const oldInput = document.getElementById('oldFilename');
+  function openRenameModal(data) {
     const newInput = document.getElementById('newFilename');
     const extSpan = document.getElementById('fileExtension');
+    document.getElementById('renamePath').value = data.path;
+    document.getElementById('newFolder').value = data.folder;
 
-    oldInput.value = filename;
-
-    const basename = filename.split('/').pop().split('\\').pop();
-    const lastDotIndex = basename.lastIndexOf('.');
-    if (lastDotIndex > 0) {
-      newInput.value = basename.substring(0, lastDotIndex);
-      extSpan.textContent = basename.substring(lastDotIndex);
+    const name = data.name;
+    const lower = name.toLowerCase();
+    const dot = lower.endsWith('.fb2.zip') ? name.length - 8 : name.lastIndexOf('.');
+    if (dot > 0) {
+      newInput.value = name.substring(0, dot);
+      extSpan.textContent = name.substring(dot);
     } else {
-      newInput.value = filename;
+      newInput.value = name;
       extSpan.textContent = "";
     }
 
-    modal.classList.remove('hidden');
+    document.getElementById('renameModal').classList.remove('hidden');
     newInput.focus();
     newInput.select();
   }
 
   function closeRenameModal() {
-    const modal = document.getElementById('renameModal');
-    modal.classList.add('hidden');
+    document.getElementById('renameModal').classList.add('hidden');
   }
 
-  // Close modal on click outside
   document.getElementById('renameModal').addEventListener('click', (e) => {
-    if (e.target === document.getElementById('renameModal')) {
-      closeRenameModal();
-    }
+    if (e.target === document.getElementById('renameModal')) closeRenameModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeRenameModal();
   });
 
-  // Search and Sort functionality
+  // Search, folder filter and sort
   const searchInput = document.getElementById('bookSearch');
+  const folderFilter = document.getElementById('folderFilter');
   const sortSelect = document.getElementById('bookSort');
   const booksGrid = document.getElementById('booksGrid');
   const booksCount = document.getElementById('booksCount');
-  const totalBooks = parseInt(document.currentScript.dataset.totalBooks, 10) || 0;
 
   function filterAndSortBooks() {
     if (!booksGrid) return;
 
     const query = searchInput.value.toLowerCase().trim();
+    const folder = folderFilter ? folderFilter.value : '';
     const sortMode = sortSelect.value;
     const bookCards = Array.from(booksGrid.querySelectorAll('.book-card'));
     let visibleCount = 0;
 
-    // Filter
     bookCards.forEach(card => {
-      const title = (card.dataset.title || '').toLowerCase();
-      if (title.includes(query)) {
-        card.style.display = '';
-        visibleCount++;
-      } else {
-        card.style.display = 'none';
-      }
+      const text = (card.dataset.title + ' ' + card.dataset.authors).toLowerCase();
+      const cardFolder = card.dataset.folder;
+      const inFolder = !folder || cardFolder === folder || cardFolder.startsWith(folder + '/');
+      const visible = inFolder && text.includes(query);
+      card.style.display = visible ? '' : 'none';
+      if (visible) visibleCount++;
     });
 
-    // Sort
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
     bookCards.sort((a, b) => {
-      if (sortMode === 'name-asc') {
-        return a.dataset.title.localeCompare(b.dataset.title);
-      } else if (sortMode === 'name-desc') {
-        return b.dataset.title.localeCompare(a.dataset.title);
-      } else if (sortMode === 'date-desc') {
-        return (new Date(b.dataset.added).getTime()) - (new Date(a.dataset.added).getTime());
-      } else if (sortMode === 'date-asc') {
-        return (new Date(a.dataset.added).getTime()) - (new Date(b.dataset.added).getTime());
+      switch (sortMode) {
+        case 'name-asc': return collator.compare(a.dataset.title, b.dataset.title);
+        case 'name-desc': return collator.compare(b.dataset.title, a.dataset.title);
+        case 'date-asc': return new Date(a.dataset.added) - new Date(b.dataset.added);
+        default: return new Date(b.dataset.added) - new Date(a.dataset.added);
       }
-      return 0;
     });
-
-    // Reorder DOM
     bookCards.forEach(card => booksGrid.appendChild(card));
 
-    // Update count
     if (booksCount) {
-      if (query) {
-        booksCount.textContent = `(${visibleCount} of ${totalBooks} books)`;
-      } else {
-        booksCount.textContent = `(${totalBooks} books)`;
-      }
+      booksCount.textContent = visibleCount === totalBooks
+        ? `(${totalBooks} books)`
+        : `(${visibleCount} of ${totalBooks} books)`;
     }
   }
 
-  const opdsUrlDisplay = document.getElementById('opdsUrlDisplay');
-  const opdsCopyBtn = document.getElementById('opdsCopyBtn');
-
-  function updateOpdsUrl() {
-    if (!opdsUrlDisplay || !opdsCopyBtn || !sortSelect) return;
-    const baseUrl = opdsCopyBtn.dataset.baseUrl;
-    const sortMode = sortSelect.value;
-    const fullUrl = `${baseUrl}/?sort=${sortMode}`;
-    opdsUrlDisplay.textContent = fullUrl;
+  function updateUrl() {
+    const url = new URL(window.location);
+    url.searchParams.set('sort', sortSelect.value);
+    if (folderFilter && folderFilter.value) url.searchParams.set('folder', folderFilter.value);
+    else url.searchParams.delete('folder');
+    url.searchParams.delete('notice');
+    url.searchParams.delete('error');
+    window.history.replaceState({}, '', url);
   }
 
+  const opdsCopyBtn = document.getElementById('opdsCopyBtn');
   if (opdsCopyBtn) {
     opdsCopyBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(opdsUrlDisplay.textContent);
+      navigator.clipboard.writeText(document.getElementById('opdsUrlDisplay').textContent);
       const icon = opdsCopyBtn.querySelector('i');
       icon.classList.replace('far', 'fas');
       icon.classList.replace('fa-copy', 'fa-check');
@@ -359,17 +383,10 @@
 
   if (searchInput && sortSelect && booksGrid) {
     searchInput.addEventListener('input', filterAndSortBooks);
-    sortSelect.addEventListener('change', () => {
+    [sortSelect, folderFilter].filter(Boolean).forEach((select) => select.addEventListener('change', () => {
       filterAndSortBooks();
-      updateOpdsUrl();
-      // Update URL without reloading to persist sort choice on refresh
-      const url = new URL(window.location);
-      url.searchParams.set('sort', sortSelect.value);
-      window.history.pushState({}, '', url);
-    });
-
-    // Initial sort and URL setup
+      updateUrl();
+    }));
     filterAndSortBooks();
-    updateOpdsUrl();
   }
 </script>

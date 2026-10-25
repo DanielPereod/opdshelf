@@ -1,7 +1,6 @@
 .env
-.github
-opds-server.exe
-books/
+/target
 node_modules
-github
+books/
 static/styles/app.css
+static/vendor/

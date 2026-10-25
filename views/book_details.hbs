@@ -15,7 +15,7 @@
         class="w-[128px] md:w-32 lg:w-64 bg-neutral-100 dark:bg-neutral-900 border-r border-neutral-200 dark:border-neutral-700 flex-shrink-0">
         <div class="aspect-[2/3] relative group">
           {{#if book.hasCover}}
-          <img src="/cover/{{urlPath book.path}}" alt="{{book.title}}" class="w-full h-full object-cover"
+          <img src="/cover/{{urlPath book.path}}?v={{book.coverVersion}}" alt="{{book.title}}" class="w-full h-full object-cover"
             onerror="this.onerror=null;this.src='/static/no-cover-error.svg';">
           {{else}}
           <img src="/static/no-cover-error.svg" alt="{{book.title}}" class="w-full h-full object-cover">
@@ -87,6 +87,16 @@
 
         <!-- Actions -->
         <div class="flex flex-col sm:flex-row gap-4 mt-auto pt-6">
+          {{#if book.readable}}
+          <a href="/read/{{urlPath book.path}}"
+            class="btn-primary flex-1 text-center justify-center inline-flex items-center px-6 py-3 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-semibold">
+            <i class="fas fa-book-open mr-2"></i> Read
+          </a>
+          {{/if}}
+          <a href="/admin/edit/{{urlPath book.path}}"
+            class="flex-1 text-center justify-center inline-flex items-center px-6 py-3 rounded-xl border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 font-semibold">
+            <i class="fas fa-pen mr-2"></i> Edit
+          </a>
           <a href="/download/{{urlPath book.path}}" download
             class="btn-primary flex-1 text-center justify-center inline-flex items-center px-6 py-3 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-semibold">
             <i class="fas fa-download mr-2"></i> Download Book

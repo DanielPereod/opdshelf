@@ -1,4 +1,5 @@
-//! Metadata and cover extraction for EPUB, FB2 and comic archives.
+//! Metadata and cover extraction for EPUB, FB2 and comic archives. PDF and
+//! RAR/7z comics are handled by [`crate::archive`].
 //!
 //! Parsing never reads a whole book into memory: archives are opened with
 //! seeking and only the entries that are needed are decompressed.
@@ -10,7 +11,7 @@ use std::fs::File;
 use std::io::{BufReader, Read, Seek};
 use std::path::Path;
 
-use crate::paths;
+use crate::{archive, paths};
 
 const MAX_XML_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_FB2_BYTES: u64 = 64 * 1024 * 1024;
@@ -41,12 +42,22 @@ pub enum CoverSource {
         id: String,
         mime: String,
     },
+    /// First page of a PDF, rendered with poppler.
+    Pdf,
+    /// An image entry of a RAR/7z/TAR comic, read with bsdtar.
+    Archive { name: String, mime: String },
+    /// A cover uploaded in the admin panel, stored in DATA_DIR/covers.
+    Custom { file: String, mime: String },
 }
 
 impl CoverSource {
     pub fn mime(&self) -> &str {
         match self {
-            CoverSource::ZipEntry { mime, .. } | CoverSource::Fb2Binary { mime, .. } => mime,
+            CoverSource::ZipEntry { mime, .. }
+            | CoverSource::Fb2Binary { mime, .. }
+            | CoverSource::Archive { mime, .. }
+            | CoverSource::Custom { mime, .. } => mime,
+            CoverSource::Pdf => "image/jpeg",
         }
     }
 }
@@ -57,6 +68,8 @@ pub fn read_metadata(path: &Path) -> BookMeta {
         "epub" | "kepub" => read_epub(path),
         "fb2" => read_fb2_file(path),
         "cbz" | "zip" | "fb2.zip" | "fbz" => read_zip_book(path),
+        "pdf" => Ok(archive::read_pdf(path)),
+        "cbr" | "cb7" | "cbt" | "rar" => Ok(archive::read_archive_comic(path)),
         _ => Ok(BookMeta::default()),
     };
     result.unwrap_or_else(|err| {
@@ -79,6 +92,9 @@ pub fn read_cover(path: &Path, cover: &CoverSource) -> Option<Vec<u8>> {
             };
             xml.and_then(|xml| fb2_binary(&decode_xml(&xml), id))
         }
+        CoverSource::Pdf => archive::pdf_cover(path),
+        CoverSource::Archive { name, .. } => archive::archive_entry(path, name),
+        CoverSource::Custom { .. } => Err("custom covers live in DATA_DIR".into()),
     };
     result
         .map_err(|err| tracing::debug!("could not read cover of {}: {err}", path.display()))
@@ -87,7 +103,7 @@ pub fn read_cover(path: &Path, cover: &CoverSource) -> Option<Vec<u8>> {
 
 type Zip = zip::ZipArchive<BufReader<File>>;
 
-fn open_zip(path: &Path) -> Result<Zip, String> {
+pub(crate) fn open_zip(path: &Path) -> Result<Zip, String> {
     let file = File::open(path).map_err(|e| e.to_string())?;
     zip::ZipArchive::new(BufReader::new(file)).map_err(|e| e.to_string())
 }
@@ -104,12 +120,16 @@ fn read_limited(reader: impl Read, limit: u64) -> Result<Vec<u8>, String> {
     Ok(buf)
 }
 
-fn read_entry<R: Read + Seek>(zip: &mut zip::ZipArchive<R>, name: &str, limit: u64) -> Result<Vec<u8>, String> {
+pub(crate) fn read_entry<R: Read + Seek>(
+    zip: &mut zip::ZipArchive<R>,
+    name: &str,
+    limit: u64,
+) -> Result<Vec<u8>, String> {
     let entry = zip.by_name(name).map_err(|e| format!("{name}: {e}"))?;
     read_limited(entry, limit)
 }
 
-fn image_mime(name: &str) -> Option<&'static str> {
+pub(crate) fn image_mime(name: &str) -> Option<&'static str> {
     match paths::extension(name).as_str() {
         "jpg" | "jpeg" => Some("image/jpeg"),
         "png" => Some("image/png"),
@@ -368,18 +388,7 @@ fn read_zip_book(path: &Path) -> Result<BookMeta, String> {
 
 /// Picks `cover.*` if present, otherwise the first page in natural order.
 fn find_zip_cover<R: Read + Seek>(zip: &zip::ZipArchive<R>) -> Option<CoverSource> {
-    let mut images: Vec<&str> = zip
-        .file_names()
-        .filter(|n| image_mime(n).is_some() && !n.contains("__MACOSX") && !paths::file_name(n).starts_with('.'))
-        .collect();
-    images.sort_by(|a, b| natural_cmp(a, b));
-    let name = images
-        .iter()
-        .find(|n| paths::stem(n).eq_ignore_ascii_case("cover"))
-        .or_else(|| images.first())?
-        .to_string();
-    let mime = image_mime(&name)?.to_string();
-    Some(CoverSource::ZipEntry { name, mime })
+    archive::pick_cover(zip.file_names()).map(|(name, mime)| CoverSource::ZipEntry { name, mime })
 }
 
 /// Compares strings treating runs of digits as numbers ("page2" < "page10").
@@ -418,7 +427,7 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
-fn parse_comic_info(xml: &str) -> Result<BookMeta, String> {
+pub(crate) fn parse_comic_info(xml: &str) -> Result<BookMeta, String> {
     let doc = roxmltree::Document::parse(xml).map_err(|e| e.to_string())?;
     let field = |name: &str| clean(doc.descendants().find(|n| n.has_tag_name(name)).and_then(|n| n.text()));
     let title = match (field("Series"), field("Number"), field("Title")) {

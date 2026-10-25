@@ -1,0 +1,102 @@
+<div data-controls>
+  <span id="pageInfo" class="text-xs text-neutral-500 tabular-nums px-2"></span>
+  <button id="zoomOut" class="btn-icon" title="Zoom out"><i class="fas fa-search-minus"></i></button>
+  <button id="zoomIn" class="btn-icon" title="Zoom in"><i class="fas fa-search-plus"></i></button>
+  <a href="/download/{{urlPath book.path}}" class="btn-icon" title="Download"><i class="fas fa-download"></i></a>
+</div>
+
+<main id="pages" class="flex-1 min-h-0 overflow-auto bg-neutral-200 dark:bg-neutral-900 py-4">
+  <div id="status" class="text-center text-neutral-500 py-20"><i class="fas fa-spinner fa-spin mr-2"></i> Loading…</div>
+</main>
+
+<div id="pdfData" hidden data-url="/download/{{urlPath book.path}}?inline=1" data-key="{{book.path}}"></div>
+<script type="module">
+  import * as pdfjsLib from '/static/vendor/pdfjs/pdf.min.mjs';
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '/static/vendor/pdfjs/pdf.worker.min.mjs';
+
+  const { url, key } = document.getElementById('pdfData').dataset;
+  const positionKey = 'opdshelf:pdf:' + key;
+  const container = document.getElementById('pages');
+  const pageInfo = document.getElementById('pageInfo');
+
+  let pdf;
+  let scale = 1;
+  let observer;
+  const rendered = new Map();
+
+  try {
+    pdf = await pdfjsLib.getDocument({ url, isEvalSupported: false }).promise;
+  } catch (err) {
+    document.getElementById('status').textContent = 'Cannot open this PDF: ' + err.message;
+    throw err;
+  }
+
+  const first = await pdf.getPage(1);
+  const base = first.getViewport({ scale: 1 });
+  scale = Math.min(2, Math.max(0.5, (container.clientWidth - 32) / base.width));
+
+  async function renderPage(wrapper) {
+    const number = Number(wrapper.dataset.page);
+    if (rendered.get(number) === scale) return;
+    rendered.set(number, scale);
+    const page = await pdf.getPage(number);
+    const viewport = page.getViewport({ scale });
+    const ratio = window.devicePixelRatio || 1;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.floor(viewport.width * ratio);
+    canvas.height = Math.floor(viewport.height * ratio);
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    await page.render({
+      canvasContext: canvas.getContext('2d'),
+      viewport,
+      transform: ratio !== 1 ? [ratio, 0, 0, ratio, 0, 0] : null,
+    }).promise;
+    wrapper.replaceChildren(canvas);
+  }
+
+  function build(keepPage) {
+    if (observer) observer.disconnect();
+    rendered.clear();
+    container.replaceChildren();
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const wrapper = document.createElement('div');
+      wrapper.dataset.page = i;
+      wrapper.className = 'mx-auto mb-4 bg-white shadow';
+      wrapper.style.width = base.width * scale + 'px';
+      wrapper.style.height = base.height * scale + 'px';
+      container.append(wrapper);
+    }
+    observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => { if (entry.isIntersecting) renderPage(entry.target); });
+    }, { root: container, rootMargin: '150% 0px' });
+    container.querySelectorAll('[data-page]').forEach((el) => observer.observe(el));
+    goTo(keepPage);
+  }
+
+  function currentPage() {
+    const middle = container.scrollTop + container.clientHeight / 3;
+    const pages = container.querySelectorAll('[data-page]');
+    for (const el of pages) {
+      if (el.offsetTop + el.offsetHeight > middle) return Number(el.dataset.page);
+    }
+    return pdf.numPages;
+  }
+
+  function goTo(number) {
+    const el = container.querySelector(`[data-page="${number}"]`);
+    if (el) container.scrollTop = el.offsetTop - 16;
+  }
+
+  container.addEventListener('scroll', () => {
+    const page = currentPage();
+    pageInfo.textContent = page + ' / ' + pdf.numPages;
+    storeSet(positionKey, page);
+  }, { passive: true });
+
+  document.getElementById('zoomIn').onclick = () => { const p = currentPage(); scale = Math.min(4, scale * 1.2); build(p); };
+  document.getElementById('zoomOut').onclick = () => { const p = currentPage(); scale = Math.max(0.3, scale / 1.2); build(p); };
+
+  build(Number(storeGet(positionKey) || 1));
+  pageInfo.textContent = currentPage() + ' / ' + pdf.numPages;
+</script>

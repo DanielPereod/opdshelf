@@ -4,12 +4,14 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use walkdir::WalkDir;
 
-use crate::metadata::{self, natural_cmp, BookMeta};
-use crate::paths;
+use crate::metadata::{self, natural_cmp, BookMeta, CoverSource};
+use crate::store::Store;
+use crate::{archive, paths};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Book {
@@ -25,6 +27,10 @@ pub struct Book {
     pub mime: String,
     pub format: String,
     pub has_cover: bool,
+    /// Whether the web reader can open it.
+    pub readable: bool,
+    /// Whether the metadata was edited in the admin panel.
+    pub edited: bool,
     pub meta: BookMeta,
 }
 
@@ -161,15 +167,71 @@ pub struct Library {
     root: PathBuf,
     allowed_extensions: Arc<HashSet<String>>,
     cache: Arc<Mutex<HashMap<String, CacheEntry>>>,
+    store: Store,
+    snapshot: Arc<Mutex<Option<Arc<Snapshot>>>>,
+    /// Set by the watcher and by admin changes; the next request rescans.
+    dirty: Arc<AtomicBool>,
+    /// Without a watcher every request rescans the folder.
+    watching: Arc<AtomicBool>,
+    scan_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl Library {
-    pub fn new(root: PathBuf, allowed_extensions: HashSet<String>) -> Self {
+    pub fn new(root: PathBuf, allowed_extensions: HashSet<String>, store: Store) -> Self {
         Self {
             root,
             allowed_extensions: Arc::new(allowed_extensions),
             cache: Arc::default(),
+            store,
+            snapshot: Arc::default(),
+            dirty: Arc::new(AtomicBool::new(true)),
+            watching: Arc::default(),
+            scan_lock: Arc::default(),
         }
+    }
+
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
+    pub fn set_watching(&self, watching: bool) {
+        self.watching.store(watching, Ordering::SeqCst);
+    }
+
+    /// Marks the cached snapshot as stale.
+    pub fn invalidate(&self) {
+        self.dirty.store(true, Ordering::SeqCst);
+    }
+
+    fn cached_snapshot(&self) -> Option<Arc<Snapshot>> {
+        let fresh = self.watching.load(Ordering::SeqCst) && !self.dirty.load(Ordering::SeqCst);
+        fresh.then(|| self.snapshot.lock().unwrap().clone()).flatten()
+    }
+
+    /// Current state of the library, rescanning only when something changed.
+    pub async fn snapshot(&self) -> Arc<Snapshot> {
+        match self.cached_snapshot() {
+            Some(snapshot) => snapshot,
+            None => self.refresh().await,
+        }
+    }
+
+    /// Rescans the books folder.
+    pub async fn refresh(&self) -> Arc<Snapshot> {
+        let _guard = self.scan_lock.lock().await;
+        // Another request may have finished a scan while this one waited
+        if let Some(snapshot) = self.cached_snapshot() {
+            return snapshot;
+        }
+        self.dirty.store(false, Ordering::SeqCst);
+        let lib = self.clone();
+        let snapshot = Arc::new(
+            tokio::task::spawn_blocking(move || lib.scan_blocking())
+                .await
+                .unwrap_or_default(),
+        );
+        *self.snapshot.lock().unwrap() = Some(snapshot.clone());
+        snapshot
     }
 
     pub fn root(&self) -> &Path {
@@ -199,10 +261,7 @@ impl Library {
     }
 
     pub async fn scan(&self) -> Snapshot {
-        let lib = self.clone();
-        tokio::task::spawn_blocking(move || lib.scan_blocking())
-            .await
-            .unwrap_or_default()
+        Snapshot::clone(&*self.snapshot().await)
     }
 
     pub async fn book(&self, rel: &str) -> Option<Book> {
@@ -271,10 +330,22 @@ impl Library {
         }
     }
 
-    fn load(&self, rel: &str, path: &Path, stat: &std::fs::Metadata) -> Book {
+    /// Metadata read from the file itself, without the edits made in the admin panel.
+    pub async fn file_meta(&self, rel: &str) -> Option<BookMeta> {
+        let (rel, path) = self.book_path(rel)?;
+        let lib = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let stat = std::fs::metadata(&path).ok()?;
+            Some(lib.raw_meta(&rel, &path, &stat))
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
+    fn raw_meta(&self, rel: &str, path: &Path, stat: &std::fs::Metadata) -> BookMeta {
         let modified = stat.modified().unwrap_or(SystemTime::UNIX_EPOCH);
         let size = stat.len();
-
         let cached = {
             let cache = self.cache.lock().unwrap();
             cache
@@ -282,7 +353,7 @@ impl Library {
                 .filter(|e| e.size == size && e.modified == modified)
                 .map(|e| e.meta.clone())
         };
-        let meta = cached.unwrap_or_else(|| {
+        cached.unwrap_or_else(|| {
             let meta = metadata::read_metadata(path);
             self.cache.lock().unwrap().insert(
                 rel.to_string(),
@@ -293,10 +364,26 @@ impl Library {
                 },
             );
             meta
-        });
+        })
+    }
+
+    fn load(&self, rel: &str, path: &Path, stat: &std::fs::Metadata) -> Book {
+        let modified = stat.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        let size = stat.len();
+        let mut meta = self.raw_meta(rel, path, stat);
+
+        let edited = match self.store.get(rel) {
+            Some(edit) => {
+                edit.apply(&mut meta);
+                true
+            }
+            None => false,
+        };
 
         let mime = mime_for(rel);
         Book {
+            readable: is_readable(rel, &meta),
+            edited,
             path: rel.to_string(),
             folder: paths::parent(rel).to_string(),
             file_name: paths::file_name(rel).to_string(),
@@ -309,6 +396,17 @@ impl Library {
             mime,
             meta,
         }
+    }
+}
+
+/// Formats the web reader can display.
+fn is_readable(rel: &str, meta: &BookMeta) -> bool {
+    match paths::extension(rel).as_str() {
+        "epub" | "kepub" | "pdf" | "txt" | "cbz" => true,
+        // Plain ZIPs are readable when they hold images (comics)
+        "zip" => matches!(meta.cover, Some(CoverSource::ZipEntry { .. })),
+        ext if archive::is_archive_comic(&format!("x.{ext}")) => archive::bsdtar_available(),
+        _ => false,
     }
 }
 
@@ -358,6 +456,7 @@ mod tests {
         Library::new(
             dir.to_path_buf(),
             DEFAULT_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
+            Store::open(&dir.join(".opdshelf")),
         )
     }
 
@@ -408,6 +507,8 @@ mod tests {
             mime: String::new(),
             format: String::new(),
             has_cover: false,
+            readable: false,
+            edited: false,
             meta: BookMeta::default(),
         };
         let mut books = vec![book("b 10", 1), book("B 2", 3), book("a", 2)];

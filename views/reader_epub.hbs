@@ -1,0 +1,110 @@
+<div data-controls>
+  <select id="toc" class="hidden md:block max-w-[14rem] text-sm rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1"
+    aria-label="Table of contents"></select>
+  <button id="smaller" class="btn-icon" title="Smaller text"><i class="fas fa-minus"></i></button>
+  <button id="larger" class="btn-icon" title="Larger text"><i class="fas fa-plus"></i></button>
+</div>
+
+<main class="relative flex-1 min-h-0">
+  <div id="viewer" class="absolute inset-0 mx-10 sm:mx-16 my-3"></div>
+  <button id="prev" title="Previous page"
+    class="absolute left-0 top-0 bottom-0 w-10 sm:w-16 flex items-center justify-center text-neutral-400 hover:text-primary-600 cursor-pointer">
+    <i class="fas fa-chevron-left text-xl"></i>
+  </button>
+  <button id="next" title="Next page"
+    class="absolute right-0 top-0 bottom-0 w-10 sm:w-16 flex items-center justify-center text-neutral-400 hover:text-primary-600 cursor-pointer">
+    <i class="fas fa-chevron-right text-xl"></i>
+  </button>
+  <div id="status" class="absolute inset-0 flex items-center justify-center text-neutral-500 pointer-events-none">
+    <i class="fas fa-spinner fa-spin mr-2"></i> Loading…
+  </div>
+</main>
+<footer id="progress" class="h-8 shrink-0 flex items-center justify-center text-xs text-neutral-500"></footer>
+
+<script src="/static/vendor/epubjs/jszip.min.js"></script>
+<script src="/static/vendor/epubjs/epub.min.js"></script>
+<script data-url="/download/{{urlPath book.path}}?inline=1" data-key="{{book.path}}">
+  (function () {
+    const { url, key } = document.currentScript.dataset;
+    const positionKey = 'opdshelf:epub:' + key;
+    const status = document.getElementById('status');
+    const progress = document.getElementById('progress');
+
+    const book = ePub(url, { openAs: 'epub' });
+    const rendition = book.renderTo('viewer', { width: '100%', height: '100%', spread: 'auto' });
+
+    rendition.themes.register('dark', {
+      'body': { 'background': '#000 !important', 'color': '#e5e5e5 !important' },
+      'a': { 'color': '#2dd4bf !important' },
+    });
+    rendition.themes.register('light', { 'body': { 'background': '#fff !important', 'color': '#171717 !important' } });
+    const applyTheme = () => rendition.themes.select(document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+    applyTheme();
+    document.addEventListener('themechange', applyTheme);
+
+    let fontSize = parseInt(storeGet('opdshelf:fontsize') || '100', 10);
+    const applyFont = () => { rendition.themes.fontSize(fontSize + '%'); storeSet('opdshelf:fontsize', fontSize); };
+    applyFont();
+    document.getElementById('smaller').onclick = () => { fontSize = Math.max(60, fontSize - 10); applyFont(); };
+    document.getElementById('larger').onclick = () => { fontSize = Math.min(250, fontSize + 10); applyFont(); };
+
+    rendition.display(storeGet(positionKey) || undefined)
+      .catch(() => rendition.display())
+      .then(() => status.remove())
+      .catch((err) => { status.textContent = 'Cannot open this book: ' + err; });
+
+    const prev = () => rendition.prev();
+    const next = () => rendition.next();
+    document.getElementById('prev').onclick = prev;
+    document.getElementById('next').onclick = next;
+    const onKey = (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'PageUp') prev();
+      if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') next();
+    };
+    document.addEventListener('keydown', onKey);
+    rendition.on('keydown', onKey);
+
+    // Swipe inside the book
+    let touchX = null;
+    rendition.on('touchstart', (e) => { touchX = e.changedTouches[0].screenX; });
+    rendition.on('touchend', (e) => {
+      if (touchX === null) return;
+      const dx = e.changedTouches[0].screenX - touchX;
+      if (Math.abs(dx) > 50) (dx < 0 ? next : prev)();
+      touchX = null;
+    });
+
+    const toc = document.getElementById('toc');
+    book.loaded.navigation.then((nav) => {
+      const add = (items, depth) => items.forEach((item) => {
+        const option = document.createElement('option');
+        option.value = item.href;
+        option.textContent = ' '.repeat(depth * 2) + item.label.trim();
+        toc.append(option);
+        if (item.subitems) add(item.subitems, depth + 1);
+      });
+      const first = document.createElement('option');
+      first.textContent = 'Contents';
+      first.value = '';
+      toc.append(first);
+      add(nav.toc, 0);
+    });
+    toc.onchange = () => { if (toc.value) rendition.display(toc.value); toc.value = ''; };
+
+    let locationsReady = false;
+    book.ready.then(() => book.locations.generate(1600)).then(() => {
+      locationsReady = true;
+      const current = rendition.currentLocation();
+      if (current && current.start) showProgress(current.start.cfi);
+    });
+    function showProgress(cfi) {
+      if (!locationsReady) return;
+      const pct = Math.round(book.locations.percentageFromCfi(cfi) * 100);
+      progress.textContent = pct + '%';
+    }
+    rendition.on('relocated', (location) => {
+      storeSet(positionKey, location.start.cfi);
+      showProgress(location.start.cfi);
+    });
+  })();
+</script>

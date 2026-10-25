@@ -96,7 +96,7 @@
         <!-- Cover Image -->
         <div class="aspect-[2/3] relative overflow-hidden bg-neutral-100 dark:bg-neutral-800">
           {{#if this.hasCover}}
-          <img src="/cover/{{urlPath this.path}}" class="w-full h-full object-cover" alt="{{this.title}}"
+          <img src="/thumb/{{urlPath this.path}}?v={{this.coverVersion}}" class="w-full h-full object-cover" alt="{{this.title}}"
             loading="lazy" onerror="this.onerror=null;this.src='/static/no-cover-error.svg';">
           {{else}}
           <img src="/static/no-cover-error.svg" class="w-full h-full object-cover" alt="{{this.title}}">
@@ -104,11 +104,23 @@
 
           <!-- Overlay Actions -->
           <div class="flex-1 absolute bottom-0 w-full bg-light-card dark:bg-dark-card hidden group-hover:flex group-focus-within:flex">
+            {{#if this.readable}}
+            <a href="/read/{{urlPath this.path}}"
+              class="py-2 flex-1 text-center text-primary-600 hover:bg-primary-500 hover:text-white cursor-pointer"
+              title="Read">
+              <i class="fas fa-book-open"></i>
+            </a>
+            {{/if}}
+            <a href="/admin/edit/{{urlPath this.path}}"
+              class="py-2 flex-1 text-center text-primary-600 hover:bg-primary-500 hover:text-white cursor-pointer"
+              title="Edit metadata">
+              <i class="fas fa-pen"></i>
+            </a>
             <button type="button" data-path="{{this.path}}" data-name="{{this.fileName}}" data-folder="{{this.folder}}"
               onclick="openRenameModal(this.dataset)"
               class="py-2 flex-1 text-center text-primary-600 hover:bg-primary-600 hover:text-white cursor-pointer"
               title="Rename or move">
-              <i class="fas fa-edit"></i>
+              <i class="fas fa-file-signature"></i>
             </button>
             <a href="/info/{{urlPath this.path}}"
               class="py-2 flex-1 text-center text-primary-600 hover:bg-primary-500 hover:text-white cursor-pointer"

@@ -19,6 +19,14 @@ pub struct Config {
     pub allowed_extensions: HashSet<String>,
     pub page_size: usize,
     pub max_upload_bytes: usize,
+    /// Where edited metadata, uploaded covers and the thumbnail cache are stored.
+    pub data_dir: PathBuf,
+    /// Watch BOOKS_DIR for changes instead of rescanning it on every request.
+    pub watch: bool,
+    /// Full rescan interval while watching, as a fallback for file systems without events.
+    pub scan_interval_secs: u64,
+    pub openlibrary_url: String,
+    pub google_books_url: String,
 }
 
 impl Config {
@@ -48,10 +56,24 @@ impl Config {
         let admin_password = get("ADMIN_PASSWORD");
         let auth_enabled = admin_username.is_some() && admin_password.is_some();
 
+        let books_dir = PathBuf::from(get("BOOKS_DIR").unwrap_or_else(|| "./books".into()));
+        let flag = |key: &str, default: bool| {
+            get(key).map_or(default, |v| {
+                !matches!(v.to_lowercase().as_str(), "0" | "false" | "no" | "off")
+            })
+        };
+
         Self {
+            data_dir: get("DATA_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| books_dir.join(".opdshelf")),
+            watch: flag("WATCH", true),
+            scan_interval_secs: get("SCAN_INTERVAL").and_then(|v| v.parse().ok()).unwrap_or(600),
+            openlibrary_url: get("OPENLIBRARY_URL").unwrap_or_else(|| "https://openlibrary.org".into()),
+            google_books_url: get("GOOGLE_BOOKS_URL").unwrap_or_else(|| "https://www.googleapis.com".into()),
             host: get("HOST").unwrap_or_else(|| "0.0.0.0".into()),
             port: get("PORT").and_then(|p| p.parse().ok()).unwrap_or(3000),
-            books_dir: PathBuf::from(get("BOOKS_DIR").unwrap_or_else(|| "./books".into())),
+            books_dir,
             admin_username: admin_username.filter(|_| auth_enabled),
             admin_password: admin_password.filter(|_| auth_enabled),
             base_url: get("BASE_URL")
@@ -99,6 +121,9 @@ mod tests {
         assert!(!cfg.auth_enabled());
         assert!(cfg.allowed_extensions.contains("epub"));
         assert!(!cfg.allowed_extensions.contains("mp3"));
+        assert!(cfg.watch);
+        assert_eq!(cfg.data_dir, PathBuf::from("./books/.opdshelf"));
+        assert!(!config(&[("WATCH", "false")]).watch);
     }
 
     #[test]

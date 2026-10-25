@@ -6,11 +6,14 @@
     "build": "npm run build:css && npm run build:vendor",
     "build:css": "tailwindcss -i ./static/styles/index.css -o ./static/styles/app.css --minify",
     "watch:css": "tailwindcss -i ./static/styles/index.css -o ./static/styles/app.css --watch",
-    "build:vendor": "mkdir -p static/vendor/fontawesome && cp -r node_modules/@fortawesome/fontawesome-free/css node_modules/@fortawesome/fontawesome-free/webfonts static/vendor/fontawesome/"
+    "build:vendor": "mkdir -p static/vendor/fontawesome static/vendor/epubjs static/vendor/pdfjs && cp -r node_modules/@fortawesome/fontawesome-free/css node_modules/@fortawesome/fontawesome-free/webfonts static/vendor/fontawesome/ && cp node_modules/epubjs/dist/epub.min.js node_modules/jszip/dist/jszip.min.js static/vendor/epubjs/ && cp node_modules/pdfjs-dist/build/pdf.min.mjs node_modules/pdfjs-dist/build/pdf.worker.min.mjs static/vendor/pdfjs/"
   },
   "devDependencies": {
     "@fortawesome/fontawesome-free": "6.7.2",
     "@tailwindcss/cli": "^4.1.18",
+    "epubjs": "0.3.93",
+    "jszip": "3.10.1",
+    "pdfjs-dist": "5.4.624",
     "tailwindcss": "^4.1.18"
   }
 }

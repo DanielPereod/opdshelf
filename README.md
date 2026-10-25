@@ -27,8 +27,9 @@
 📚 **Your library, organised**
 - EPUB, PDF, FB2, MOBI, AZW, CBZ, CBR, DJVU, RTF, TXT and more
 - Books in subfolders are found recursively (`Series/Volume 1.epub`)
-- Title, authors, description, language and subjects read from EPUB, FB2 and ComicInfo.xml
-- Covers extracted from EPUB, CBZ/ZIP and FB2
+- Title, authors, description, language and subjects read from EPUB, FB2, PDF and ComicInfo.xml
+- Covers extracted from EPUB, FB2, PDF (first page), CBZ/ZIP, CBR, CB7 and CBT, served as small cached thumbnails in lists
+- New, changed and deleted files show up instantly, no rescan or restart needed
 - Only book formats are listed, so audiobooks or metadata files sharing the folder are ignored
 
 📱 **OPDS 1.2 catalog**
@@ -37,9 +38,16 @@
 - Search (OpenSearch) and pagination for large libraries
 - Resumable downloads (HTTP range requests)
 
+📖 **Read in the browser**
+- EPUB reader with table of contents, font size, dark mode and position memory
+- PDF, comic (CBZ, CBR, CB7, CBT, with right-to-left mode) and TXT readers
+- Keyboard, touch swipe and mobile friendly
+
 🖥️ **Web admin panel**
 - Drag-and-drop uploads of several books at once, into any folder
 - Rename, move and delete books
+- Edit title, authors, description, subjects and more, and change the cover. Book files are never modified
+- Fill in metadata and cover from an ISBN (Open Library, with Google Books as fallback)
 - Search, folder filter and sorting
 - Dark mode, works offline (no CDN)
 
@@ -104,6 +112,9 @@ All settings are environment variables.
 | `EXCLUDE_EXTENSIONS` | none | Extensions removed from the allowed list, e.g. `zip,txt` |
 | `PAGE_SIZE` | `50` | Books per page in OPDS feeds |
 | `MAX_UPLOAD_MB` | `1024` | Maximum size of one upload request |
+| `DATA_DIR` | `BOOKS_DIR/.opdshelf` | Where edited metadata, custom covers and the thumbnail cache are stored |
+| `WATCH` | `true` | Watch the books folder for changes. Set to `false` on network shares that do not report changes; the library is then rescanned on each request |
+| `SCAN_INTERVAL` | `600` | Seconds between full rescans while watching, as a safety net for missed events |
 | `RUST_LOG` | `info` | Log level (`debug`, `info`, `warn`...) |
 
 Default extensions: `epub kepub pdf fb2 fbz mobi azw azw3 azw4 cbz cbr cb7 cbt djvu rtf txt html htm doc docx odt zip` (plus `.fb2.zip`).
@@ -111,6 +122,8 @@ Default extensions: `epub kepub pdf fb2 fbz mobi azw azw3 azw4 cbz cbr cb7 cbt d
 `REVERSE_PROXY=true` with `REVERSE_PROXY_HOST` from version 1 still works and is treated as `BASE_URL`.
 
 Hidden files and folders (starting with `.`) are ignored.
+
+PDF metadata and covers need `pdfinfo` and `pdftoppm` (poppler), and CBR/CB7/CBT support needs `bsdtar` (libarchive). Both are included in the Docker image; when running from source, install `poppler-utils` and `libarchive-tools` (or your distribution's equivalents). Without them those files are still listed and downloadable.
 
 ---
 
@@ -159,6 +172,12 @@ Add your server's URL (shown at the bottom of the admin panel) as an OPDS catalo
 <summary><strong>Books not showing up?</strong></summary>
 
 Check that the files are inside `BOOKS_DIR` (any depth), that their extension is in the allowed list and that neither the file nor a parent folder starts with a dot.
+</details>
+
+<details>
+<summary><strong>Does editing metadata change my files?</strong></summary>
+
+No. Edits and custom covers are saved in `DATA_DIR` and applied on top of what is read from the file, in the panel and in the OPDS feed. "Restore file metadata" on the edit page discards them.
 </details>
 
 <details>

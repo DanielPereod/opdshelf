@@ -12,9 +12,12 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 encoding_rs = "0.8"
 handlebars = { version = "6", features = ["rust-embed"] }
 hmac = "0.12"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 mime_guess = "2"
+notify = "8"
 percent-encoding = "2"
 rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 roxmltree = "0.20"
 rust-embed = "8"
 serde = { version = "1", features = ["derive"] }

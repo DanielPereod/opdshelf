@@ -401,9 +401,7 @@ async fn bulk_move_and_delete() {
     }
     let csrf = t.csrf().await;
 
-    let (status, _, _) = t
-        .post_form("/admin/bulk", "csrf=bad&action=delete&path=a.txt")
-        .await;
+    let (status, _, _) = t.post_form("/admin/bulk", "csrf=bad&action=delete&path=a.txt").await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert!(t.books().join("a.txt").exists());
 
@@ -429,7 +427,10 @@ async fn bulk_move_and_delete() {
     assert!(t.books().join("c.txt").exists());
 
     let (_, headers, _) = t
-        .post_form("/admin/bulk", &format!("csrf={csrf}&action=move&folder=..%2Fout&path=c.txt"))
+        .post_form(
+            "/admin/bulk",
+            &format!("csrf={csrf}&action=move&folder=..%2Fout&path=c.txt"),
+        )
         .await;
     assert!(headers["location"].contains("error"));
     assert!(t.books().join("c.txt").exists());

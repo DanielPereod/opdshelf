@@ -105,10 +105,10 @@
       <div class="cols">
         <label class="pick"><input type="checkbox" id="pickAll" aria-label="Select all shown books"></label>
         <span><button type="button" data-sort="name">Title</button></span>
-        <span class="c-folder">Folder</span>
-        <span class="c-fmt">Format</span>
+        <span class="c-folder"><button type="button" data-sort="folder">Folder</button></span>
+        <span class="c-fmt"><button type="button" data-sort="format">Format</button></span>
         <span class="c-meta">Details</span>
-        <span class="c-size num">Size</span>
+        <span class="c-size num"><button type="button" data-sort="size">Size</button></span>
         <span class="c-added num"><button type="button" data-sort="date">Added</button></span>
         <span class="c-read"></span>
       </div>
@@ -116,7 +116,7 @@
         {{#each books}}
         <div class="book{{#if (eq path ../book.path)}} selected{{/if}}" data-path="{{path}}" data-title="{{title}}"
           data-authors="{{authors}}" data-folder="{{folder}}" data-format="{{format}}" data-added="{{modified}}"
-          data-incomplete="{{#if incomplete}}1{{/if}}">
+          data-bytes="{{bytes}}" data-incomplete="{{#if incomplete}}1{{/if}}">
           <label class="pick"><input type="checkbox" name="path" value="{{path}}" form="bulkForm"
               aria-label="Select {{title}}"></label>
           <a class="book-link" href="/info/{{urlPath path}}">
@@ -254,7 +254,7 @@
     const rows = list ? Array.from(list.querySelectorAll('.book')) : [];
     const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
     const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
-    const state = { shelf: 'all', value: '', sort: 'date', query: '' };
+    const state = { shelf: 'all', value: '', sort: 'date', dir: 'desc', query: '' };
 
     // Dates, in the reader's own locale
     const thisYear = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
@@ -290,14 +290,21 @@
         if (visible) shown++;
         else row.querySelector('.pick input').checked = false;
       });
-      rows.sort((a, b) => state.sort === 'name'
-        ? collator.compare(a.dataset.title, b.dataset.title)
-        : b.dataset.added.localeCompare(a.dataset.added));
+      const byTitle = (a, b) => collator.compare(a.dataset.title, b.dataset.title);
+      const compare = {
+        name: byTitle,
+        folder: (a, b) => collator.compare(a.dataset.folder, b.dataset.folder) || byTitle(a, b),
+        format: (a, b) => collator.compare(a.dataset.format, b.dataset.format) || byTitle(a, b),
+        size: (a, b) => (Number(a.dataset.bytes) - Number(b.dataset.bytes)) || byTitle(a, b),
+        date: (a, b) => a.dataset.added.localeCompare(b.dataset.added) || byTitle(a, b),
+      }[state.sort];
+      const sign = state.dir === 'desc' ? -1 : 1;
+      rows.sort((a, b) => sign * compare(a, b));
       rows.forEach((row) => list.appendChild(row));
       $('shownCount').textContent = shown;
       if ($('noMatches')) $('noMatches').hidden = shown > 0 || rows.length === 0;
       document.querySelectorAll('[data-sort]').forEach((b) => {
-        if (b.dataset.sort === state.sort) b.setAttribute('aria-sort', b.dataset.sort === 'name' ? 'ascending' : 'descending');
+        if (b.dataset.sort === state.sort) b.setAttribute('aria-sort', state.dir === 'desc' ? 'descending' : 'ascending');
         else b.removeAttribute('aria-sort');
       });
       updateBulk();
@@ -321,9 +328,14 @@
     }
 
     document.querySelectorAll('[data-shelf]').forEach((b) => b.addEventListener('click', () => selectShelf(b)));
+    // Text columns start A-Z, size and date start with the biggest/newest;
+    // clicking the active column again reverses it.
+    const firstDir = (key) => (key === 'size' || key === 'date' ? 'desc' : 'asc');
     document.querySelectorAll('[data-sort]').forEach((b) => b.addEventListener('click', () => {
-      state.sort = b.dataset.sort;
-      storeSet('opdshelf:sort', state.sort);
+      const key = b.dataset.sort;
+      state.dir = key === state.sort ? (state.dir === 'asc' ? 'desc' : 'asc') : firstDir(key);
+      state.sort = key;
+      storeSet('opdshelf:sort', state.sort + ':' + state.dir);
       refresh();
     }));
     $('bookSearch').addEventListener('input', (e) => { state.query = e.target.value; refresh(); });
@@ -332,7 +344,12 @@
       if (e.key === '/' && !typing) { e.preventDefault(); $('bookSearch').focus(); }
     });
 
-    state.sort = storeGet('opdshelf:sort') === 'name' ? 'name' : 'date';
+    {
+      // Older versions stored just 'name' or 'date'.
+      const [key, dir] = (storeGet('opdshelf:sort') || '').split(':');
+      state.sort = document.querySelector(`[data-sort="${key}"]`) ? key : 'date';
+      state.dir = dir === 'asc' || dir === 'desc' ? dir : firstDir(state.sort);
+    }
     const initial = document.querySelector('[data-initial]');
     if (initial) selectShelf(initial); else refresh();
 

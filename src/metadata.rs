@@ -27,8 +27,32 @@ pub struct BookMeta {
     pub subjects: Vec<String>,
     pub date: Option<String>,
     pub identifier: Option<String>,
+    /// Series the book belongs to, and its position in it ("3", "2.5").
+    pub series: Option<String>,
+    pub series_index: Option<String>,
     #[serde(skip)]
     pub cover: Option<CoverSource>,
+}
+
+impl BookMeta {
+    /// Position in the series as a number, for sorting.
+    pub fn series_position(&self) -> Option<f64> {
+        self.series_index.as_deref()?.trim().replace(',', ".").parse().ok()
+    }
+}
+
+/// Keeps a series position only when it is a number ("3", "2.5"), dropping
+/// trailing zeros that calibre writes ("3.0" becomes "3").
+fn clean_index(value: Option<String>) -> Option<String> {
+    let value = value?;
+    let number: f64 = value.trim().replace(',', ".").parse().ok()?;
+    (number.is_finite() && number >= 0.0).then(|| {
+        if number.fract() == 0.0 {
+            format!("{}", number as u64)
+        } else {
+            format!("{number}")
+        }
+    })
 }
 
 /// Where the cover lives inside the book, found while reading the metadata.
@@ -313,8 +337,11 @@ fn parse_opf(opf: &str, base: &str) -> Result<BookMeta, String> {
         identifier: dc("identifier")
             .find(|i| !i.starts_with("urn:uuid:"))
             .or_else(|| dc("identifier").next()),
+        series: None,
+        series_index: None,
         cover: None,
     };
+    (meta.series, meta.series_index) = opf_series(metadata);
 
     let items: Vec<_> = doc.descendants().filter(|n| n.has_tag_name("item")).collect();
     let cover_id = metadata
@@ -353,6 +380,52 @@ fn parse_opf(opf: &str, base: &str) -> Result<BookMeta, String> {
         }
     }
     Ok(meta)
+}
+
+/// Series from EPUB 3 `belongs-to-collection` or calibre's `calibre:series` metas.
+fn opf_series(metadata: roxmltree::Node) -> (Option<String>, Option<String>) {
+    let metas: Vec<_> = metadata
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name() == "meta")
+        .collect();
+    let collection = metas.iter().find(|n| {
+        n.attribute("property") == Some("belongs-to-collection")
+            && n.attribute("refines").is_none()
+            // A collection without a type, or of type "series", is a series
+            && n.attribute("id").is_none_or(|id| {
+                let refines = format!("#{id}");
+                metas
+                    .iter()
+                    .find(|m| {
+                        m.attribute("refines") == Some(refines.as_str())
+                            && m.attribute("property") == Some("collection-type")
+                    })
+                    .is_none_or(|m| m.text().is_some_and(|t| t.trim() == "series"))
+            })
+    });
+    if let Some(series) = collection.and_then(|n| clean(n.text())) {
+        let index = collection.and_then(|n| n.attribute("id")).and_then(|id| {
+            let refines = format!("#{id}");
+            metas
+                .iter()
+                .find(|m| {
+                    m.attribute("refines") == Some(refines.as_str())
+                        && m.attribute("property") == Some("group-position")
+                })
+                .and_then(|m| clean(m.text()))
+        });
+        return (Some(series), clean_index(index));
+    }
+    let named = |name: &str| {
+        metas
+            .iter()
+            .find(|n| n.attribute("name") == Some(name))
+            .and_then(|n| clean(n.attribute("content")))
+    };
+    match named("calibre:series") {
+        Some(series) => (Some(series), clean_index(named("calibre:series_index"))),
+        None => (None, None),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -454,6 +527,8 @@ pub(crate) fn parse_comic_info(xml: &str) -> Result<BookMeta, String> {
             .unwrap_or_default(),
         date: field("Year"),
         identifier: None,
+        series_index: field("Series").and(clean_index(field("Number"))),
+        series: field("Series"),
         cover: None,
     })
 }
@@ -531,6 +606,7 @@ fn parse_fb2(xml: &str) -> Result<BookMeta, String> {
     });
 
     let publish_info = doc.descendants().find(|n| n.has_tag_name("publish-info"));
+    let sequence = child(title_info, "sequence").filter(|s| s.attribute("name").is_some_and(|n| !n.trim().is_empty()));
     let cover = child(title_info, "coverpage")
         .and_then(|c| c.descendants().find(|n| n.tag_name().name() == "image"))
         .and_then(|img| {
@@ -566,6 +642,8 @@ fn parse_fb2(xml: &str) -> Result<BookMeta, String> {
             .collect(),
         date: text_of(child(title_info, "date")).or_else(|| publish_info.and_then(|p| text_of(child(p, "year")))),
         identifier: publish_info.and_then(|p| text_of(child(p, "isbn"))),
+        series: sequence.and_then(|s| clean(s.attribute("name"))),
+        series_index: sequence.and_then(|s| clean_index(s.attribute("number").map(str::to_string))),
         cover,
     })
 }
@@ -682,6 +760,8 @@ pub(crate) mod tests {
         );
         let meta = read_metadata(&path);
         assert_eq!(meta.title.as_deref(), Some("Saga #3"));
+        assert_eq!(meta.series.as_deref(), Some("Saga"));
+        assert_eq!(meta.series_index.as_deref(), Some("3"));
         assert_eq!(meta.authors, vec!["BKV"]);
         assert_eq!(read_cover(&path, &meta.cover.unwrap()).unwrap(), b"2");
     }
@@ -689,7 +769,7 @@ pub(crate) mod tests {
     const FB2: &str = r##"<?xml version="1.0" encoding="windows-1251"?>
 <FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
 <description><title-info><genre>sf</genre><author><first-name>Ivan</first-name><last-name>Petrov</last-name></author>
-<book-title>TITLE</book-title><annotation><p>Uno</p><p>Dos</p></annotation><lang>ru</lang>
+<book-title>TITLE</book-title><sequence name="Полдень" number="2"/><annotation><p>Uno</p><p>Dos</p></annotation><lang>ru</lang>
 <coverpage><image l:href="#cover.jpg"/></coverpage></title-info></description>
 <body><section><p>text</p></section></body>
 <binary id="cover.jpg" content-type="image/jpeg">SlBFRw==</binary></FictionBook>"##;
@@ -706,7 +786,54 @@ pub(crate) mod tests {
         assert_eq!(meta.authors, vec!["Ivan Petrov"]);
         assert_eq!(meta.description.as_deref(), Some("Uno\nDos"));
         assert_eq!(meta.subjects, vec!["sf"]);
+        assert_eq!(meta.series.as_deref(), Some("Полдень"));
+        assert_eq!(meta.series_index.as_deref(), Some("2"));
         assert_eq!(read_cover(&path, &meta.cover.unwrap()).unwrap(), b"JPEG");
+    }
+
+    #[test]
+    fn epub_series() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("b.epub");
+        // calibre writes the series as EPUB 2 metas
+        write_epub(
+            &path,
+            r#"<dc:title>T</dc:title><meta name="calibre:series" content=" The  Expanse "/>
+               <meta name="calibre:series_index" content="3.0"/>"#,
+            "",
+            &[],
+        );
+        let meta = read_metadata(&path);
+        assert_eq!(meta.series.as_deref(), Some("The Expanse"));
+        assert_eq!(meta.series_index.as_deref(), Some("3"));
+        assert_eq!(meta.series_position(), Some(3.0));
+
+        // EPUB 3 collections; a set that is not a series is ignored
+        write_epub(
+            &path,
+            r##"<dc:title>T</dc:title>
+               <meta property="belongs-to-collection" id="s">Discworld</meta>
+               <meta refines="#s" property="collection-type">set</meta>
+               <meta property="belongs-to-collection" id="c">Watch</meta>
+               <meta refines="#c" property="collection-type">series</meta>
+               <meta refines="#c" property="group-position">2.5</meta>""##,
+            "",
+            &[],
+        );
+        let meta = read_metadata(&path);
+        assert_eq!(meta.series.as_deref(), Some("Watch"));
+        assert_eq!(meta.series_index.as_deref(), Some("2.5"));
+
+        // A position that is not a number is dropped
+        write_epub(
+            &path,
+            r#"<dc:title>T</dc:title><meta name="calibre:series" content="S"/><meta name="calibre:series_index" content="one"/>"#,
+            "",
+            &[],
+        );
+        let meta = read_metadata(&path);
+        assert_eq!(meta.series.as_deref(), Some("S"));
+        assert_eq!(meta.series_index, None);
     }
 
     #[test]

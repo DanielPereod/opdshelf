@@ -447,3 +447,47 @@ async fn inspector_panel_is_a_fragment() {
     let edit = t.text("/admin/edit/a.txt?panel=1").await;
     assert!(!edit.contains("<html") && edit.contains(r#"name="csrf" value=""#));
 }
+
+#[tokio::test]
+async fn series_from_edits_in_volume_order() {
+    let t = app_with(&[]);
+    for name in ["Ultimo.txt", "Primero.txt", "Segundo.txt", "Suelto.txt"] {
+        std::fs::write(t.books().join(name), b"x").unwrap();
+    }
+    let csrf = t.csrf().await;
+    for (path, index) in [("Ultimo.txt", "10"), ("Primero.txt", "1"), ("Segundo.txt", "2")] {
+        let (status, _, _) = t
+            .multipart(
+                "/admin/edit",
+                &[
+                    ("csrf", csrf.as_str()),
+                    ("path", path),
+                    ("series", "La saga"),
+                    ("series_index", index),
+                ],
+                None,
+            )
+            .await;
+        assert_eq!(status, StatusCode::SEE_OTHER);
+    }
+
+    let root = t.text("/").await;
+    assert!(root.contains("/opds/series") && root.contains("1 series"));
+    let index = t.text("/opds/series").await;
+    assert!(index.contains("<title>La saga</title>") && index.contains("3 books"));
+
+    let feed = t.text("/opds/series/La%20saga").await;
+    roxmltree::Document::parse(&feed).expect("series feed is valid XML");
+    let order: Vec<_> = ["Primero", "Segundo", "Ultimo"]
+        .iter()
+        .map(|title| feed.find(&format!("<title>{title}</title>")).unwrap())
+        .collect();
+    assert!(order.windows(2).all(|w| w[0] < w[1]), "volume order");
+    assert!(!feed.contains("Suelto"));
+    assert_eq!(t.get("/opds/series/Nada").await.0, StatusCode::NOT_FOUND);
+
+    let info = t.text("/info/Ultimo.txt").await;
+    assert!(info.contains("La saga #10"));
+    let edit = t.text("/admin/edit/Ultimo.txt").await;
+    assert!(edit.contains(r#"name="series_index" id="f-series-index" value="10""#));
+}

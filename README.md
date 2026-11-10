@@ -41,14 +41,14 @@
 📚 **Your library, organised**
 - EPUB, PDF, FB2, MOBI, AZW, CBZ, CBR, DJVU, RTF, TXT and more
 - Books in subfolders are found recursively (`Series/Volume 1.epub`)
-- Title, authors, description, language and subjects read from EPUB, FB2, PDF and ComicInfo.xml
+- Title, authors, series, description, language and subjects read from EPUB, FB2, PDF and ComicInfo.xml
 - Covers extracted from EPUB, FB2, PDF (first page), CBZ/ZIP, CBR, CB7 and CBT, served as small cached thumbnails in lists
 - New, changed and deleted files show up instantly, no rescan or restart needed
 - Only book formats are listed, so audiobooks or metadata files sharing the folder are ignored
 
 📱 **OPDS 1.2 catalog**
 - Works with any OPDS reader (KOReader, Moon+ Reader, Readest, Calibre, etc.)
-- Browse by recently added, title, folder or author
+- Browse by recently added, title, folder, author or series. Books of a series are listed in volume order
 - Search (OpenSearch) and pagination for large libraries
 - Resumable downloads (HTTP range requests)
 
@@ -62,7 +62,7 @@
 - Quick filters for "Added this week" and "Missing details"
 - Drag-and-drop uploads of several books at once, into any folder
 - Rename, move and delete books
-- Edit title, authors, description, subjects and more, and change the cover. Book files are never modified
+- Edit title, authors, series, description, subjects and more, and change the cover. Book files are never modified
 - Fill in metadata and cover from an ISBN (Open Library, with Google Books as fallback)
 - Select several books to move or delete them at once
 - Search (press `/`), folder filter and sorting
@@ -181,11 +181,12 @@ PDF metadata and covers need `pdfinfo` and `pdftoppm` (poppler), and CBR/CB7/CBT
 
 | URL | Content |
 |-----|---------|
-| `/` | Catalog root: recently added, by title, folders, authors and search |
+| `/` | Catalog root: recently added, by title, folders, authors, series and search |
 | `/opds/books?sort=name-asc` | Every book. `sort` is `date-desc` (default), `date-asc`, `name-asc` or `name-desc` |
 | `/opds/folders/<path>` | Subfolders and books of a folder |
 | `/opds/authors` | Authors, each linking to their books |
-| `/opds/search?q=<terms>` | Search by title, author, path or subject |
+| `/opds/series` | Series, each linking to its books in volume order |
+| `/opds/search?q=<terms>` | Search by title, author, series, path or subject |
 
 Feeds are paginated with `?page=N`. The old `/?sort=...` URLs redirect to `/opds/books`.
 

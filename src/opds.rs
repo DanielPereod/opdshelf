@@ -274,6 +274,17 @@ pub async fn root(State(state): State<AppState>, headers: HeaderMap, Query(query
             updated,
         );
     }
+    let series = snapshot.series().len();
+    if series > 0 {
+        feed.nav_entry(
+            "series",
+            "Series",
+            &format!("{series} series"),
+            "/opds/series",
+            NAV,
+            updated,
+        );
+    }
     feed.render(updated)
 }
 
@@ -379,40 +390,77 @@ async fn folder_feed(
     feed.render(latest(&books))
 }
 
-pub async fn authors(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<FeedQuery>) -> Response {
-    let snapshot = state.library.scan().await;
-    let authors = snapshot.authors();
-    let mut feed = Feed::new(
-        &base_url(&state, &headers),
-        "authors",
-        "Authors",
-        NAV,
-        "/opds/authors".into(),
-    );
+/// What a list of names (authors, series) is about.
+struct NameList {
+    /// Feed id, title and path under /opds.
+    id: &'static str,
+    title: &'static str,
+    /// Prefix of each entry's id.
+    entry: &'static str,
+}
+
+impl NameList {
+    const AUTHORS: Self = Self {
+        id: "authors",
+        title: "Authors",
+        entry: "author",
+    };
+    const SERIES: Self = Self {
+        id: "series",
+        title: "Series",
+        entry: "series",
+    };
+}
+
+/// A paginated navigation feed of names, each linking to its books.
+fn name_index(
+    state: &AppState,
+    headers: &HeaderMap,
+    query: &FeedQuery,
+    list: NameList,
+    names: &[(String, usize)],
+    books_of: impl Fn(&str) -> Vec<Book>,
+    updated: DateTime<Utc>,
+) -> Response {
+    let href = format!("/opds/{}", list.id);
+    let mut feed = Feed::new(&base_url(state, headers), list.id, list.title, NAV, href.clone());
     feed.link("up", "/", NAV);
 
     let page_size = state.config.page_size;
-    let pages = authors.len().div_ceil(page_size).max(1);
+    let pages = names.len().div_ceil(page_size).max(1);
     let page = query.page.unwrap_or(1).clamp(1, pages);
     if page > 1 {
-        feed.link("previous", &format!("/opds/authors?page={}", page - 1), NAV);
+        feed.link("previous", &format!("{href}?page={}", page - 1), NAV);
     }
     if page < pages {
-        feed.link("next", &format!("/opds/authors?page={}", page + 1), NAV);
+        feed.link("next", &format!("{href}?page={}", page + 1), NAV);
     }
-    for (author, count) in authors.iter().skip((page - 1) * page_size).take(page_size) {
-        let encoded = paths::url_encode(author);
-        let updated = latest(&snapshot.by_author(author));
+    for (name, count) in names.iter().skip((page - 1) * page_size).take(page_size) {
+        let encoded = paths::url_encode(name);
         feed.nav_entry(
-            &format!("author:{encoded}"),
-            author,
+            &format!("{}:{encoded}", list.entry),
+            name,
             &format!("{count} books"),
-            &format!("/opds/authors/{encoded}"),
+            &format!("{href}/{encoded}"),
             ACQ,
-            updated,
+            latest(&books_of(name)),
         );
     }
-    feed.render(latest(&snapshot.books))
+    feed.render(updated)
+}
+
+pub async fn authors(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<FeedQuery>) -> Response {
+    let snapshot = state.library.scan().await;
+    let updated = latest(&snapshot.books);
+    name_index(
+        &state,
+        &headers,
+        &query,
+        NameList::AUTHORS,
+        &snapshot.authors(),
+        |a| snapshot.by_author(a),
+        updated,
+    )
 }
 
 pub async fn author(
@@ -421,20 +469,62 @@ pub async fn author(
     Query(query): Query<FeedQuery>,
     Path(name): Path<String>,
 ) -> Response {
-    let mut books = state.library.scan().await.by_author(&name);
+    let books = state.library.scan().await.by_author(&name);
+    books_of(&state, &headers, &query, books, "author", &name, "/opds/authors")
+}
+
+pub async fn series_index(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<FeedQuery>,
+) -> Response {
+    let snapshot = state.library.scan().await;
+    let updated = latest(&snapshot.books);
+    name_index(
+        &state,
+        &headers,
+        &query,
+        NameList::SERIES,
+        &snapshot.series(),
+        |s| snapshot.in_series(s),
+        updated,
+    )
+}
+
+pub async fn series(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<FeedQuery>,
+    Path(name): Path<String>,
+) -> Response {
+    let books = state.library.scan().await.in_series(&name);
+    books_of(&state, &headers, &query, books, "series", &name, "/opds/series")
+}
+
+/// The books of one author or series, by title (so a series reads in volume order).
+fn books_of(
+    state: &AppState,
+    headers: &HeaderMap,
+    query: &FeedQuery,
+    mut books: Vec<Book>,
+    kind: &str,
+    name: &str,
+    up: &str,
+) -> Response {
     if books.is_empty() {
         return StatusCode::NOT_FOUND.into_response();
     }
     SortMode::NameAsc.sort(&mut books);
-    let href = format!("/opds/authors/{}", paths::url_encode(&name));
+    let encoded = paths::url_encode(name);
+    let href = format!("{up}/{encoded}");
     let mut feed = Feed::new(
-        &base_url(&state, &headers),
-        &format!("author:{}", paths::url_encode(&name)),
-        &name,
+        &base_url(state, headers),
+        &format!("{kind}:{encoded}"),
+        name,
         ACQ,
         href.clone(),
     );
-    feed.link("up", "/opds/authors", NAV);
+    feed.link("up", up, NAV);
     feed.paginate(&books, query.page.unwrap_or(1), state.config.page_size, &href);
     feed.render(latest(&books))
 }

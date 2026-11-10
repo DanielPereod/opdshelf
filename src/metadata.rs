@@ -211,7 +211,8 @@ fn decode_entities(text: &str) -> String {
     while let Some(start) = rest.find('&') {
         out.push_str(&rest[..start]);
         rest = &rest[start..];
-        let end = rest[..rest.len().min(12)].find(';');
+        let cap = rest.char_indices().nth(12).map(|(i, _)| i).unwrap_or(rest.len());
+        let end = rest[..cap].find(';');
         let decoded = end.and_then(|end| {
             let entity = &rest[1..end];
             let c = match entity {

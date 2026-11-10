@@ -66,6 +66,8 @@ pub fn router(config: Config) -> Router {
         .route("/opds/folders/{*path}", get(opds::folder))
         .route("/opds/authors", get(opds::authors))
         .route("/opds/authors/{name}", get(opds::author))
+        .route("/opds/series", get(opds::series_index))
+        .route("/opds/series/{name}", get(opds::series))
         .route("/opds/search", get(opds::search))
         .route("/opds/opensearch.xml", get(opds::opensearch))
         .route("/download/{*path}", get(download))
@@ -209,6 +211,8 @@ pub fn book_json(book: &Book) -> serde_json::Value {
         "format": book.format,
         "size": format_size(book.size),
         "bytes": book.size,
+        "series": book.meta.series,
+        "seriesIndex": book.meta.series_index,
         "modified": book.modified.to_rfc3339(),
         "hasCover": book.has_cover,
         "coverVersion": covers::version(book),

@@ -27,6 +27,10 @@ pub struct MetaOverride {
     pub date: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identifier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub series: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub series_index: Option<String>,
     /// File name inside DATA_DIR/covers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cover: Option<String>,
@@ -49,6 +53,8 @@ impl MetaOverride {
             (&mut meta.publisher, &self.publisher),
             (&mut meta.date, &self.date),
             (&mut meta.identifier, &self.identifier),
+            (&mut meta.series, &self.series),
+            (&mut meta.series_index, &self.series_index),
         ] {
             if let Some(value) = value {
                 *field = non_empty(value);

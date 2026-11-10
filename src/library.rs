@@ -49,11 +49,12 @@ impl Book {
 
     fn matches(&self, terms: &[String]) -> bool {
         let haystack = format!(
-            "{} {} {} {}",
+            "{} {} {} {} {}",
             self.title,
             self.authors.join(" "),
             self.path,
-            self.meta.subjects.join(" ")
+            self.meta.subjects.join(" "),
+            self.meta.series.as_deref().unwrap_or_default()
         )
         .to_lowercase();
         terms.iter().all(|t| haystack.contains(t))
@@ -90,7 +91,7 @@ impl SortMode {
 
     pub fn sort(self, books: &mut [Book]) {
         books.sort_by(|a, b| {
-            let by_name = || natural_cmp(&a.title, &b.title).then_with(|| a.path.cmp(&b.path));
+            let by_name = || by_title(a, b);
             match self {
                 Self::NameAsc => by_name(),
                 Self::NameDesc => by_name().reverse(),
@@ -99,6 +100,22 @@ impl SortMode {
             }
         });
     }
+}
+
+/// Title order, with the books of a series kept together in volume order:
+/// a series sorts under its name, and its books by their position in it.
+pub fn by_title(a: &Book, b: &Book) -> std::cmp::Ordering {
+    let key = |book: &'_ Book| book.meta.series.clone().unwrap_or_else(|| book.title.clone());
+    let position = |book: &Book| book.meta.series.as_ref().and(book.meta.series_position());
+    natural_cmp(&key(a), &key(b))
+        .then_with(|| match (position(a), position(b)) {
+            (Some(x), Some(y)) => x.total_cmp(&y),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        })
+        .then_with(|| natural_cmp(&a.title, &b.title))
+        .then_with(|| a.path.cmp(&b.path))
 }
 
 /// Result of a scan: every book plus every folder (relative paths, sorted).
@@ -145,6 +162,25 @@ impl Snapshot {
         let mut authors: Vec<_> = counts.into_iter().map(|(a, c)| (a.to_string(), c)).collect();
         authors.sort_by(|a, b| natural_cmp(&a.0, &b.0));
         authors
+    }
+
+    /// Every series with its number of books, by name.
+    pub fn series(&self) -> Vec<(String, usize)> {
+        let mut counts: HashMap<&str, usize> = HashMap::new();
+        for series in self.books.iter().filter_map(|b| b.meta.series.as_deref()) {
+            *counts.entry(series).or_default() += 1;
+        }
+        let mut series: Vec<_> = counts.into_iter().map(|(s, c)| (s.to_string(), c)).collect();
+        series.sort_by(|a, b| natural_cmp(&a.0, &b.0));
+        series
+    }
+
+    pub fn in_series(&self, series: &str) -> Vec<Book> {
+        self.books
+            .iter()
+            .filter(|b| b.meta.series.as_deref() == Some(series))
+            .cloned()
+            .collect()
     }
 
     pub fn by_author(&self, author: &str) -> Vec<Book> {
@@ -520,6 +556,27 @@ mod tests {
         SortMode::parse(Some("date-asc")).sort(&mut books);
         assert_eq!(titles(&books), ["b 10", "a", "B 2"]);
         assert_eq!(SortMode::parse(Some("bogus")), SortMode::DateDesc);
+
+        // A series sorts under its name and in volume order, whatever the titles say
+        let in_series = |title: &str, series: &str, index: Option<&str>| {
+            let mut b = book(title, 0);
+            b.meta.series = Some(series.into());
+            b.meta.series_index = index.map(str::to_string);
+            b
+        };
+        let mut books = vec![
+            in_series("Zeta", "Mistborn", Some("2")),
+            book("Neuromancer", 0),
+            in_series("Alpha", "Mistborn", Some("10")),
+            in_series("Beta", "Mistborn", None),
+            in_series("Gamma", "Mistborn", Some("1.5")),
+            book("Anathem", 0),
+        ];
+        SortMode::NameAsc.sort(&mut books);
+        assert_eq!(
+            titles(&books),
+            ["Anathem", "Gamma", "Zeta", "Alpha", "Beta", "Neuromancer"]
+        );
     }
 
     #[test]

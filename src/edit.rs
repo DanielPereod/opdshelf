@@ -50,6 +50,8 @@ pub async fn edit_page(
             "subjects": meta.subjects.join(", "),
             "date": meta.date,
             "identifier": meta.identifier,
+            "series": meta.series,
+            "seriesIndex": meta.series_index,
         },
         "isbn": isbn,
     });
@@ -88,6 +90,8 @@ fn diff(form: &HashMap<String, String>, file: &BookMeta, file_title: &str) -> Me
         subjects: (present("subjects") && subjects != file.subjects).then_some(subjects),
         date: changed("date", &file.date),
         identifier: changed("identifier", &file.identifier),
+        series: changed("series", &file.series),
+        series_index: changed("series_index", &file.series_index),
         cover: None,
     }
 }

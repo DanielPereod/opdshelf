@@ -37,6 +37,10 @@
   {{/if}}
 
   <dl class="kv">
+    {{#if meta.series}}
+    <dt>Series</dt>
+    <dd>{{meta.series}}{{#if meta.series_index}} #{{meta.series_index}}{{/if}}</dd>
+    {{/if}}
     <dt>Publisher</dt>
     <dd>{{#if meta.publisher}}{{meta.publisher}}{{else}}—{{/if}}</dd>
     <dt>Date</dt>
@@ -117,6 +121,11 @@
         <input type="text" name="title" id="f-title" value="{{fields.title}}" class="input"></label>
       <label class="field full" for="f-authors"><span>Authors <em>separate with ;</em></span>
         <input type="text" name="authors" id="f-authors" value="{{fields.authors}}" class="input"></label>
+      <label class="field" for="f-series"><span>Series</span>
+        <input type="text" name="series" id="f-series" value="{{fields.series}}" class="input"></label>
+      <label class="field" for="f-series-index"><span>Number in series</span>
+        <input type="text" name="series_index" id="f-series-index" value="{{fields.seriesIndex}}" placeholder="1, 2, 2.5…"
+          inputmode="decimal" class="input"></label>
       <label class="field" for="f-publisher"><span>Publisher</span>
         <input type="text" name="publisher" id="f-publisher" value="{{fields.publisher}}" class="input"></label>
       <label class="field" for="f-date"><span>Date</span>

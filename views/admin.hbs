@@ -116,7 +116,8 @@
         {{#each books}}
         <div class="book{{#if (eq path ../book.path)}} selected{{/if}}" data-path="{{path}}" data-title="{{title}}"
           data-authors="{{authors}}" data-folder="{{folder}}" data-format="{{format}}" data-added="{{modified}}"
-          data-bytes="{{bytes}}" data-incomplete="{{#if incomplete}}1{{/if}}">
+          data-bytes="{{bytes}}" data-series="{{series}}"
+          data-index="{{seriesIndex}}" data-incomplete="{{#if incomplete}}1{{/if}}">
           <label class="pick"><input type="checkbox" name="path" value="{{path}}" form="bulkForm"
               aria-label="Select {{title}}"></label>
           <a class="book-link" href="/info/{{urlPath path}}">
@@ -128,7 +129,7 @@
             </span>
             <span class="book-name">
               <b title="{{title}}">{{title}}</b>
-              <span>{{#if authors}}{{authors}}{{else}}—{{/if}}</span>
+              <span>{{#if authors}}{{authors}}{{else}}—{{/if}}{{#if series}} · {{series}}{{#if seriesIndex}} #{{seriesIndex}}{{/if}}{{/if}}</span>
             </span>
           </a>
           <span class="c-folder" title="{{folder}}">{{folder}}</span>
@@ -284,13 +285,21 @@
       let shown = 0;
       rows.forEach((row) => {
         const d = row.dataset;
-        const text = (d.title + ' ' + d.authors + ' ' + d.path).toLowerCase();
+        const text = (d.title + ' ' + d.authors + ' ' + d.series + ' ' + d.path).toLowerCase();
         const visible = inShelf(row) && (!query || text.includes(query));
         row.hidden = !visible;
         if (visible) shown++;
         else row.querySelector('.pick input').checked = false;
       });
-      const byTitle = (a, b) => collator.compare(a.dataset.title, b.dataset.title);
+      // A series sorts under its name, and its books in volume order
+      const titleKey = (row) => row.dataset.series || row.dataset.title;
+      const position = (row) => (row.dataset.series && row.dataset.index !== '' ? Number(row.dataset.index) : NaN);
+      const byTitle = (a, b) => {
+        const [pa, pb] = [position(a), position(b)];
+        return collator.compare(titleKey(a), titleKey(b))
+          || (isNaN(pa) || isNaN(pb) ? isNaN(pa) - isNaN(pb) : pa - pb)
+          || collator.compare(a.dataset.title, b.dataset.title);
+      };
       const compare = {
         name: byTitle,
         folder: (a, b) => collator.compare(a.dataset.folder, b.dataset.folder) || byTitle(a, b),

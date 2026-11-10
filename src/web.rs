@@ -208,6 +208,7 @@ pub fn book_json(book: &Book) -> serde_json::Value {
         "authors": book.author_line(),
         "format": book.format,
         "size": format_size(book.size),
+        "bytes": book.size,
         "modified": book.modified.to_rfc3339(),
         "hasCover": book.has_cover,
         "coverVersion": covers::version(book),

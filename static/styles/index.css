@@ -572,6 +572,14 @@ input[type="checkbox"] {
   color: var(--fg);
 }
 
+.cols button[aria-sort="ascending"]::after {
+  content: " \2191";
+}
+
+.cols button[aria-sort="descending"]::after {
+  content: " \2193";
+}
+
 .cols .num,
 .book .num {
   text-align: right;

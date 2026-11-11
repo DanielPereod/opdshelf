@@ -2222,6 +2222,13 @@ a.nav-item {
   font-size: 11px;
 }
 
+.connect-note {
+  margin: 0;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+
 .steps {
   margin: 0 0 8px;
   padding-left: 18px;

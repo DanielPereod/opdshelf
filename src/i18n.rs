@@ -221,7 +221,12 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("Reads offline and syncs your position with every other device.", "Lee sin conexión y sincroniza tu posición con el resto de dispositivos."),
     ("Download the app", "Descargar la app"),
     ("Open the APK on the phone and allow installing apps from the browser if Android asks.", "Abre el APK en el móvil y permite instalar apps desde el navegador si Android te lo pide."),
-    ("To download it from here, copy the APK to {path} on the server.", "Para descargarla desde aquí, copia el APK en {path} en el servidor."),
+    ("The app is downloaded from this server.", "La app se descarga desde este servidor."),
+    (
+        "This server is on the beta channel, so it offers the beta builds.",
+        "Este servidor está en el canal beta, así que ofrece las versiones beta.",
+    ),
+    ("The app and the plugin are downloaded from the latest release on GitHub, so they stay up to date without updating the server.", "La app y el plugin se descargan de la última versión publicada en GitHub, así que están al día sin actualizar el servidor."),
     ("OPDShelf for Android", "OPDShelf para Android"),
     ("Use this server address when the app asks for it:", "Usa esta dirección de servidor cuando la app te la pida:"),
     ("This browser", "Este navegador"),

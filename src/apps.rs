@@ -1,119 +1,85 @@
 //! Downloads of OPDShelf's own reading apps from the web panel.
 //!
-//! The KOReader plugin is embedded in the binary and zipped on request, so it
-//! always matches the server. The Android app is too big to embed: the
-//! Docker image carries it in /app/apps (built by the publish workflow), and
-//! an APK copied to DATA_DIR/apps/opdshelf.apk takes its place.
+//! The Android app and the KOReader plugin are published as GitHub releases
+//! (see .github/workflows/release-apps.yml), so they can be updated without
+//! updating the server: the panel's download links send the browser to the
+//! latest release. A file copied to DATA_DIR/apps takes its place, for
+//! servers whose devices cannot reach GitHub or that want another build.
+//!
+//! Each channel has its own releases: `android-latest` and `koreader-latest`
+//! come from main, `android-beta` and `koreader-beta` from the beta branch.
+//! The Docker image of each branch sets APPS_CHANNEL to match.
 
 use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::{header, HeaderValue, StatusCode};
-use axum::response::{IntoResponse, Response};
-use rust_embed::RustEmbed;
-use std::io::Write;
+use axum::response::{IntoResponse, Redirect, Response};
 use std::path::PathBuf;
-use std::sync::OnceLock;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
 use crate::web::AppState;
 
-#[derive(RustEmbed)]
-#[folder = "koreader/opdshelf.koplugin/"]
-struct Plugin;
+/// Where the releases are published, unless APPS_URL says otherwise.
+pub const DEFAULT_APPS_URL: &str = "https://github.com/DanielPereod/opdshelf/releases/download";
 
-pub const PLUGIN_FILE: &str = "opdshelf.koplugin.zip";
-pub const APK_FILE: &str = "opdshelf.apk";
-
-/// Where the Docker image keeps the Android app built with it.
-const BUNDLED_APPS: &str = "/app/apps";
-
-/// Where the Android app is: one added to DATA_DIR wins over the bundled one.
-pub fn apk_path(state: &AppState) -> PathBuf {
-    let own = state.config.data_dir.join("apps").join(APK_FILE);
-    let bundled = std::path::Path::new(BUNDLED_APPS).join(APK_FILE);
-    if !own.is_file() && bundled.is_file() {
-        return bundled;
-    }
-    own
+pub struct App {
+    pub file: &'static str,
+    /// The release tag is `<name>-<channel>`.
+    name: &'static str,
+    mime: &'static str,
 }
 
-/// Size in bytes of the Android app, when it is there to download.
-pub fn apk_size(state: &AppState) -> Option<u64> {
-    std::fs::metadata(apk_path(state))
-        .ok()
-        .filter(|m| m.is_file() && m.len() > 0)
-        .map(|m| m.len())
+pub const ANDROID: App = App {
+    file: "opdshelf.apk",
+    name: "android",
+    mime: "application/vnd.android.package-archive",
+};
+
+pub const KOREADER: App = App {
+    file: "opdshelf.koplugin.zip",
+    name: "koreader",
+    mime: "application/zip",
+};
+
+/// A copy of the app on this server, when there is one.
+fn local(state: &AppState, app: &App) -> Option<PathBuf> {
+    let path = state.config.data_dir.join("apps").join(app.file);
+    path.is_file().then_some(path)
 }
 
-/// The plugin as KOReader expects it: an `opdshelf.koplugin` folder inside the zip.
-pub fn plugin_zip() -> &'static [u8] {
-    static ZIP: OnceLock<Vec<u8>> = OnceLock::new();
-    ZIP.get_or_init(|| {
-        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-        let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-        let mut names: Vec<_> = Plugin::iter().collect();
-        names.sort();
-        for name in names {
-            let file = Plugin::get(&name).expect("listed file exists");
-            zip.start_file(format!("opdshelf.koplugin/{name}"), options)
-                .and_then(|()| zip.write_all(&file.data).map_err(Into::into))
-                .expect("writing to memory works");
-        }
-        zip.finish().expect("writing to memory works").into_inner()
-    })
+/// Where the latest release of an app is downloaded from.
+pub fn release_url(state: &AppState, app: &App) -> String {
+    let config = &state.config;
+    format!("{}/{}-{}/{}", config.apps_url, app.name, config.apps_channel, app.file)
 }
 
-pub async fn koreader_plugin() -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, "application/zip".to_string()),
-            (
-                header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"{PLUGIN_FILE}\""),
-            ),
-            (header::CACHE_CONTROL, "no-cache".to_string()),
-        ],
-        plugin_zip(),
-    )
-        .into_response()
+/// Whether the panel offers the app from this server instead of the release.
+pub fn is_local(state: &AppState, app: &App) -> bool {
+    local(state, app).is_some()
 }
 
-pub async fn android_app(State(state): State<AppState>, request: Request) -> Response {
-    let path = apk_path(&state);
-    if !path.is_file() {
-        return (
-            StatusCode::NOT_FOUND,
-            "The Android app has not been added to this server",
-        )
-            .into_response();
-    }
-    let mime = "application/vnd.android.package-archive".parse().expect("valid mime");
+async fn serve(state: &AppState, app: &App, request: Request) -> Response {
+    let Some(path) = local(state, app) else {
+        return Redirect::temporary(&release_url(state, app)).into_response();
+    };
+    let mime = app.mime.parse().expect("valid mime");
     let mut response = match ServeFile::new_with_mime(&path, &mime).oneshot(request).await {
         Ok(response) => response.map(Body::new),
         Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
     };
     let headers = response.headers_mut();
-    headers.insert(
-        header::CONTENT_DISPOSITION,
-        HeaderValue::from_static("attachment; filename=\"opdshelf.apk\""),
-    );
+    if let Ok(value) = HeaderValue::from_str(&format!("attachment; filename=\"{}\"", app.file)) {
+        headers.insert(header::CONTENT_DISPOSITION, value);
+    }
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     response
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub async fn android_app(State(state): State<AppState>, request: Request) -> Response {
+    serve(&state, &ANDROID, request).await
+}
 
-    #[test]
-    fn plugin_zip_holds_the_plugin_folder() {
-        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(plugin_zip())).unwrap();
-        let names: Vec<String> = (0..zip.len())
-            .map(|i| zip.by_index(i).unwrap().name().to_string())
-            .collect();
-        assert!(names.contains(&"opdshelf.koplugin/_meta.lua".to_string()), "{names:?}");
-        assert!(names.contains(&"opdshelf.koplugin/main.lua".to_string()));
-        assert!(names.iter().all(|n| n.starts_with("opdshelf.koplugin/")));
-    }
+pub async fn koreader_plugin(State(state): State<AppState>, request: Request) -> Response {
+    serve(&state, &KOREADER, request).await
 }

@@ -344,8 +344,9 @@ pub async fn library_data(state: &AppState, query: &AdminQuery) -> serde_json::V
         "formats": extensions.iter().map(|e| e.trim_start_matches('.').to_uppercase()).collect::<Vec<_>>().join(", "),
         "notice": query.notice,
         "error": query.error,
-        "apkSize": apps::apk_size(state).map(format_size),
-        "pluginSize": format_size(apps::plugin_zip().len() as u64),
+        "apkLocal": apps::is_local(state, &apps::ANDROID),
+        "pluginLocal": apps::is_local(state, &apps::KOREADER),
+        "appsBeta": state.config.apps_channel == "beta",
     })
 }
 

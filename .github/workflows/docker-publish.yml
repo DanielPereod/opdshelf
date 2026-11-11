@@ -2,7 +2,7 @@ name: Build and Push Docker image
 
 on:
   push:
-    branches: [main] # o la rama que prefieras
+    branches: [main, beta]
   workflow_dispatch:
 
 jobs:
@@ -11,24 +11,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      # The Android app goes inside the image, so every server offers it for download
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platforms;android-37.0
-
-      - uses: gradle/actions/setup-gradle@v4
-
-      - name: Build the Android app
-        working-directory: android
-        run: |
-          ./gradlew --no-daemon assembleRelease
-          cp app/build/outputs/apk/release/app-release.apk ../apps/opdshelf.apk
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -42,10 +24,17 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # main publishes :latest and beta publishes :beta, each pointing its
+      # panel at the releases of the same channel
+      - name: Pick the channel
+        id: channel
+        run: echo "name=${{ github.ref_name == 'beta' && 'beta' || 'latest' }}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: koalilla/opds-server:latest
+          build-args: CHANNEL=${{ steps.channel.outputs.name }}
+          tags: koalilla/opds-server:${{ steps.channel.outputs.name }}

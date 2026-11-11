@@ -1,6 +1,6 @@
 //! Reading progress: OPDShelf's API and the KOReader sync server.
 
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::http::{header, Request, StatusCode};
 use axum::Router;
 use base64::Engine;
@@ -24,6 +24,10 @@ const KEY: &str = "5ebe2294ecd0e0f08eab7690d2a6ee69";
 const DOC: &str = "502000418ae95849b554660b1ee1d388";
 
 fn app() -> TestApp {
+    app_with(&[])
+}
+
+fn app_with(extra: &[(&str, &str)]) -> TestApp {
     let dir = tempfile::tempdir().unwrap();
     let books = dir.path().join("books");
     std::fs::create_dir_all(&books).unwrap();
@@ -33,6 +37,9 @@ fn app() -> TestApp {
     env.insert("WATCH".into(), "false".into());
     env.insert("ADMIN_USERNAME".into(), USER.into());
     env.insert("ADMIN_PASSWORD".into(), PASS.into());
+    for (key, value) in extra {
+        env.insert(key.to_string(), value.to_string());
+    }
     TestApp {
         app: router(Config::from_lookup(|k| env.get(k).cloned())),
         dir,
@@ -517,44 +524,72 @@ async fn the_panel_speaks_the_browsers_language() {
 
 #[tokio::test]
 async fn reading_apps_download_from_the_panel() {
-    let app = app();
-    let get = |uri: &'static str| {
-        let app = app.app.clone();
-        async move {
-            let response = app
-                .oneshot(
-                    Request::get(uri)
-                        .header(header::AUTHORIZATION, basic())
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            let status = response.status();
-            let headers = response.headers().clone();
-            let body = response.into_body().collect().await.unwrap().to_bytes();
-            (status, headers, body)
-        }
-    };
-    let (status, headers, body) = get("/apps/opdshelf.koplugin.zip").await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(headers[header::CONTENT_TYPE], "application/zip");
-    assert!(body.starts_with(b"PK"));
+    async fn get(app: &TestApp, uri: &str) -> (StatusCode, header::HeaderMap, Bytes) {
+        let response = app
+            .app
+            .clone()
+            .oneshot(
+                Request::get(uri)
+                    .header(header::AUTHORIZATION, basic())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        (status, headers, body)
+    }
+    let releases = "https://github.com/DanielPereod/opdshelf/releases/download";
 
-    // The APK is only there once it is copied to DATA_DIR/apps
-    assert_eq!(get("/apps/opdshelf.apk").await.0, StatusCode::NOT_FOUND);
-    let sync = String::from_utf8(get("/admin/sync").await.2.to_vec()).unwrap();
-    assert!(sync.contains("/apps/opdshelf.koplugin.zip") && !sync.contains(r#"href="/apps/opdshelf.apk""#));
+    // By default both come from the latest GitHub releases
+    let app = app();
+    let (status, headers, _) = get(&app, "/apps/opdshelf.koplugin.zip").await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(
+        headers[header::LOCATION],
+        format!("{releases}/koreader-latest/opdshelf.koplugin.zip").as_str()
+    );
+    let (status, headers, _) = get(&app, "/apps/opdshelf.apk").await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(
+        headers[header::LOCATION],
+        format!("{releases}/android-latest/opdshelf.apk").as_str()
+    );
+    let sync = String::from_utf8(get(&app, "/admin/sync").await.2.to_vec()).unwrap();
+    assert!(sync.contains(r#"href="/apps/opdshelf.koplugin.zip""#) && sync.contains(r#"href="/apps/opdshelf.apk""#));
+    assert!(!sync.contains("beta channel"));
+
+    // A copy in DATA_DIR/apps is served instead
     let apps = app.dir.path().join("books/.opdshelf/apps");
     std::fs::create_dir_all(&apps).unwrap();
     std::fs::write(apps.join("opdshelf.apk"), b"PK apk").unwrap();
-    let (status, headers, body) = get("/apps/opdshelf.apk").await;
+    let (status, headers, body) = get(&app, "/apps/opdshelf.apk").await;
     assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "application/vnd.android.package-archive");
     assert!(headers[header::CONTENT_DISPOSITION]
         .to_str()
         .unwrap()
         .contains("opdshelf.apk"));
     assert_eq!(&body[..], b"PK apk");
-    let sync = String::from_utf8(get("/admin/sync").await.2.to_vec()).unwrap();
-    assert!(sync.contains(r#"href="/apps/opdshelf.apk""#));
+    assert!(String::from_utf8(get(&app, "/admin/sync").await.2.to_vec())
+        .unwrap()
+        .contains("downloaded from this server"));
+
+    // A beta server offers the beta releases, from wherever APPS_URL says
+    let beta = app_with(&[("APPS_CHANNEL", "beta"), ("APPS_URL", "https://example.com/apps/")]);
+    let (_, headers, _) = get(&beta, "/apps/opdshelf.apk").await;
+    assert_eq!(
+        headers[header::LOCATION],
+        "https://example.com/apps/android-beta/opdshelf.apk"
+    );
+    let (_, headers, _) = get(&beta, "/apps/opdshelf.koplugin.zip").await;
+    assert_eq!(
+        headers[header::LOCATION],
+        "https://example.com/apps/koreader-beta/opdshelf.koplugin.zip"
+    );
+    assert!(String::from_utf8(get(&beta, "/admin/sync").await.2.to_vec())
+        .unwrap()
+        .contains("beta channel"));
 }

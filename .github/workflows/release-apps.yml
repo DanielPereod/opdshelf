@@ -1,0 +1,73 @@
+name: Release apps
+
+# Publishes the Android app and the KOReader plugin as GitHub releases with
+# fixed tags: android-latest and koreader-latest from main, android-beta and
+# koreader-beta (pre-releases) from the beta branch. The web panel's download
+# buttons point to the releases of their server's channel, so the apps update
+# without updating the server.
+on:
+  push:
+    branches: [main, beta]
+    paths:
+      - "android/**"
+      - "koreader/opdshelf.koplugin/**"
+      - ".github/workflows/release-apps.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CHANNEL: ${{ github.ref_name == 'beta' && 'beta' || 'latest' }}
+
+concurrency:
+  group: release-apps-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  koreader:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Zip the plugin
+        working-directory: koreader
+        run: zip -r ../opdshelf.koplugin.zip opdshelf.koplugin
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/publish-release.sh "koreader-$CHANNEL" "OPDShelf for KOReader" opdshelf.koplugin.zip
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platforms;android-37.0
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The app is signed with the debug key. With the same key every build,
+      # a new version installs over the old one; without the secret each run
+      # makes a new key and the app has to be uninstalled before updating.
+      - name: Use the stored signing key
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+        if: env.KEYSTORE != ''
+        run: mkdir -p ~/.android && echo "$KEYSTORE" | base64 -d > ~/.android/debug.keystore
+
+      - name: Build the APK
+        working-directory: android
+        run: |
+          ./gradlew --no-daemon assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk ../opdshelf.apk
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/publish-release.sh "android-$CHANNEL" "OPDShelf for Android" opdshelf.apk

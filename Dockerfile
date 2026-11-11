@@ -14,24 +14,23 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY views ./views
-COPY koreader/opdshelf.koplugin ./koreader/opdshelf.koplugin
 COPY --from=assets /app/static ./static
 RUN cargo build --release --locked
 
 FROM alpine:3.22
+# latest for images built from main, beta for the beta branch: picks which
+# releases of the Android app and KOReader plugin the web panel offers
+ARG CHANNEL=latest
 # pdfinfo/pdftoppm for PDF covers, bsdtar for CBR/CB7/CBT comics
 RUN apk add --no-cache poppler-utils libarchive-tools
 COPY --from=builder /app/target/release/opdshelf /usr/local/bin/opdshelf
-# The Android app, offered for download in the web panel. The publish workflow
-# builds it into apps/ before building the image; elsewhere the folder only
-# holds its README and the panel explains how to add the APK.
-COPY apps/ /app/apps/
 WORKDIR /app
 RUN mkdir -p /app/books
 
 ENV PORT=3000 \
     HOST=0.0.0.0 \
-    BOOKS_DIR=/app/books
+    BOOKS_DIR=/app/books \
+    APPS_CHANNEL=${CHANNEL}
 
 EXPOSE 3000
 VOLUME ["/app/books"]

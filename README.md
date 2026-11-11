@@ -63,7 +63,7 @@
 🔄 **Devices and sync page**
 - Every device that syncs (browsers, KOReader, the Android app) with its last activity, the books it is on and how far, and whether it is connected right now
 - Live feed of reading activity, and the addresses to set up OPDS apps, KOReader and the Android app
-- Download the KOReader plugin (always the one that matches the server) and the Android app from the panel. The Docker image carries the app; an APK copied to `DATA_DIR/apps/opdshelf.apk` takes its place
+- Download the KOReader plugin and the Android app from the panel. They come from the latest GitHub releases (`android-latest`, `koreader-latest`, or the `-beta` ones on beta servers), so they update without updating the server; a file copied to `DATA_DIR/apps/` (`opdshelf.apk`, `opdshelf.koplugin.zip`) takes their place
 - Reading progress in the library: **Reading** and **Finished** shelves, a **Continue reading** row, progress bars in the list and on the covers, and per-device positions in each book's panel
 
 🌍 **English and Spanish**
@@ -90,6 +90,8 @@
 ## Installation
 
 The Docker image `koalilla/opds-server` is published for **linux/amd64** and **linux/arm64**, so it runs on a PC, a NAS or a Raspberry Pi.
+
+Two channels are published: `latest`, built from `main`, and `beta`, built from the `beta` branch, where new features are tried before they reach `main`. Use `koalilla/opds-server:beta` to run the beta; its panel offers the beta builds of the Android app and the KOReader plugin.
 
 ### Docker Compose (recommended)
 
@@ -177,6 +179,8 @@ All settings are environment variables.
 | `EXCLUDE_EXTENSIONS` | none | Extensions removed from the allowed list, e.g. `zip,txt` |
 | `PAGE_SIZE` | `50` | Books per page in OPDS feeds |
 | `MAX_UPLOAD_MB` | `1024` | Maximum size of one upload request |
+| `APPS_URL` | `https://github.com/DanielPereod/opdshelf/releases/download` | Where the panel's Android app and KOReader plugin downloads come from |
+| `APPS_CHANNEL` | `latest` (`beta` in the `:beta` image) | Which releases those downloads use: `latest` (from `main`) or `beta` |
 | `DATA_DIR` | `BOOKS_DIR/.opdshelf` | Where edited metadata, custom covers and the thumbnail cache are stored |
 | `WATCH` | `true` | Watch the books folder for changes. Set to `false` on network shares that do not report changes; the library is then rescanned on each request |
 | `SCAN_INTERVAL` | `600` | Seconds between full rescans while watching, as a safety net for missed events |

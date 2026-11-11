@@ -3,7 +3,8 @@
   <button type="button" id="direction" class="icon-btn" title="{{t "Reading direction"}}" aria-label="{{t "Reading direction"}}"><i class="fas fa-right-left"></i></button>
 </div>
 
-<main class="stage" id="stage">
+<main class="stage comic" id="stage">
+  <h1 class="visually-hidden">{{book.title}}</h1>
   <div class="comic-stage">
     <img id="pageImg" alt="">
     <button type="button" id="left" class="tap left" title="{{t "Previous page"}}" aria-label="{{t "Previous page"}}"></button>

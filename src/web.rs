@@ -33,6 +33,7 @@ pub struct AppState {
     pub templates: Arc<Handlebars<'static>>,
     pub lookup: Lookup,
     pub progress: Progress,
+    pub marks: crate::marks::Marks,
     pub documents: DocumentIds,
     pub presence: sync::Presence,
 }
@@ -48,6 +49,7 @@ pub fn router(config: Config) -> Router {
         templates: Arc::new(templates::registry()),
         lookup: Lookup::new(&config.openlibrary_url, &config.google_books_url),
         progress: Progress::open(&config.data_dir),
+        marks: crate::marks::Marks::open(&config.data_dir),
         documents: DocumentIds::open(&config.data_dir),
         presence: sync::Presence::default(),
         config: Arc::new(config),
@@ -110,6 +112,7 @@ pub fn router(config: Config) -> Router {
         .route("/api/progress", get(sync::list_progress))
         .route("/api/progress/events", get(sync::events))
         .route("/api/devices", get(sync::devices))
+        .route("/api/marks", axum::routing::put(sync::put_marks))
         .route("/api/devices/{device}", axum::routing::delete(sync::forget_device))
         .route(
             "/api/progress/{document}",

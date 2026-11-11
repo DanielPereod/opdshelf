@@ -66,7 +66,7 @@
         </div>
       </div>
       <div class="side-actions">
-        <button type="button" class="icon-btn" onclick="toggleTheme()" title="{{t "Light or dark"}}"
+        <button type="button" class="icon-btn" data-theme-btn onclick="toggleTheme()" title="{{t "Light or dark"}}"
           aria-label="{{t "Light or dark"}}">
           <i class="fas fa-circle-half-stroke"></i>
         </button>
@@ -142,10 +142,12 @@
       <input type="hidden" name="csrf" value="{{csrf}}">
       <strong id="bulkCount"></strong>
       <div class="bulk-move">
-        <input class="input" name="folder" id="bulkFolder" list="folderList" placeholder="{{t "Folder (empty for root)"}}"
+        <input class="input" name="folder" id="bulkFolder" list="folderList" placeholder="{{t "Move to folder…"}}"
           aria-label="{{t "Destination folder"}}">
         <button type="submit" class="btn" name="action" value="move"><i class="far fa-folder-open"></i>{{t "Move"}}</button>
       </div>
+      <button type="button" class="btn" data-bulk-mark="read"><i class="far fa-circle-check"></i>{{t "Mark as read"}}</button>
+      <button type="button" class="btn" data-bulk-mark="unread"><i class="far fa-circle"></i>{{t "Mark as unread"}}</button>
       <button type="button" class="btn btn-danger" id="bulkDelete"><i class="far fa-trash-can"></i>{{t "Delete"}}</button>
       <button type="button" class="icon-btn" id="bulkClear" title="{{t "Clear selection"}}"
         aria-label="{{t "Clear selection"}}"><i class="fas fa-xmark"></i></button>
@@ -210,6 +212,7 @@
         <i class="fas fa-magnifying-glass"></i>
         <strong id="noMatchesTitle">{{t "No books match"}}</strong>
         <span id="noMatchesText">{{t "Try another word or shelf."}}</span>
+        <p><button type="button" class="btn" id="clearSearch"><i class="fas fa-xmark"></i>{{t "Clear search"}}</button></p>
       </div>
       {{else}}
       <div class="empty">
@@ -369,6 +372,18 @@
         b.querySelector('.count').textContent = count;
         return b;
       }));
+      // With many names, the first ones and a button for the rest
+      const SHOWN = 8;
+      if (sorted.length > SHOWN + 2) {
+        Array.from(box.children).slice(SHOWN).forEach((b) => b.classList.add('extra'));
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'link-btn nav-more';
+        const label = () => { more.textContent = group.classList.contains('expanded') ? t('Show fewer') : t('Show all ({n})', { n: sorted.length }); };
+        more.addEventListener('click', () => { group.classList.toggle('expanded'); label(); });
+        label();
+        box.append(more);
+      }
       group.hidden = false;
       const key = 'opdshelf:open:' + kind;
       group.open = storeGet(key) === '1';
@@ -476,6 +491,8 @@
         $('noMatches').hidden = shown > 0 || rows.length === 0;
         const [title, text] = (!query && emptyTexts[state.shelf]) || [t('No books match'), t('Try another word or shelf.')];
         $('noMatchesTitle').textContent = title;
+        $('clearSearch').hidden = !query;
+        document.querySelector('.cols').hidden = shown === 0;
         $('noMatchesText').textContent = text;
       }
       const sortSelect = $('sortSelect');
@@ -503,6 +520,7 @@
       showPage('library');
       const group = button.closest('details');
       if (group) group.open = true;
+      if (group && button.classList.contains('extra')) group.classList.add('expanded');
       document.querySelectorAll('[data-shelf]').forEach((b) => b.setAttribute('aria-current', b === button));
       state.shelf = button.dataset.shelf;
       state.value = button.dataset.value || '';
@@ -550,6 +568,12 @@
       [state.sort, state.dir] = e.target.value.split(':');
       storeSet('opdshelf:sort', state.sort + ':' + state.dir);
       refresh();
+    });
+    if ($('clearSearch')) $('clearSearch').addEventListener('click', () => {
+      $('bookSearch').value = '';
+      state.query = '';
+      refresh();
+      $('bookSearch').focus();
     });
     $('bookSearch').addEventListener('input', (e) => { state.query = e.target.value; refresh(); });
     $('bookSearch').addEventListener('keydown', (e) => {
@@ -651,6 +675,17 @@
         const data = await response.json();
         progress.clear();
         data.books.forEach((b) => { if (b.path) progress.set(b.path, b.current); });
+        // Marks made in the panel: "read" shows the book finished, "unread"
+        // hides the positions saved before it
+        (data.marks || []).forEach((m) => {
+          if (!m.path) return;
+          const p = progress.get(m.path);
+          if (m.state === 'read') {
+            progress.set(m.path, { ...(p || {}), percentage: 1, timestamp: Math.max(m.at, (p && p.timestamp) || 0), device: t('Marked as read'), marked: true });
+          } else if (p && p.timestamp <= m.at) {
+            progress.delete(m.path);
+          }
+        });
         paintProgress();
         refresh();
         document.dispatchEvent(new CustomEvent('progresschange'));
@@ -734,6 +769,10 @@
     }, true);
     $('bulkClear').addEventListener('click', () => setSelecting(false));
     $('bulkDelete').addEventListener('click', () => $('bulkDeleteDialog').showModal());
+    document.querySelectorAll('[data-bulk-mark]').forEach((b) => b.addEventListener('click', async () => {
+      await markBooks(picked().map((r) => r.dataset.path), b.dataset.bulkMark);
+      setSelecting(false);
+    }));
 
     // ------------------------------------------------------------ inspector
     const insp = $('insp');
@@ -793,12 +832,41 @@
         return;
       }
       const body = box.querySelector('[data-reading-body]');
-      if (!data.current) {
+      const path = insp.querySelector('[data-delete]').dataset.delete;
+      const mark = data.mark;
+      const hidden = mark && mark.state === 'unread' && data.current && data.current.timestamp <= mark.at;
+      const markedRead = mark && mark.state === 'read';
+      // Mark as read or unread, only in this panel
+      const actions = document.createElement('div');
+      actions.className = 'reading-actions';
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'btn btn-small';
+      const finished = markedRead || (!hidden && data.current && isFinished(data.current));
+      toggle.innerHTML = finished ? '<i class="far fa-circle"></i>' : '<i class="far fa-circle-check"></i>';
+      toggle.append(finished ? t('Mark as unread') : t('Mark as read'));
+      toggle.addEventListener('click', () => markBooks([path], finished ? 'unread' : 'read'));
+      actions.append(toggle);
+      if (mark) {
+        const note = document.createElement('small');
+        note.className = 'muted';
+        note.textContent = (markedRead ? t('Marked as read') : t('Marked as unread')) + ', ' + timeAgo(mark.at);
+        actions.append(note);
+      }
+      if (markedRead) {
+        const head = document.createElement('div');
+        head.className = 'reading-now';
+        head.innerHTML = '<strong></strong>';
+        head.firstChild.textContent = t('Finished');
+        body.replaceChildren(head, actions);
+        return;
+      }
+      if (!data.current || hidden) {
         body.innerHTML = '';
         const p = document.createElement('p');
         p.className = 'muted';
         p.textContent = t('Not started on any device yet.');
-        body.append(p);
+        body.append(p, actions);
         return;
       }
       const c = data.current;
@@ -835,8 +903,30 @@
         li.append(icon, name, value, when);
         devices.append(li);
       });
-      body.replaceChildren(head, bar, devices);
+      body.replaceChildren(head, bar, devices, actions);
     }
+
+    // Marks books as read or unread in the panel; positions are not changed
+    async function markBooks(paths, markState) {
+      try {
+        const response = await fetch('/api/marks', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ paths, state: markState }),
+        });
+        if (!response.ok) throw new Error(response.statusText);
+      } catch (err) {
+        showToast(t('Cannot save: {reason}', { reason: err.message }));
+        return;
+      }
+      await loadProgress();
+      paintReading();
+      const n = paths.length;
+      showToast(markState === 'read'
+        ? (n === 1 ? t('Marked as read') : t('{n} books marked as read', { n }))
+        : (n === 1 ? t('Marked as unread') : t('{n} books marked as unread', { n })));
+    }
+    window.markBooks = markBooks;
     document.addEventListener('progresschange', paintReading);
 
     // Below 1100px the panel floats over the list, which is dimmed; a click there closes it

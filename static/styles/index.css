@@ -765,6 +765,16 @@ input[type="checkbox"] {
   background: var(--soft);
 }
 
+.thumb::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.1);
+  pointer-events: none;
+}
+
 .thumb img {
   position: absolute;
   inset: 0;
@@ -1585,10 +1595,38 @@ dialog::backdrop {
 /* Named .epub-viewer because epub.js uses .epub-view for its own pages */
 .epub-viewer {
   position: absolute;
-  inset: 12px calc(56px + var(--page-margin, 4%));
+  /* At most 1200px wide, so a column of the spread stays near 70 characters */
+  inset: 12px max(calc(56px + var(--page-margin, 4%)), calc((100% - 1200px) / 2 + var(--page-margin, 4%)));
 }
 
 /* Text settings of the reader (static/reader/typography.js) */
+/* The size buttons live in the text settings panel */
+#controls:has(.typo-btn) #smaller,
+#controls:has(.typo-btn) #larger {
+  display: none;
+}
+
+/* Page colour swatches */
+.swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--line-input);
+}
+
+.swatch.light {
+  background: #ffffff;
+}
+
+.swatch.gray {
+  background: #e9e9e9;
+  box-shadow: inset 0 0 0 4px #ffffff;
+}
+
+.swatch.dark {
+  background: #0b0b0b;
+}
+
 .typo-btn span {
   font-family: var(--serif);
   font-size: var(--fs-md);
@@ -1662,9 +1700,9 @@ dialog::backdrop {
 
 /* Floating notes of the reader, e.g. where a book was continued from */
 .reader-toast {
-  /* Under the top bar, where it does not cover the lines being read */
+  /* Over the footer, where it does not cover the lines being read */
   position: fixed;
-  top: 60px;
+  bottom: 4px;
   left: var(--sp-4);
   right: var(--sp-4);
   z-index: 20;
@@ -1718,6 +1756,10 @@ dialog::backdrop {
   place-items: center;
   color: var(--muted);
   pointer-events: none;
+}
+
+.stage.comic {
+  background: #0b0b0b;
 }
 
 .comic-stage {
@@ -1806,14 +1848,25 @@ dialog::backdrop {
   font: inherit;
   color: inherit;
   text-align: left;
-  text-decoration: underline;
-  text-decoration-color: var(--line-strong);
+  text-decoration: underline dotted;
+  text-decoration-color: var(--muted);
+  text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
 
 .text-link:hover {
   color: var(--fg);
+  text-decoration: underline solid;
   text-decoration-color: currentColor;
+}
+
+/* Long author and series lists show their first entries until expanded */
+.nav-group:not(.expanded) .nav-item.extra {
+  display: none;
+}
+
+.nav-more {
+  margin: var(--sp-1) 0 0 var(--sp-2);
 }
 
 /* Authors and series: collapsible groups of the sidebar */
@@ -2119,6 +2172,20 @@ a.nav-item {
   font-size: var(--fs-sm);
 }
 
+.reading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+}
+
+.reading-actions small {
+  font-size: var(--fs-xs);
+}
+
 .device-positions {
   list-style: none;
   margin: var(--sp-3) 0 0;
@@ -2295,9 +2362,7 @@ a.nav-item {
 .stat small {
   color: var(--muted);
   font-size: var(--fs-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .panel-section {
@@ -2747,7 +2812,8 @@ a.nav-item {
   }
 
   .toolbar h1 + .search,
-  .toolbar .sort-select {
+  .toolbar .sort-select,
+  .toolbar .select-btn {
     order: 2;
   }
 
@@ -2962,6 +3028,21 @@ a.nav-item {
   }
 
   .stat strong {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  dialog {
+    width: calc(100% - 16px);
+  }
+
+  /* Just the dot; the state stays readable for screen readers */
+  .live-pill {
+    gap: 0;
+    font-size: 0;
+  }
+
+  .stat strong {
     font-size: var(--fs-lg);
   }
 
@@ -3029,11 +3110,7 @@ a.nav-item {
     color: var(--muted);
   }
 
-  /* The size buttons are in the text settings */
-  .reader-bar #smaller,
-  .reader-bar #larger {
-    display: none;
-  }
+
 }
 
 @media (max-width: 760px), (pointer: coarse) {

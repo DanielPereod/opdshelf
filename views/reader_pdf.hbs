@@ -5,7 +5,8 @@
 </div>
 
 <main class="stage">
-  <div id="pages" class="scroll-stage pdf-pages">
+  <h1 class="visually-hidden">{{book.title}}</h1>
+  <div id="pages" class="scroll-stage pdf-pages" tabindex="0" aria-label="{{book.title}}">
     <div id="status" class="loading"><span><i class="fas fa-spinner fa-spin"></i> {{t "Loading…"}}</span></div>
   </div>
 </main>

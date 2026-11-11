@@ -2,6 +2,11 @@ package io.github.danielpereod.opdshelf.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,37 +58,47 @@ import kotlinx.coroutines.launch
 @Composable
 fun WelcomeScreen(onStart: () -> Unit, modifier: Modifier = Modifier) {
     Column(
-        modifier.fillMaxSize().background(shelf.bg).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 40.dp),
+        modifier.fillMaxSize().background(shelf.bg).verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
-        Image(painterResource(R.drawable.logo), null, Modifier.size(56.dp))
-        Spacer(Modifier.height(24.dp))
-        Text(stringResource(R.string.welcome_title), color = shelf.fg, fontSize = 28.sp, fontWeight = FontWeight.Bold, lineHeight = 34.sp)
-        Spacer(Modifier.height(8.dp))
-        Text(stringResource(R.string.welcome_text), color = shelf.muted, fontSize = 15.sp, lineHeight = 22.sp)
-        Spacer(Modifier.height(32.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+      Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = Space.xl, vertical = Space.xxl + Space.s)) {
+        Logo(56.dp)
+        Spacer(Modifier.height(Space.xl))
+        Text(
+            stringResource(R.string.welcome_title), color = shelf.fg, fontSize = TextSize.display, fontWeight = FontWeight.Bold, lineHeight = 36.sp,
+            modifier = Modifier.semantics { heading() },
+        )
+        Spacer(Modifier.height(Space.s))
+        Text(stringResource(R.string.welcome_text), color = shelf.muted, fontSize = TextSize.subtitle, lineHeight = 24.sp)
+        Spacer(Modifier.height(Space.xxl))
+        Column(verticalArrangement = Arrangement.spacedBy(Space.xl)) {
             Feature(Icons.AutoMirrored.Outlined.MenuBook, R.string.feature_library_title, R.string.feature_library_text)
             Feature(Icons.Outlined.WifiOff, R.string.feature_offline_title, R.string.feature_offline_text)
             Feature(Icons.Outlined.CloudSync, R.string.feature_sync_title, R.string.feature_sync_text)
             Feature(Icons.Outlined.FormatQuote, R.string.feature_mark_title, R.string.feature_mark_text)
         }
-        Spacer(Modifier.height(40.dp))
+        Spacer(Modifier.height(Space.xxl + Space.s))
         PrimaryButton(stringResource(R.string.connect_server), onStart, Modifier.fillMaxWidth(), height = 48.dp)
-        Spacer(Modifier.height(12.dp))
-        Text(stringResource(R.string.welcome_need_server), color = shelf.muted, fontSize = 12.sp, lineHeight = 17.sp)
+        Spacer(Modifier.height(Space.m))
+        Text(
+            stringResource(R.string.welcome_need_server), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+        )
+      }
     }
 }
 
 @Composable
 private fun Feature(icon: ImageVector, title: Int, text: Int) {
-    Row {
+    Row(Modifier.semantics(mergeDescendants = true) {}) {
         Box(Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(shelf.soft), contentAlignment = Alignment.Center) {
             Icon(icon, null, tint = shelf.fg, modifier = Modifier.size(20.dp))
         }
-        Spacer(Modifier.width(14.dp))
+        Spacer(Modifier.width(Space.l))
         Column(Modifier.weight(1f)) {
-            Text(stringResource(title), color = shelf.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            Text(stringResource(text), color = shelf.muted, fontSize = 13.sp, lineHeight = 18.sp)
+            Text(stringResource(title), color = shelf.fg, fontSize = TextSize.body, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(text), color = shelf.muted, fontSize = TextSize.bodySmall, lineHeight = 20.sp)
         }
     }
 }
@@ -102,54 +117,77 @@ fun ConnectForm(onConnected: () -> Unit, buttonText: String, modifier: Modifier 
     var showPassword by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    // Which field the error is about, to mark it
+    var badLogin by remember { mutableStateOf(false) }
+    var badServer by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val submit = {
+        if (!checking && server.isNotBlank()) {
+            focus.clearFocus()
+            settings.serverUrl = server
+            settings.username = username
+            settings.password = password
+            server = settings.serverUrl
+            checking = true
+            error = null
+            badLogin = false
+            badServer = false
+            scope.launch {
+                try {
+                    context.app.api.check()
+                    context.app.sync.schedule()
+                    onConnected()
+                } catch (e: Exception) {
+                    error = context.getString(R.string.cannot_connect, context.describe(e))
+                    badLogin = e is io.github.danielpereod.opdshelf.data.HttpError && e.code == 401
+                    badServer = !badLogin
+                } finally {
+                    checking = false
+                }
+            }
+        }
+    }
 
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(Space.l)) {
         LabeledField(
-            stringResource(R.string.server), server, { server = it; error = null },
+            stringResource(R.string.server), server, { server = it; error = null; badServer = false },
             placeholder = "192.168.1.10:3000", keyboardType = KeyboardType.Uri,
             help = stringResource(R.string.server_help),
+            imeAction = androidx.compose.ui.text.input.ImeAction.Next, isError = badServer, autoCorrect = false,
         )
-        LabeledField(stringResource(R.string.username), username, { username = it; error = null })
         LabeledField(
-            stringResource(R.string.password), password, { password = it; error = null },
+            stringResource(R.string.username), username, { username = it; error = null; badLogin = false },
+            imeAction = androidx.compose.ui.text.input.ImeAction.Next, isError = badLogin,
+            autofill = androidx.compose.ui.autofill.ContentType.Username, autoCorrect = false,
+        )
+        LabeledField(
+            stringResource(R.string.password), password, { password = it; error = null; badLogin = false },
             keyboardType = KeyboardType.Password,
+            imeAction = androidx.compose.ui.text.input.ImeAction.Done, onImeAction = submit, isError = badLogin,
+            autofill = androidx.compose.ui.autofill.ContentType.Password, autoCorrect = false,
             visualTransformation = if (showPassword) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
             trailing = {
                 PasswordToggle(showPassword) { showPassword = !showPassword }
             },
         )
         error?.let {
-            Text(
-                it, color = shelf.fg, fontSize = 13.sp, lineHeight = 18.sp,
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(shelf.soft)
-                    .border(1.dp, shelf.lineStrong, RoundedCornerShape(4.dp)).padding(12.dp),
-            )
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(shelf.soft)
+                    .border(1.dp, shelf.danger, RoundedCornerShape(8.dp)).padding(Space.m)
+                    .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
+            ) {
+                Icon(Icons.Outlined.ErrorOutline, null, tint = shelf.danger, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(Space.m))
+                Text(it, color = shelf.fg, fontSize = TextSize.label, lineHeight = 20.sp, modifier = Modifier.weight(1f))
+            }
         }
         PrimaryButton(
             text = if (checking) stringResource(R.string.checking) else buttonText,
             enabled = !checking && server.isNotBlank(),
             height = 48.dp,
             modifier = Modifier.fillMaxWidth(),
-            onClick = {
-                settings.serverUrl = server
-                settings.username = username
-                settings.password = password
-                server = settings.serverUrl
-                checking = true
-                error = null
-                scope.launch {
-                    try {
-                        context.app.api.check()
-                        context.app.sync.schedule()
-                        onConnected()
-                    } catch (e: Exception) {
-                        error = context.getString(R.string.cannot_connect, context.describe(e))
-                    } finally {
-                        checking = false
-                    }
-                }
-            },
+            onClick = submit,
         )
     }
 }
@@ -171,11 +209,14 @@ fun ConnectScreen(onConnected: () -> Unit, onBack: () -> Unit, modifier: Modifie
     Column(modifier.fillMaxSize().background(shelf.bg)) {
         Header(stringResource(R.string.connect_title), onBack = onBack)
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 20.dp, vertical = 24.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding(),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(stringResource(R.string.connect_text), color = shelf.muted, fontSize = 14.sp, lineHeight = 20.sp)
-            Spacer(Modifier.height(24.dp))
+          Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = edgePadding, vertical = Space.xl)) {
+            Text(stringResource(R.string.connect_text), color = shelf.muted, fontSize = TextSize.bodySmall, lineHeight = 20.sp)
+            Spacer(Modifier.height(Space.xl))
             ConnectForm(onConnected, stringResource(R.string.connect))
+          }
         }
     }
 }

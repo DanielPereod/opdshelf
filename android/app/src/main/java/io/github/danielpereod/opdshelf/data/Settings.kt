@@ -30,6 +30,11 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("mark_hint_shown", false)
         set(value) = prefs.edit().putBoolean("mark_hint_shown", value).apply()
 
+    /** The app's look: 0 follows the system, 1 light, 2 dark. */
+    var appearance: Int
+        get() = prefs.getInt("appearance", 0)
+        set(value) = prefs.edit().putInt("appearance", value).apply()
+
     fun forgetServer() {
         prefs.edit().remove("server").remove("username").remove("password").apply()
     }

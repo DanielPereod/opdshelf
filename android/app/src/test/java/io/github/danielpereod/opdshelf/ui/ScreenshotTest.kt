@@ -19,6 +19,11 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -30,6 +35,9 @@ import io.github.danielpereod.opdshelf.reader.ReaderOverlay
 import io.github.danielpereod.opdshelf.reader.ReaderPrefs
 import io.github.danielpereod.opdshelf.reader.ReaderUi
 import io.github.danielpereod.opdshelf.reader.TextSheet
+import io.github.danielpereod.opdshelf.reader.SearchHit
+import io.github.danielpereod.opdshelf.reader.ContentsSheet
+import io.github.danielpereod.opdshelf.reader.SearchSheet
 import io.github.danielpereod.opdshelf.reader.TocItem
 import io.github.danielpereod.opdshelf.reader.TocSheet
 import kotlinx.coroutines.runBlocking
@@ -147,6 +155,15 @@ class ScreenshotTest {
         val library = show()
         waitFor("Seguir leyendo")
         shot("03-inicio$suffix")
+        click("Leyendo 1")
+        shot("03b-inicio-leyendo$suffix")
+        click("Todos")
+        // A long press picks books to act on several at once
+        compose.onNode(androidx.compose.ui.test.hasScrollToIndexAction()).performScrollToNode(hasText("Platero y yo"))
+        compose.onAllNodes(hasText("Platero y yo")).onFirst().performTouchInput { longClick() }
+        waitFor("1 seleccionado")
+        shot("03c-inicio-seleccion$suffix")
+        compose.onNodeWithContentDescription("Cancelar selección").performClick()
         click("Explorar")
         waitFor("Rimas")
         shot("04-explorar$suffix")
@@ -170,6 +187,50 @@ class ScreenshotTest {
     @Config(qualifiers = "+night")
     fun appDark() = screens("-oscuro")
 
+    // The same screens on other sizes: a small phone, a tablet both ways, a phone on its side
+
+    @Test
+    @Config(qualifiers = "es-rES-w360dp-h640dp-xhdpi")
+    fun appSmall() = screens("-pequeno")
+
+    @Test
+    @Config(qualifiers = "es-rES-w800dp-h1280dp-xhdpi")
+    fun appTablet() = screens("-tablet")
+
+    @Test
+    @Config(qualifiers = "es-rES-w1280dp-h800dp-land-xhdpi")
+    fun appTabletLandscape() = screens("-tablet-horizontal")
+
+    @Test
+    @Config(qualifiers = "es-rES-w860dp-h400dp-land-xxhdpi")
+    fun appPhoneLandscape() = screens("-movil-horizontal")
+
+    /** The first run with the largest system font, on a small phone. */
+    @Test
+    @Config(qualifiers = "es-rES-w360dp-h640dp-xhdpi")
+    fun welcomeLargeFont() {
+        org.robolectric.RuntimeEnvironment.setFontScale(1.5f)
+        show()
+        shot("01-bienvenida-letra-grande")
+        click("Conectar mi servidor")
+        shot("02-conectar-letra-grande")
+    }
+
+    /** The app with the system font at 200 %, the largest Android offers. */
+    @Test
+    @Config(qualifiers = "es-rES-w360dp-h780dp-xxhdpi")
+    fun appHugeFont() {
+        org.robolectric.RuntimeEnvironment.setFontScale(2f)
+        screens("-letra-200")
+    }
+
+    @Test
+    @Config(qualifiers = "es-rES-w800dp-h1280dp-xhdpi")
+    fun welcomeTablet() {
+        show()
+        shot("01-bienvenida-tablet")
+    }
+
     // -----------------------------------------------------------------------
     // The reader's controls, over a page of text
 
@@ -184,6 +245,9 @@ class ScreenshotTest {
         this.toc = this@ScreenshotTest.toc
         reflowable = true
         prefs = ReaderPrefs(font = 1)
+        page = 212
+        pages = 505
+        chapterMinutes = 6
     }
 
     private val noActions = object : ReaderActions {
@@ -250,6 +314,102 @@ class ScreenshotTest {
             }
         }
         listOf("09-lector-controles-oscuro", "10-lector-texto-oscuro").forEachIndexed { i, name ->
+            screen = i
+            shot(name)
+        }
+    }
+
+    /** Reading in sepia on a phone set to light: the bars are sepia too. */
+    @Test
+    fun readerSepia() {
+        compose.setContent {
+            AppTheme(readerPalette(1)) {
+                Box(Modifier.fillMaxSize().background(readerPalette(1).bg)) {
+                    Column(Modifier.padding(horizontal = 28.dp, vertical = 48.dp)) {
+                        repeat(7) {
+                            Text(
+                                "Este es un párrafo del capítulo segundo. La lectura avanza tranquila mientras el texto llena la pantalla con frases de ejemplo.",
+                                fontSize = 17.sp, lineHeight = 26.sp, color = Color(0xFF121212), modifier = Modifier.padding(top = 14.dp),
+                            )
+                        }
+                    }
+                    ReaderOverlay(remember { readerUi().apply { visible = true; prefs = ReaderPrefs(theme = 1) } }, noActions)
+                }
+            }
+        }
+        shot("09-lector-controles-sepia")
+    }
+
+    /** Without the server, Explore keeps the downloaded books at hand. */
+    @Test
+    fun exploreOffline() {
+        configure()
+        downloadSome()
+        compose.activity.app.settings.serverUrl = "http://127.0.0.1:9"
+        show()
+        click("Explorar")
+        waitFor("No se puede acceder al servidor")
+        shot("04b-explorar-sin-conexion")
+    }
+
+    /** What Explore shows while the server answers, as a grid and as a list of authors. */
+    @Test
+    fun exploreLoading() {
+        var folders by mutableStateOf(false)
+        compose.mainClock.autoAdvance = false
+        compose.setContent { AppTheme { Box(Modifier.fillMaxSize().background(shelf.bg)) { LoadingSkeleton(folders = folders, grid = true) } } }
+        compose.mainClock.advanceTimeBy(800)
+        shot("04c-explorar-cargando")
+        folders = true
+        compose.mainClock.advanceTimeBy(800)
+        shot("04d-autores-cargando")
+    }
+
+    /** The reading settings scrolled to margins, justification and brightness. */
+    @Test
+    fun readerTextMore() {
+        compose.setContent {
+            AppTheme {
+                Box(Modifier.fillMaxSize().background(Color(0x66000000))) {
+                    Column(Modifier.align(Alignment.BottomCenter).background(shelf.pane)) {
+                        TextSheet(ReaderPrefs(font = 1, margins = 2, justify = true, brightness = 0.6f)) {}
+                    }
+                }
+            }
+        }
+        compose.onNodeWithText("Brillo del sistema").performScrollTo()
+        shot("10b-lector-texto-margenes-brillo")
+    }
+
+    /** Bookmarks and search inside the book. */
+    @Test
+    fun readerExtras() {
+        val at = { href: String, p: Double ->
+            org.readium.r2.shared.publication.Locator(
+                href = Url(href)!!, mediaType = org.readium.r2.shared.util.mediatype.MediaType.XHTML,
+                locations = org.readium.r2.shared.publication.Locator.Locations(progression = p, totalProgression = p),
+            )
+        }
+        val marks = listOf(
+            io.github.danielpereod.opdshelf.data.Bookmark(at("c1.xhtml", 0.12).toJSON().toString(), "Capítulo primero", 0.12, "En un lugar de la Mancha, de cuyo nombre no quiero acordarme"),
+            io.github.danielpereod.opdshelf.data.Bookmark(at("c2.xhtml", 0.42).toJSON().toString(), "Capítulo segundo", 0.42),
+        )
+        val hits = listOf("Capítulo primero", "Capítulo segundo", "Capítulo tercero").mapIndexed { i, c ->
+            SearchHit(at("c${i + 1}.xhtml", 0.1 + i * 0.3), c, "y así, del poco dormir y del mucho leer, se le secó el celebro, de manera que vino a perder el ", "hidalgo", " juicio, que no había otra")
+        }
+        var screen by mutableStateOf(0)
+        compose.setContent {
+            AppTheme {
+                Box(Modifier.fillMaxSize().background(Color(0x66000000))) {
+                    Column(Modifier.align(Alignment.BottomCenter).background(shelf.pane)) {
+                        if (screen == 0) ContentsSheet(remember { readerUi().apply { toc = emptyList(); bookmarks = marks } }, noActions)
+                        else if (screen == 2) ContentsSheet(remember { readerUi().apply { toc = emptyList(); bookmarks = marks.take(1); removedBookmark = marks[1] } }, noActions)
+                        else SearchSheet(remember { readerUi().apply { searchQuery = "hidalgo"; searchResults = hits; searched = true } }, noActions)
+                    }
+                }
+            }
+        }
+        listOf("12-lector-marcadores", "13-lector-buscar", "12b-lector-marcador-deshacer").forEachIndexed { i, name ->
             screen = i
             shot(name)
         }

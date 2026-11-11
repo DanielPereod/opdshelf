@@ -25,7 +25,23 @@ data class Entry(
     val acquisition: Acquisition?,
     val thumbnailUrl: String?,
     val coverUrl: String?,
+    val meta: BookMeta = BookMeta(),
 )
+
+/** What else the catalog says about a book, shown in its details. */
+@kotlinx.serialization.Serializable
+data class BookMeta(
+    val publisher: String? = null,
+    /** As given, usually a year or an ISO date. */
+    val issued: String? = null,
+    /** An ISO 639 code, such as "es". */
+    val language: String? = null,
+    val series: String? = null,
+    val seriesIndex: String? = null,
+    val subjects: List<String> = emptyList(),
+) {
+    val isEmpty get() = publisher == null && issued == null && language == null && series == null && subjects.isEmpty()
+}
 
 data class Acquisition(val url: String, val type: String, val length: Long?, val format: String?)
 
@@ -68,6 +84,16 @@ fun parseFeed(input: InputStream, baseUrl: String): Feed {
                 ?.getAttribute("href")?.let(resolve),
             coverUrl = links.firstOrNull { it.getAttribute("rel") == "http://opds-spec.org/image" }
                 ?.getAttribute("href")?.let(resolve),
+            meta = BookMeta(
+                publisher = entry.childText("publisher"),
+                issued = entry.childText("issued") ?: entry.childText("published"),
+                language = entry.childText("language"),
+                series = entry.childText("series"),
+                seriesIndex = entry.childText("series_index"),
+                subjects = entry.children("category").mapNotNull {
+                    (it.getAttribute("label").ifEmpty { null } ?: it.getAttribute("term").ifEmpty { null })?.trim()
+                }.distinct(),
+            ),
         )
     }
     return Feed(root.childText("title") ?: "", entries, next, search)

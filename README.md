@@ -55,7 +55,7 @@
 📖 **Read in the browser**
 - EPUB reader with table of contents, font size, dark mode and position memory
 - Reading position synced live between browsers, devices and KOReader, also after reading offline
-- KOReader plugin: live sync with conflict handling, and the library with covers and downloads inside KOReader
+- KOReader plugin: live sync with conflict handling, the library with covers and downloads, and a home screen that can be KOReader's start screen
 - Select a sentence and set it as the last position, so every device opens the book exactly there (in KOReader too, with the included plugin)
 - PDF, comic (CBZ, CBR, CB7, CBT, with right-to-left mode) and TXT readers
 - Keyboard, touch swipe and mobile friendly
@@ -240,6 +240,10 @@ Install the OPDShelf plugin from [`koreader/opdshelf.koplugin`](koreader/opdshel
 **Set as last position**: select some text and choose it in the selection menu. Other devices open the book on that sentence. **Go to where another device left it** lists the latest position of each device, to jump back to any of them.
 
 **Library.** **Tools → OPDShelf → Library** (also a gesture action) browses the server's catalog with covers, as a list or a grid, by recent books, folders, authors and series, with search. Tap a book for its cover, series, subjects and description, and to download it or download and read it; a long press downloads it straight away. Downloaded books are marked, with how far they were read. Books go to the download folder chosen in the menu.
+
+**Home screen.** Once installed, OPDShelf works as KOReader's launcher: its home screen opens when KOReader starts and after closing a book, and the file browser's home button goes back to it. At the top there is a status bar with the time, date, Wi-Fi and battery. Below it you find the book to continue, with its cover, progress and, when another device read further, where that one is; then the newest books on the server; then the last books read on the device, with their progress. A tab bar at the bottom leads to Home, Library, Search, Files and Settings. Pull down to refresh. Without a connection it shows what it last saw from the server. Turn it off with **Tools → OPDShelf → Show the home screen at start**, or choose another screen in **File browser → Settings → Start with**. It can also be opened from **Tools → OPDShelf → Home** or with a gesture action.
+
+The plugin's texts follow KOReader's language; it includes Spanish.
 
 Books are matched by KOReader's partial MD5 of the file, so a position follows a book that is renamed or moved. KOReader's EPUB positions (xpointers) and the web reader's are translated in the browser, with the surrounding text saved alongside to find the place again if the two disagree.
 

@@ -23,6 +23,7 @@ function Widget:getSize()
 end
 function Widget:getHeight() return self:getSize().h end
 function Widget:free() end
+function Widget:resetLayout() end
 function Widget:disable() self.disabled = true end
 function Widget:getInputText() return self.input_text or "hobbit" end
 function Widget:onShowKeyboard() end

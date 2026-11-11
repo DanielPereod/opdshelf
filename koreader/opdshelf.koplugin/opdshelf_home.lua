@@ -577,7 +577,7 @@ function Home:refresh()
     local space = Size.padding.large * 2
     -- Everything between the title and the tabs is shared out, so nothing is left empty
     local content_h = self.dimen.h - status_bar:getSize().h - title_bar:getHeight() - actions_h
-        - recent_header:getSize().h - device_header:getSize().h - 3 * space
+        - recent_header:getSize().h - device_header:getSize().h - 2 * space
     -- Shelves as tall as their covers need; the card on top takes the rest
     local gap = Size.padding.large
     local cell_w = math.floor((self.dimen.w - 2 * self.margin - (self.shelf_count - 1) * gap) / self.shelf_count)
@@ -599,6 +599,13 @@ function Home:refresh()
         device_header,
         self:shelf(self:deviceItems(), shelf_h, _("Other books you open will show here.")),
     }
+    -- Whatever the estimates missed goes to the card on top, so the page reaches the tabs
+    local leftover = self.dimen.h - actions_h - body:getSize().h
+    if leftover > 1 and body[3] then
+        body[3]:free()
+        body[3] = self:hero(hero_h + leftover)
+        body:resetLayout()
+    end
     self[1] = FrameContainer:new{
         width = self.dimen.w,
         height = self.dimen.h,

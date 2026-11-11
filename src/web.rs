@@ -139,7 +139,18 @@ async fn not_found_page(State(state): State<AppState>, request: Request, next: N
     let path = request.uri().path().to_string();
     let headers = request.headers().clone();
     let response = next.run(request).await;
-    let raw = ["/static/", "/api/", "/kosync/", "/opds", "/download/", "/cover/", "/thumb/", "/page/", "/pages/", "/apps/"];
+    let raw = [
+        "/static/",
+        "/api/",
+        "/kosync/",
+        "/opds",
+        "/download/",
+        "/cover/",
+        "/thumb/",
+        "/page/",
+        "/pages/",
+        "/apps/",
+    ];
     if response.status() != StatusCode::NOT_FOUND || !wants_html || raw.iter().any(|p| path.starts_with(p)) {
         return response;
     }

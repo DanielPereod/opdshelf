@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.liveRegion
 import io.github.danielpereod.opdshelf.ui.readerPalette
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
@@ -59,6 +60,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.outlined.BrightnessHigh
+import androidx.compose.material.icons.outlined.BrightnessLow
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -100,6 +104,11 @@ data class ReaderPrefs(
     /** Volume down and up turn the page while the bars are hidden. */
     val volumeKeys: Boolean = true,
     val keepScreenOn: Boolean = true,
+    /** 0 narrow, 1 normal, 2 wide */
+    val margins: Int = 1,
+    val justify: Boolean = false,
+    /** Window brightness from 0 to 1, or below 0 to follow the system. */
+    val brightness: Float = -1f,
 )
 
 /** A match of a search inside the book, with the words around it. */
@@ -122,6 +131,8 @@ class ReaderUi {
     var progression by mutableFloatStateOf(0f)
     var page by mutableStateOf<Int?>(null)
     var pages by mutableStateOf<Int?>(null)
+    /** Estimated minutes to the end of the chapter, when the book has positions. */
+    var chapterMinutes by mutableStateOf<Int?>(null)
     var currentHref by mutableStateOf<String?>(null)
     var toc by mutableStateOf<List<TocItem>>(emptyList())
     var reflowable by mutableStateOf(false)
@@ -137,6 +148,8 @@ class ReaderUi {
     var searching by mutableStateOf(false)
     /** Whether a search ran, to tell "no matches" from "nothing searched yet". */
     var searched by mutableStateOf(false)
+    /** The bookmark just removed, while it can still be put back. */
+    var removedBookmark by mutableStateOf<io.github.danielpereod.opdshelf.data.Bookmark?>(null)
 
     enum class Sheet { Toc, Text, Search }
 }
@@ -150,6 +163,7 @@ interface ReaderActions {
     fun toggleBookmark() {}
     fun goTo(bookmark: io.github.danielpereod.opdshelf.data.Bookmark) {}
     fun remove(bookmark: io.github.danielpereod.opdshelf.data.Bookmark) {}
+    fun restore(bookmark: io.github.danielpereod.opdshelf.data.Bookmark) {}
     fun search(query: String) {}
     fun goTo(hit: SearchHit) {}
 }
@@ -272,8 +286,17 @@ private fun BottomBar(ui: ReaderUi, actions: ReaderActions) {
                 val page = ui.page
                 val pages = ui.pages
                 // The chapter is already in the top bar: here, where in the book
+                val minutes = ui.chapterMinutes
+                val left = when {
+                    minutes == null -> null
+                    minutes < 1 -> stringResource(R.string.minute_left)
+                    else -> stringResource(R.string.minutes_left, minutes)
+                }
                 Text(
-                    if (page != null && pages != null) stringResource(R.string.page_of, page, pages) else "",
+                    listOfNotNull(
+                        if (page != null && pages != null) stringResource(R.string.page_of, page, pages) else null,
+                        left,
+                    ).joinToString(" · "),
                     color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
@@ -337,7 +360,7 @@ internal fun TocSheet(ui: ReaderUi, showTitle: Boolean = true, onPick: (TocItem)
 
 @Composable
 internal fun TextSheet(prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit) {
-    Column(Modifier.padding(start = Space.xl, end = Space.xl, bottom = Space.xxl)) {
+    Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(start = Space.xl, end = Space.xl, bottom = Space.xxl)) {
         Text(
             stringResource(R.string.text_title), color = shelf.fg, fontSize = 18.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(vertical = Space.s).semantics { heading() },
@@ -379,7 +402,38 @@ internal fun TextSheet(prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit) {
                 Pill(stringResource(label), prefs.spacing == i) { onChange(prefs.copy(spacing = i)) }
             }
         }
-        Spacer(Modifier.height(Space.m))
+        Spacer(Modifier.height(Space.s))
+        SectionTitle(stringResource(R.string.margins))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(R.string.margins_narrow, R.string.spacing_normal, R.string.margins_wide).forEachIndexed { i, label ->
+                Pill(stringResource(label), prefs.margins == i) { onChange(prefs.copy(margins = i)) }
+            }
+        }
+        Spacer(Modifier.height(Space.s))
+        ToggleRow(stringResource(R.string.justify), null, prefs.justify) { onChange(prefs.copy(justify = it)) }
+        Spacer(Modifier.height(Space.s))
+        HorizontalDivider(color = shelf.line)
+        Spacer(Modifier.height(Space.s))
+        ToggleRow(stringResource(R.string.brightness_system), null, prefs.brightness < 0) {
+            onChange(prefs.copy(brightness = if (it) -1f else 0.6f))
+        }
+        if (prefs.brightness >= 0) {
+            val label = stringResource(R.string.brightness)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.BrightnessLow, null, tint = shelf.muted, modifier = Modifier.size(20.dp))
+                Slider(
+                    value = prefs.brightness, valueRange = 0.02f..1f,
+                    onValueChange = { onChange(prefs.copy(brightness = it)) },
+                    modifier = Modifier.weight(1f).padding(horizontal = Space.s).semantics {
+                        contentDescription = label
+                        stateDescription = percent(prefs.brightness.toDouble())
+                    },
+                    colors = SliderDefaults.colors(thumbColor = shelf.fg, activeTrackColor = shelf.fg, inactiveTrackColor = shelf.soft),
+                )
+                Icon(Icons.Outlined.BrightnessHigh, null, tint = shelf.muted, modifier = Modifier.size(20.dp))
+            }
+        }
+        Spacer(Modifier.height(Space.s))
         HorizontalDivider(color = shelf.line)
         Spacer(Modifier.height(Space.s))
         ToggleRow(stringResource(R.string.volume_keys), null, prefs.volumeKeys) { onChange(prefs.copy(volumeKeys = it)) }
@@ -505,6 +559,24 @@ internal fun ContentsSheet(ui: ReaderUi, actions: ReaderActions) {
 
 @Composable
 private fun BookmarksList(ui: ReaderUi, actions: ReaderActions) {
+    // A removed bookmark can be put back for a few seconds, right where it was taken
+    ui.removedBookmark?.let { gone ->
+        LaunchedEffect(gone) {
+            kotlinx.coroutines.delay(8000)
+            if (ui.removedBookmark == gone) ui.removedBookmark = null
+        }
+        Row(
+            Modifier.padding(horizontal = Space.l, vertical = Space.s).fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(shelf.fg)
+                .padding(start = Space.l, end = Space.xs)
+                .semantics(mergeDescendants = true) { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(stringResource(R.string.bookmark_removed), color = shelf.inverse, fontSize = TextSize.label, lineHeight = 18.sp, modifier = Modifier.weight(1f))
+            androidx.compose.material3.TextButton(onClick = { actions.restore(gone) }, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.undo), color = shelf.inverse, fontSize = TextSize.label, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
     if (ui.bookmarks.isEmpty()) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = Space.xl, vertical = Space.xxl),

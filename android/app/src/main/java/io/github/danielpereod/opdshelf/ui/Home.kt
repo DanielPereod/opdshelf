@@ -93,10 +93,36 @@ fun HomeScreen(
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var removing by remember { mutableStateOf<LocalBook?>(null) }
+    // Ids picked by a long press; empty means not selecting
+    var picked by rememberSaveable { mutableStateOf(listOf<String>()) }
+    var removingPicked by remember { mutableStateOf(false) }
+    val selecting = picked.isNotEmpty()
     val wide = isWide
+    // Books removed elsewhere drop out of the selection
+    LaunchedEffect(books) { picked = picked.filter { id -> books.any { it.id == id } } }
+    androidx.activity.compose.BackHandler(selecting) { picked = emptyList() }
+    fun toggle(book: LocalBook) { picked = if (book.id in picked) picked - book.id else picked + book.id }
 
     Column(modifier.fillMaxSize().background(shelf.bg)) {
-        Header(
+        if (selecting) {
+            val allFinished = books.filter { it.id in picked }.all { it.finished }
+            Header(
+                pluralStringResource(R.plurals.selected_count, picked.size, picked.size),
+                onBack = { picked = emptyList() },
+                backIcon = Icons.Outlined.Close, backLabel = stringResource(R.string.clear_selection),
+                actions = {
+                    IconButton(onClick = { library.setFinished(picked, !allFinished); picked = emptyList() }) {
+                        Icon(
+                            if (allFinished) Icons.Outlined.RemoveDone else Icons.Outlined.DoneAll,
+                            stringResource(if (allFinished) R.string.mark_unfinished else R.string.mark_selected_finished), tint = shelf.fg,
+                        )
+                    }
+                    IconButton(onClick = { removingPicked = true }) {
+                        Icon(Icons.Outlined.Delete, stringResource(R.string.remove_from_device), tint = shelf.danger)
+                    }
+                },
+            )
+        } else Header(
             stringResource(R.string.tab_home),
             // The rail already shows the logo on wide screens
             leading = if (wide) null else ({ Logo(24.dp) }),
@@ -187,7 +213,7 @@ fun HomeScreen(
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
                         Filter.entries.forEach { f ->
                             val n = counts[f] ?: 0
-                            if (f == Filter.All || n > 0 || filter == f) {
+                            if (f == Filter.All || f == Filter.Finished || n > 0 || filter == f) {
                                 Pill(if (f == Filter.All) stringResource(f.label) else "${stringResource(f.label)} $n", filter == f) { filter = f }
                             }
                         }
@@ -209,7 +235,10 @@ fun HomeScreen(
                     cover = book.coverFile?.let { File(context.app.store.booksDir, it) },
                     format = book.format ?: book.fileName.substringAfterLast('.', ""),
                     loader = loader, progress = book.percentage, finished = book.finished,
-                    onClick = { openBook(book) }, onLongClick = { showDetail(book) },
+                    onClick = { if (selecting) toggle(book) else openBook(book) },
+                    onLongClick = { toggle(book) },
+                    selected = if (selecting) book.id in picked else null,
+                    longClickLabel = stringResource(R.string.select),
                     menu = listOf(
                         MenuAction(stringResource(R.string.read), Icons.AutoMirrored.Outlined.MenuBook) { openBook(book) },
                         MenuAction(stringResource(R.string.details), Icons.Outlined.Info) { showDetail(book) },
@@ -222,6 +251,20 @@ fun HomeScreen(
         }
     }
 
+
+    if (removingPicked) {
+        ConfirmDialog(
+            title = pluralStringResource(R.plurals.remove_selected, picked.size, picked.size),
+            text = stringResource(R.string.remove_selected_text),
+            confirm = stringResource(R.string.remove),
+            onConfirm = {
+                removingPicked = false
+                library.delete(picked)
+                picked = emptyList()
+            },
+            onDismiss = { removingPicked = false },
+        )
+    }
 
     removing?.let { book ->
         ConfirmDialog(

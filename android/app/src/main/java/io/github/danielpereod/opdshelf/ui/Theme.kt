@@ -245,6 +245,8 @@ fun Header(
     onBack: (() -> Unit)? = null,
     leading: (@Composable () -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    backIcon: androidx.compose.ui.graphics.vector.ImageVector = Icons.AutoMirrored.Filled.ArrowBack,
+    backLabel: String = stringResource(R.string.back),
 ) {
     Column(Modifier.background(shelf.pane)) {
         Row(
@@ -252,7 +254,7 @@ fun Header(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (onBack != null) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back), tint = shelf.fg) }
+                IconButton(onClick = onBack) { Icon(backIcon, backLabel, tint = shelf.fg) }
             }
             leading?.let {
                 it()

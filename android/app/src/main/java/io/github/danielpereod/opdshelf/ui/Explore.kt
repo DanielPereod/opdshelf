@@ -64,6 +64,15 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.height
+import io.github.danielpereod.opdshelf.app
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -154,7 +163,30 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
         }
         when {
             state == null -> {}
-            state.loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { Spinner() }
+            state.loading -> LoadingSkeleton(
+                folders = atRoot && state.label == null && section in setOf(Section.Authors, Section.Series, Section.Folders),
+                grid = grid,
+            )
+            // Without the server, the books on this device are still there to read
+            state.error != null && atRoot && books.isNotEmpty() -> Column(Modifier.fillMaxSize()) {
+                OfflineBand { library.retry() }
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(gridCellWidth),
+                    contentPadding = PaddingValues(horizontal = edgePadding, vertical = Space.l),
+                    horizontalArrangement = Arrangement.spacedBy(if (isWide) Space.l else Space.m),
+                    verticalArrangement = Arrangement.spacedBy(Space.xl),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(books, key = { it.id }) { book ->
+                        BookTile(
+                            title = book.title, authors = book.authors,
+                            cover = book.coverFile?.let { java.io.File(LocalContext.current.app.store.booksDir, it) },
+                            format = book.format, loader = loader, onClick = { openBook(book) },
+                            progress = book.percentage.takeIf { it > 0 }, finished = book.finished, downloaded = true,
+                        )
+                    }
+                }
+            }
             state.error != null -> EmptyState(
                 icon = Icons.Outlined.CloudOff,
                 title = stringResource(R.string.cannot_load_title),
@@ -228,6 +260,87 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** A thin warning under the filters, with a way to try again. */
+@Composable
+private fun OfflineBand(onRetry: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(shelf.soft).padding(start = edgePadding, end = Space.xs, top = Space.xs, bottom = Space.xs)
+            .semantics(mergeDescendants = true) { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Outlined.CloudOff, null, tint = shelf.fg, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(Space.m))
+        Text(stringResource(R.string.offline_band), color = shelf.fg, fontSize = TextSize.label, lineHeight = 18.sp, modifier = Modifier.weight(1f).padding(vertical = Space.s))
+        androidx.compose.material3.TextButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
+            Text(stringResource(R.string.retry), color = shelf.fg, fontSize = TextSize.label, fontWeight = FontWeight.SemiBold)
+        }
+    }
+    HorizontalDivider(color = shelf.line)
+}
+
+/** Grey shapes where the books will be, pulsing gently while the server answers. */
+@Composable
+internal fun LoadingSkeleton(folders: Boolean, grid: Boolean) {
+    val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "skeleton")
+    val alpha by pulse.animateFloat(
+        0.5f, 1f,
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween<Float>(800), androidx.compose.animation.core.RepeatMode.Reverse),
+        label = "alpha",
+    )
+    val loading = stringResource(R.string.loading)
+    val block = Modifier.graphicsLayer { this.alpha = alpha }.clip(RoundedCornerShape(4.dp)).background(shelf.line)
+    val base = Modifier.fillMaxSize().semantics { contentDescription = loading }
+    when {
+        folders -> Column(base) {
+            repeat(8) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = edgePadding, vertical = Space.m), verticalAlignment = Alignment.CenterVertically) {
+                    Box(block.size(40.dp).clip(RoundedCornerShape(20.dp)))
+                    Spacer(Modifier.width(Space.l))
+                    Column(Modifier.weight(1f)) {
+                        Box(block.fillMaxWidth(0.6f).height(16.dp))
+                        Spacer(Modifier.height(Space.s))
+                        Box(block.fillMaxWidth(0.3f).height(12.dp))
+                    }
+                }
+                HorizontalDivider(color = shelf.line, modifier = Modifier.padding(start = edgePadding + 56.dp))
+            }
+        }
+        grid -> LazyVerticalGrid(
+            columns = GridCells.Adaptive(gridCellWidth),
+            contentPadding = PaddingValues(horizontal = edgePadding, vertical = Space.l),
+            horizontalArrangement = Arrangement.spacedBy(if (isWide) Space.l else Space.m),
+            verticalArrangement = Arrangement.spacedBy(Space.xl),
+            userScrollEnabled = false, modifier = base,
+        ) {
+            items(18) {
+                Column {
+                    Box(block.fillMaxWidth().aspectRatio(2f / 3f))
+                    Spacer(Modifier.height(Space.s))
+                    Box(block.fillMaxWidth(0.9f).height(14.dp))
+                    Spacer(Modifier.height(Space.xs))
+                    Box(block.fillMaxWidth(0.6f).height(12.dp))
+                }
+            }
+        }
+        else -> Column(base) {
+            repeat(8) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = edgePadding, vertical = Space.m), verticalAlignment = Alignment.CenterVertically) {
+                    Box(block.size(width = 48.dp, height = 72.dp))
+                    Spacer(Modifier.width(Space.l))
+                    Column(Modifier.weight(1f)) {
+                        Box(block.fillMaxWidth(0.7f).height(16.dp))
+                        Spacer(Modifier.height(Space.s))
+                        Box(block.fillMaxWidth(0.4f).height(12.dp))
+                        Spacer(Modifier.height(Space.s))
+                        Box(block.size(width = 40.dp, height = 16.dp))
+                    }
+                }
+                HorizontalDivider(color = shelf.line, modifier = Modifier.padding(start = edgePadding + 64.dp))
             }
         }
     }

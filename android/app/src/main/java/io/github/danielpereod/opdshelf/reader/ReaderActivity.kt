@@ -115,6 +115,7 @@ class ReaderActivity : AppCompatActivity() {
         ui.prefs = loadPrefs()
         ui.bookmarks = app.store.bookmarks(book.id)
         applyScreenOn()
+        applyBrightness()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         container = FragmentContainerView(this).apply { id = View.generateViewId() }
         val overlay = ComposeView(this).apply {
@@ -196,7 +197,8 @@ class ReaderActivity : AppCompatActivity() {
         ui.reflowable = kind == Kind.EPUB
         ui.toc = flatten(pub.tableOfContents)
         ui.searchable = pub.isSearchable
-        ui.pages = pub.positions().size.takeIf { it > 0 }
+        val positions = pub.positions()
+        ui.pages = positions.size.takeIf { it > 0 }
         ui.showHint = kind == Kind.EPUB && !app.settings.markHintShown
         lifecycleScope.launch {
             nav.currentLocator.collect { locator ->
@@ -205,6 +207,11 @@ class ReaderActivity : AppCompatActivity() {
                 ui.page = locator.locations.position
                 ui.currentHref = locator.href.toString()
                 ui.currentBookmark = ui.bookmarks.firstOrNull { onPage(it, locator) }
+                // About 0.75 minutes per Readium position (some 1024 characters) left in this chapter
+                ui.chapterMinutes = if (kind == Kind.EPUB) locator.locations.position?.let { at ->
+                    val left = positions.count { it.href == locator.href && (it.locations.position ?: 0) > at }
+                    (left * 0.75).toInt()
+                } else null
             }
         }
 
@@ -382,7 +389,7 @@ class ReaderActivity : AppCompatActivity() {
             )
 
     private fun epubPreferences(p: ReaderPrefs = ui.prefs): EpubPreferences {
-        val custom = p.font != 0 || p.spacing != 1
+        val custom = p.font != 0 || p.spacing != 1 || p.justify
         return EpubPreferences(
             fontSize = p.fontSize,
             scroll = p.scroll,
@@ -401,6 +408,12 @@ class ReaderActivity : AppCompatActivity() {
                 2 -> 1.8
                 else -> null
             },
+            pageMargins = when (p.margins) {
+                0 -> 0.5
+                2 -> 1.6
+                else -> null
+            },
+            textAlign = if (p.justify) org.readium.r2.navigator.preferences.TextAlign.JUSTIFY else null,
             publisherStyles = if (custom) false else null,
         )
     }
@@ -430,6 +443,7 @@ class ReaderActivity : AppCompatActivity() {
             (navigator as? EpubNavigatorFragment)?.submitPreferences(epubPreferences(prefs))
             showBars(ui.visible)
             applyScreenOn()
+            applyBrightness()
         }
 
         override fun dismissHint() = this@ReaderActivity.dismissHint()
@@ -451,6 +465,7 @@ class ReaderActivity : AppCompatActivity() {
             app.store.setBookmarks(book.id, list)
             ui.currentBookmark = list.firstOrNull { onPage(it, locator) }
             if (current == null) Snackbar.make(root, R.string.bookmark_added, Snackbar.LENGTH_SHORT).show()
+            else Snackbar.make(root, R.string.bookmark_removed, Snackbar.LENGTH_LONG).setAction(R.string.undo) { restore(current) }.show()
         }
 
         override fun goTo(bookmark: Bookmark) {
@@ -458,7 +473,16 @@ class ReaderActivity : AppCompatActivity() {
             navigator?.go(locator)
         }
 
+        override fun restore(bookmark: Bookmark) {
+            if (bookmark in ui.bookmarks) return
+            ui.bookmarks = ui.bookmarks + bookmark
+            app.store.setBookmarks(book.id, ui.bookmarks)
+            ui.removedBookmark = null
+            ui.currentBookmark = navigator?.currentLocator?.value?.let { l -> ui.bookmarks.firstOrNull { onPage(it, l) } }
+        }
+
         override fun remove(bookmark: Bookmark) {
+            ui.removedBookmark = bookmark
             ui.bookmarks = ui.bookmarks - bookmark
             app.store.setBookmarks(book.id, ui.bookmarks)
             ui.currentBookmark = navigator?.currentLocator?.value?.let { l -> ui.bookmarks.firstOrNull { onPage(it, l) } }
@@ -510,6 +534,13 @@ class ReaderActivity : AppCompatActivity() {
         val a = saved.locations.progression ?: return false
         val b = locator.locations.progression ?: return false
         return kotlin.math.abs(a - b) < 0.01
+    }
+
+    private fun applyBrightness() {
+        val b = ui.prefs.brightness
+        window.attributes = window.attributes.apply {
+            screenBrightness = if (b < 0) android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE else b.coerceIn(0.02f, 1f)
+        }
     }
 
     private fun applyScreenOn() {

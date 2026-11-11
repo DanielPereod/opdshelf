@@ -204,4 +204,30 @@
     <string name="keep_screen_on">Mantener la pantalla encendida al leer</string>
     <string name="licenses">Licencias de código abierto</string>
     <string name="close">Cerrar</string>
+    <string name="meta_series">Serie</string>
+    <string name="meta_series_number">%1$s, n.º %2$s</string>
+    <string name="meta_publisher">Editorial</string>
+    <string name="meta_issued">Publicado</string>
+    <string name="meta_language">Idioma</string>
+    <string name="meta_subjects">Temas</string>
+    <string name="about_book">Sobre el libro</string>
+    <string name="offline_band">No se puede acceder al servidor. Mostrando los libros descargados.</string>
+    <string name="bookmark_removed">Marcador quitado</string>
+    <string name="undo">Deshacer</string>
+    <string name="select">Seleccionar</string>
+    <string name="clear_selection">Cancelar selección</string>
+    <string name="margins">Márgenes</string>
+    <string name="margins_narrow">Estrechos</string>
+    <string name="margins_wide">Amplios</string>
+    <string name="justify">Justificar el texto</string>
+    <string name="brightness">Brillo</string>
+    <string name="brightness_system">Brillo del sistema</string>
+    <string name="minutes_left">Quedan %1$d min del capítulo</string>
+    <string name="minute_left">Queda menos de un minuto del capítulo</string>
+    <plurals name="removed_count"><item quantity="one">%1$d libro quitado</item><item quantity="many">%1$d libros quitados</item><item quantity="other">%1$d libros quitados</item></plurals>
+    <plurals name="remove_selected"><item quantity="one">¿Quitar %1$d libro de este dispositivo?</item><item quantity="many">¿Quitar %1$d libros de este dispositivo?</item><item quantity="other">¿Quitar %1$d libros de este dispositivo?</item></plurals>
+    <string name="remove_selected_text">Puedes volver a descargarlos cuando quieras.</string>
+    <string name="mark_selected_finished">Marcar como terminados</string>
+    <string name="loading">Cargando…</string>
+    <plurals name="selected_count"><item quantity="one">%1$d seleccionado</item><item quantity="many">%1$d seleccionados</item><item quantity="other">%1$d seleccionados</item></plurals>
 </resources>

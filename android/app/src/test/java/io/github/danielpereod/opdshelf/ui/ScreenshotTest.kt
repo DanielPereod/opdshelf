@@ -19,6 +19,11 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -153,6 +158,12 @@ class ScreenshotTest {
         click("Leyendo 1")
         shot("03b-inicio-leyendo$suffix")
         click("Todos")
+        // A long press picks books to act on several at once
+        compose.onNode(androidx.compose.ui.test.hasScrollToIndexAction()).performScrollToNode(hasText("Platero y yo"))
+        compose.onAllNodes(hasText("Platero y yo")).onFirst().performTouchInput { longClick() }
+        waitFor("1 seleccionado")
+        shot("03c-inicio-seleccion$suffix")
+        compose.onNodeWithContentDescription("Cancelar selección").performClick()
         click("Explorar")
         waitFor("Rimas")
         shot("04-explorar$suffix")
@@ -234,6 +245,9 @@ class ScreenshotTest {
         this.toc = this@ScreenshotTest.toc
         reflowable = true
         prefs = ReaderPrefs(font = 1)
+        page = 212
+        pages = 505
+        chapterMinutes = 6
     }
 
     private val noActions = object : ReaderActions {
@@ -326,6 +340,47 @@ class ScreenshotTest {
         shot("09-lector-controles-sepia")
     }
 
+    /** Without the server, Explore keeps the downloaded books at hand. */
+    @Test
+    fun exploreOffline() {
+        configure()
+        downloadSome()
+        compose.activity.app.settings.serverUrl = "http://127.0.0.1:9"
+        show()
+        click("Explorar")
+        waitFor("No se puede acceder al servidor")
+        shot("04b-explorar-sin-conexion")
+    }
+
+    /** What Explore shows while the server answers, as a grid and as a list of authors. */
+    @Test
+    fun exploreLoading() {
+        var folders by mutableStateOf(false)
+        compose.mainClock.autoAdvance = false
+        compose.setContent { AppTheme { Box(Modifier.fillMaxSize().background(shelf.bg)) { LoadingSkeleton(folders = folders, grid = true) } } }
+        compose.mainClock.advanceTimeBy(800)
+        shot("04c-explorar-cargando")
+        folders = true
+        compose.mainClock.advanceTimeBy(800)
+        shot("04d-autores-cargando")
+    }
+
+    /** The reading settings scrolled to margins, justification and brightness. */
+    @Test
+    fun readerTextMore() {
+        compose.setContent {
+            AppTheme {
+                Box(Modifier.fillMaxSize().background(Color(0x66000000))) {
+                    Column(Modifier.align(Alignment.BottomCenter).background(shelf.pane)) {
+                        TextSheet(ReaderPrefs(font = 1, margins = 2, justify = true, brightness = 0.6f)) {}
+                    }
+                }
+            }
+        }
+        compose.onNodeWithText("Brillo del sistema").performScrollTo()
+        shot("10b-lector-texto-margenes-brillo")
+    }
+
     /** Bookmarks and search inside the book. */
     @Test
     fun readerExtras() {
@@ -348,12 +403,13 @@ class ScreenshotTest {
                 Box(Modifier.fillMaxSize().background(Color(0x66000000))) {
                     Column(Modifier.align(Alignment.BottomCenter).background(shelf.pane)) {
                         if (screen == 0) ContentsSheet(remember { readerUi().apply { toc = emptyList(); bookmarks = marks } }, noActions)
+                        else if (screen == 2) ContentsSheet(remember { readerUi().apply { toc = emptyList(); bookmarks = marks.take(1); removedBookmark = marks[1] } }, noActions)
                         else SearchSheet(remember { readerUi().apply { searchQuery = "hidalgo"; searchResults = hits; searched = true } }, noActions)
                     }
                 }
             }
         }
-        listOf("12-lector-marcadores", "13-lector-buscar").forEachIndexed { i, name ->
+        listOf("12-lector-marcadores", "13-lector-buscar", "12b-lector-marcador-deshacer").forEachIndexed { i, name ->
             screen = i
             shot(name)
         }

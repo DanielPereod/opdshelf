@@ -58,6 +58,12 @@ import io.github.danielpereod.opdshelf.R
 import io.github.danielpereod.opdshelf.app
 import io.github.danielpereod.opdshelf.data.LocalBook
 import io.github.danielpereod.opdshelf.reader.ReaderActivity
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.ui.graphics.graphicsLayer
+
 
 class MainActivity : ComponentActivity() {
     private val library: LibraryViewModel by viewModels()
@@ -131,7 +137,16 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
     }
     LaunchedEffect(Unit) { library.openRoot() }
 
-    BackHandler(enabled = detail != null) { library.closeDetail() }
+    // Predictive back on details: the page shrinks and slides with the finger before it closes
+    var backProgress by remember { mutableStateOf(0f) }
+    androidx.activity.compose.PredictiveBackHandler(enabled = detail != null) { events ->
+        try {
+            events.collect { backProgress = it.progress }
+            library.closeDetail()
+        } finally {
+            backProgress = 0f
+        }
+    }
     BackHandler(enabled = detail == null && tab == Tab.Explore && stack.size > 1) { library.back() }
     BackHandler(enabled = detail == null && tab != Tab.Home && !(tab == Tab.Explore && stack.size > 1)) { tab = Tab.Home }
 
@@ -199,29 +214,58 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
             }
             androidx.compose.foundation.layout.Box(Modifier.fillMaxHeight().width(1.dp).background(shelf.line))
         }
-        val modifier = Modifier.weight(1f)
         val current = detail
-        if (current != null) {
-            DetailScreen(library, current, openBook, modifier)
-            return@Row
-        }
-        when (tab) {
-            Tab.Home -> HomeScreen(
-                library, openBook,
-                showDetail = { library.showDetail(null, it.id) },
-                goExplore = { tab = Tab.Explore },
-                modifier = modifier,
-            )
-            Tab.Explore -> ExploreScreen(library, openBook, modifier)
-            Tab.Settings -> SettingsScreen(
-                library,
-                onSaved = { library.openRoot() },
-                onDisconnect = {
-                    configured = false
-                    setup = Setup.Welcome
-                },
-                modifier = modifier,
-            )
+        // The last details shown, so they can fade out after closing
+        var shownDetail by remember { mutableStateOf(current) }
+        if (current != null) shownDetail = current
+        val screen: Any = if (current != null) "detail" else tab
+        AnimatedContent(
+            screen, modifier = Modifier.weight(1f),
+            transitionSpec = {
+                val toDetail = targetState == "detail"
+                val fromDetail = initialState == "detail"
+                when {
+                    // Details come in from the side a little; going back they leave the same way
+                    toDetail -> (fadeIn(tween(220)) + slideInHorizontally(tween(220)) { it / 10 }) togetherWith fadeOut(tween(90))
+                    fromDetail -> fadeIn(tween(220, delayMillis = 60)) togetherWith (fadeOut(tween(150)) + slideOutHorizontally(tween(150)) { it / 10 })
+                    // Tabs fade through, as Material asks for peer destinations
+                    else -> (fadeIn(tween(210, delayMillis = 90)) + scaleIn(tween(210, delayMillis = 90), initialScale = 0.96f)) togetherWith fadeOut(tween(90))
+                }
+            },
+            label = "screen",
+        ) { target ->
+            val modifier = Modifier.fillMaxSize()
+            when (target) {
+                "detail" -> shownDetail?.let { d ->
+                    val p = if (target == screen) backProgress else 0f
+                    DetailScreen(
+                        library, d, openBook,
+                        modifier.graphicsLayer {
+                            val scale = 1f - 0.1f * p
+                            scaleX = scale; scaleY = scale
+                            translationX = p * 32.dp.toPx()
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape((p * 28).dp)
+                            clip = p > 0f
+                        },
+                    )
+                }
+                Tab.Home -> HomeScreen(
+                    library, openBook,
+                    showDetail = { library.showDetail(null, it.id) },
+                    goExplore = { tab = Tab.Explore },
+                    modifier = modifier,
+                )
+                Tab.Explore -> ExploreScreen(library, openBook, modifier)
+                Tab.Settings -> SettingsScreen(
+                    library,
+                    onSaved = { library.openRoot() },
+                    onDisconnect = {
+                        configured = false
+                        setup = Setup.Welcome
+                    },
+                    modifier = modifier,
+                )
+            }
         }
       }
     }

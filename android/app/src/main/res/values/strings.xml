@@ -205,4 +205,30 @@
     <string name="keep_screen_on">Keep the screen on while reading</string>
     <string name="licenses">Open source licenses</string>
     <string name="close">Close</string>
+    <string name="meta_series">Series</string>
+    <string name="meta_series_number">%1$s, number %2$s</string>
+    <string name="meta_publisher">Publisher</string>
+    <string name="meta_issued">Published</string>
+    <string name="meta_language">Language</string>
+    <string name="meta_subjects">Subjects</string>
+    <string name="about_book">About this book</string>
+    <string name="offline_band">Can\'t reach the server. Showing the books on this device.</string>
+    <string name="bookmark_removed">Bookmark removed</string>
+    <string name="undo">Undo</string>
+    <string name="select">Select</string>
+    <string name="clear_selection">Cancel selection</string>
+    <string name="margins">Margins</string>
+    <string name="margins_narrow">Narrow</string>
+    <string name="margins_wide">Wide</string>
+    <string name="justify">Justify text</string>
+    <string name="brightness">Brightness</string>
+    <string name="brightness_system">System brightness</string>
+    <string name="minutes_left">%1$d min left in chapter</string>
+    <string name="minute_left">Under a minute left in chapter</string>
+    <plurals name="removed_count"><item quantity="one">%1$d book removed</item><item quantity="other">%1$d books removed</item></plurals>
+    <plurals name="remove_selected"><item quantity="one">Remove %1$d book from this device?</item><item quantity="other">Remove %1$d books from this device?</item></plurals>
+    <string name="remove_selected_text">You can download them again whenever you like.</string>
+    <string name="mark_selected_finished">Mark as finished</string>
+    <string name="loading">Loading…</string>
+    <plurals name="selected_count"><item quantity="one">%1$d selected</item><item quantity="other">%1$d selected</item></plurals>
 </resources>

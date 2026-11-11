@@ -32,6 +32,7 @@ data class LocalBook(
     val lastOpenedAt: Long = 0,
     /** Marked as finished (true) or not (false) by hand; null goes by how far it was read. */
     val finishedByHand: Boolean? = null,
+    val meta: BookMeta = BookMeta(),
 ) {
     /** Finished, as the web counts it: read to 98 %, unless marked otherwise. */
     val finished: Boolean get() = finishedByHand ?: (percentage >= FINISHED_AT)

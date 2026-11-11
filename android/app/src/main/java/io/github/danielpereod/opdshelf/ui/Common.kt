@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.CloudUpload
@@ -36,6 +37,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
@@ -128,14 +131,35 @@ fun BookTile(
     onLongClick: (() -> Unit)? = null,
     menu: List<MenuAction> = emptyList(),
     finished: Boolean = false,
+    /** Null outside selection mode; otherwise whether this tile is picked. */
+    selected: Boolean? = null,
+    longClickLabel: String? = null,
 ) {
     Column(
         Modifier.clip(RoundedCornerShape(6.dp))
-            .combinedClickable(role = Role.Button, onClick = onClick, onLongClick = onLongClick, onLongClickLabel = onLongClick?.let { stringResource(R.string.details) })
-            .semantics(mergeDescendants = true) {},
+            .combinedClickable(
+                role = if (selected != null) Role.Checkbox else Role.Button, onClick = onClick, onLongClick = onLongClick,
+                onLongClickLabel = onLongClick?.let { longClickLabel ?: stringResource(R.string.details) },
+            )
+            .semantics(mergeDescendants = true) { if (selected != null) this.selected = selected },
     ) {
         Box {
-            Cover(cover, title, format, loader, Modifier.fillMaxWidth().aspectRatio(2f / 3f))
+            val scale by androidx.compose.animation.core.animateFloatAsState(if (selected == true) 0.92f else 1f, label = "pick")
+            Cover(
+                cover, title, format, loader,
+                Modifier.fillMaxWidth().aspectRatio(2f / 3f).graphicsLayer { scaleX = scale; scaleY = scale }
+                    .then(if (selected == true) Modifier.border(3.dp, shelf.fg, RoundedCornerShape(6.dp)) else Modifier),
+            )
+            if (selected != null) {
+                Box(
+                    Modifier.align(Alignment.TopStart).padding(Space.s).size(28.dp).clip(RoundedCornerShape(14.dp))
+                        .background(if (selected) shelf.fg else shelf.bg.copy(alpha = 0.85f))
+                        .border(2.dp, shelf.fg, RoundedCornerShape(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (selected) Icon(Icons.Outlined.Check, null, tint = shelf.inverse, modifier = Modifier.size(18.dp))
+                }
+            }
             if (downloaded || downloading != null) {
                 val description = stringResource(R.string.downloaded_mark)
                 Box(
@@ -147,7 +171,7 @@ fun BookTile(
                     else Icon(Icons.Outlined.DownloadDone, null, tint = shelf.inverse, modifier = Modifier.size(14.dp))
                 }
             }
-            if (menu.isNotEmpty()) {
+            if (menu.isNotEmpty() && selected == null) {
                 MoreMenu(stringResource(R.string.more_options, title), menu, Modifier.align(Alignment.TopEnd), onImage = true)
             }
         }

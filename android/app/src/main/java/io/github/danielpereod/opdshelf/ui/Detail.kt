@@ -77,6 +77,7 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
     val summary = (entry?.summary ?: local?.summary)?.trim()?.takeIf { it.isNotEmpty() }
     val format = entry?.acquisition?.format ?: local?.format
     val size = entry?.acquisition?.length ?: local?.sizeBytes
+    val meta = entry?.meta?.takeUnless { it.isEmpty } ?: local?.meta
     val cover: Any? = local?.coverFile?.let { File(context.app.store.booksDir, it) } ?: entry?.coverUrl ?: entry?.thumbnailUrl
 
     val titleBlock: @Composable () -> Unit = {
@@ -191,6 +192,37 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
             }
         }
 
+        meta?.takeUnless { it.isEmpty }?.let { m ->
+            Spacer(Modifier.height(Space.xxl))
+            SectionTitle(stringResource(R.string.about_book))
+            m.series?.let { s ->
+                MetaRow(stringResource(R.string.meta_series), m.seriesIndex?.let { stringResource(R.string.meta_series_number, s, it) } ?: s)
+            }
+            m.publisher?.let { MetaRow(stringResource(R.string.meta_publisher), it) }
+            m.issued?.let { MetaRow(stringResource(R.string.meta_issued), it.take(4).takeIf { y -> y.all(Char::isDigit) } ?: it) }
+            m.language?.let { code ->
+                val name = java.util.Locale.forLanguageTag(code).getDisplayLanguage(java.util.Locale.getDefault())
+                    .replaceFirstChar { it.titlecase(java.util.Locale.getDefault()) }.ifEmpty { code }
+                MetaRow(stringResource(R.string.meta_language), name)
+            }
+            if (m.subjects.isNotEmpty()) {
+                Spacer(Modifier.height(Space.m))
+                @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(Space.s), verticalArrangement = Arrangement.spacedBy(Space.s),
+                    modifier = Modifier.semantics(mergeDescendants = true) {},
+                ) {
+                    m.subjects.take(12).forEach { subject ->
+                        Text(
+                            subject, color = shelf.fg, fontSize = TextSize.caption, lineHeight = 16.sp,
+                            modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(shelf.soft)
+                                .padding(horizontal = Space.m, vertical = 6.dp),
+                        )
+                    }
+                }
+            }
+        }
+
         if (local != null) {
             Spacer(Modifier.height(Space.xxl))
             HorizontalDivider(color = shelf.line)
@@ -260,5 +292,20 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
             },
             onDismiss = { confirmRemove = false },
         )
+    }
+}
+
+@Composable
+private fun MetaRow(label: String, value: String) {
+    Column {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(vertical = Space.s).semantics(mergeDescendants = true) {},
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, color = shelf.muted, fontSize = TextSize.bodySmall, lineHeight = 20.sp, modifier = Modifier.width(112.dp))
+            Spacer(Modifier.width(Space.m))
+            Text(value, color = shelf.fg, fontSize = TextSize.bodySmall, lineHeight = 20.sp, modifier = Modifier.weight(1f))
+        }
+        HorizontalDivider(color = shelf.line)
     }
 }

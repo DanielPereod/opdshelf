@@ -197,6 +197,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                     summary = entry.summary,
                     format = acquisition.format ?: ext.uppercase(),
                     sizeBytes = file.length(),
+                    meta = entry.meta,
                 )
                 app.store.addBook(book)
                 // Where it was left on other devices
@@ -227,6 +228,14 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         app.store.removeBook(book)
         _messages.value = Notice(text.getString(R.string.removed, book.title))
     }
+
+    fun delete(ids: Collection<String>) {
+        val gone = books.value.filter { it.id in ids }
+        gone.forEach { app.store.removeBook(it) }
+        _messages.value = Notice(text.resources.getQuantityString(R.plurals.removed_count, gone.size, gone.size))
+    }
+
+    fun setFinished(ids: Collection<String>, finished: Boolean) = ids.forEach { app.store.setFinished(it, finished) }
 
     fun deleteAll() {
         books.value.forEach { app.store.removeBook(it) }

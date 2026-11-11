@@ -146,8 +146,10 @@
           aria-label="{{t "Destination folder"}}">
         <button type="submit" class="btn" name="action" value="move" title="{{t "Move"}}"><i class="far fa-folder-open"></i><span class="lbl">{{t "Move"}}</span></button>
       </div>
-      <button type="button" class="btn" data-bulk-mark="read" title="{{t "Mark as read"}}"><i class="far fa-circle-check"></i><span class="lbl">{{t "Mark as read"}}</span></button>
-      <button type="button" class="btn" data-bulk-mark="unread" title="{{t "Mark as unread"}}"><i class="far fa-circle"></i><span class="lbl">{{t "Mark as unread"}}</span></button>
+      <button type="button" class="btn" data-bulk-mark="read" title="{{t "Mark as read"}}"><i class="far fa-circle-check"></i><span class="lbl">{{t "Mark as read"}}</span><span class="short">{{t "Read (done)"}}</span></button>
+      <button type="button" class="btn" data-bulk-mark="unread" title="{{t "Mark as unread"}}"><i class="far fa-circle"></i><span class="lbl">{{t "Mark as unread"}}</span><span class="short">{{t "Unread"}}</span></button>
+      <button type="button" class="btn bulk-move-toggle" id="bulkMoveToggle" aria-expanded="false" title="{{t "Move"}}"
+        aria-label="{{t "Move"}}"><i class="far fa-folder-open"></i></button>
       <button type="button" class="btn btn-danger" id="bulkDelete" title="{{t "Delete"}}"><i class="far fa-trash-can"></i><span class="lbl">{{t "Delete"}}</span></button>
       <button type="button" class="icon-btn" id="bulkClear" title="{{t "Clear selection"}}"
         aria-label="{{t "Clear selection"}}"><i class="fas fa-xmark"></i></button>
@@ -794,6 +796,12 @@
     }, true);
     $('bulkClear').addEventListener('click', () => setSelecting(false));
     $('bulkDelete').addEventListener('click', () => $('bulkDeleteDialog').showModal());
+    // On phones the move field opens from a button, to keep the bar to two rows
+    $('bulkMoveToggle').addEventListener('click', () => {
+      const open = $('bulkForm').classList.toggle('moving');
+      $('bulkMoveToggle').setAttribute('aria-expanded', open);
+      if (open) $('bulkFolder').focus();
+    });
     document.querySelectorAll('[data-bulk-mark]').forEach((b) => b.addEventListener('click', async () => {
       await markBooks(picked().map((r) => r.dataset.path), b.dataset.bulkMark);
       setSelecting(false);
@@ -882,7 +890,7 @@
         const head = document.createElement('div');
         head.className = 'reading-now';
         head.innerHTML = '<strong></strong>';
-        head.firstChild.textContent = t('Finished');
+        head.firstChild.textContent = t('Read to the end');
         body.replaceChildren(head, actions);
         return;
       }
@@ -898,7 +906,7 @@
       const head = document.createElement('div');
       head.className = 'reading-now';
       const big = document.createElement('strong');
-      big.textContent = isFinished(c) ? t('Finished') : pct(c) + '%';
+      big.textContent = isFinished(c) ? t('Read to the end') : pct(c) + '%';
       const where = document.createElement('span');
       where.textContent = t('on {device}, {when}', { device: c.device || t('another device'), when: timeAgo(c.timestamp) });
       head.append(big, where);

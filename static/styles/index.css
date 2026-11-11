@@ -336,6 +336,15 @@ input[type="checkbox"] {
   font-weight: 600;
 }
 
+.notice.error i {
+  color: var(--danger);
+}
+
+.login-card .notice.error {
+  border-color: var(--danger);
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
 .notice .icon-btn {
   margin-left: auto;
   width: 24px;
@@ -598,6 +607,11 @@ input[type="checkbox"] {
   background-repeat: no-repeat;
   font-weight: 600;
   cursor: pointer;
+}
+
+.bulk .short,
+.bulk-move-toggle {
+  display: none !important;
 }
 
 .menu-btn,
@@ -2869,20 +2883,43 @@ a.nav-item {
     display: none;
   }
 
-  .bulk .btn {
+  .bulk .short {
+    display: inline !important;
+  }
+
+  .bulk #bulkDelete,
+  .bulk .bulk-move-toggle {
     width: var(--control);
     padding: 0;
   }
 
-  .bulk-move {
-    order: 2;
-    flex: 1 1 120px;
-    min-width: 0;
+  .bulk .bulk-move-toggle {
+    display: inline-flex !important;
+  }
+
+  .bulk [data-bulk-mark] {
+    flex: 1;
   }
 
   .bulk [data-bulk-mark],
-  .bulk #bulkDelete {
+  .bulk #bulkDelete,
+  .bulk .bulk-move-toggle {
+    order: 2;
+  }
+
+  .bulk:not(.moving) .bulk-move {
+    display: none;
+  }
+
+  .bulk-move {
     order: 3;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .bulk-move .btn {
+    width: var(--control);
+    padding: 0;
   }
 
   .bulk-move .input {

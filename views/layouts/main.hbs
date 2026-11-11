@@ -19,16 +19,29 @@
       try { localStorage.setItem(key, value); } catch { }
     }
 
-    function toggleTheme() {
-      const dark = document.documentElement.classList.toggle('dark');
-      storeSet('theme', dark ? 'dark' : 'light');
+    // Theme: follow the system, or always light or dark. The button cycles through them.
+    const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+    function applyTheme() {
+      const saved = storeGet('theme');
+      const dark = saved === 'dark' || (saved !== 'light' && systemDark.matches);
+      document.documentElement.classList.toggle('dark', dark);
+      document.querySelectorAll('[data-theme-btn]').forEach((b) => {
+        const name = saved === 'dark' ? t('Dark') : saved === 'light' ? t('Light') : t('System');
+        b.title = t('Theme: {name}', { name });
+        b.setAttribute('aria-label', b.title);
+        b.querySelector('i').className = saved === 'dark' ? 'far fa-moon' : saved === 'light' ? 'far fa-sun' : 'fas fa-circle-half-stroke';
+      });
     }
 
-    (function () {
+    function toggleTheme() {
       const saved = storeGet('theme');
-      const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      if (saved === 'dark' || (!saved && systemDark)) document.documentElement.classList.add('dark');
-    })();
+      storeSet('theme', saved === 'light' ? 'dark' : saved === 'dark' ? 'system' : 'light');
+      applyTheme();
+    }
+
+    applyTheme();
+    systemDark.addEventListener('change', applyTheme);
+    document.addEventListener('DOMContentLoaded', applyTheme);
   </script>
 </head>
 

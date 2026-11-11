@@ -45,6 +45,7 @@ pub async fn get_progress(State(state): State<AppState>, Path(document): Path<St
         "document": document,
         "current": state.progress.current(&document),
         "history": state.progress.history(&document),
+        "mark": state.marks.get(&document),
         "server_time": now(),
     }))
     .into_response()
@@ -245,7 +246,45 @@ pub async fn list_progress(State(state): State<AppState>) -> Response {
             entry
         })
         .collect();
-    Json(json!({ "books": list, "server_time": now() })).into_response()
+    let marks: Vec<_> = state
+        .marks
+        .all()
+        .into_iter()
+        .map(|(document, mark)| {
+            let mut entry = book_fields(&books, &document);
+            entry["document"] = json!(document);
+            entry["state"] = json!(mark.state);
+            entry["at"] = json!(mark.at);
+            entry
+        })
+        .collect();
+    Json(json!({ "books": list, "marks": marks, "server_time": now() })).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct MarkRequest {
+    /// Books by their path in the library.
+    paths: Vec<String>,
+    /// `read`, `unread`, or null to clear the mark.
+    state: Option<crate::marks::State>,
+}
+
+/// Marks books as read or unread in the web panel (positions are not changed).
+pub async fn put_marks(State(state): State<AppState>, Json(request): Json<MarkRequest>) -> Response {
+    let index = state.documents.index(&state.library).await;
+    let by_path: HashMap<&str, &str> = index.iter().map(|(id, path)| (path.as_str(), id.as_str())).collect();
+    let documents: Vec<String> = request
+        .paths
+        .iter()
+        .filter_map(|p| by_path.get(p.as_str()).map(|id| id.to_string()))
+        .collect();
+    if documents.is_empty() {
+        return (StatusCode::NOT_FOUND, Json(json!({ "error": "no such book" }))).into_response();
+    }
+    match state.marks.set(&documents, request.state, now()) {
+        Ok(()) => Json(json!({ "marked": documents.len(), "state": request.state, "at": now() })).into_response(),
+        Err(err) => save_failed(err),
+    }
 }
 
 /// Every device that saved a position or is listening now, with what it read last.

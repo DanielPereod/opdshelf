@@ -24,6 +24,41 @@ function timeAgo(seconds) {
   return '';
 }
 
+// "4,7 MB", with the decimal separator of the page's language
+function formatBytes(bytes) {
+  const lang = document.documentElement.lang || undefined;
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = Number(bytes) || 0;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
+  const digits = unit === 0 || value >= 100 ? 0 : 1;
+  return new Intl.NumberFormat(lang, { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(value) + ' ' + units[unit];
+}
+
+// A cover drawn from the title and author, for books without one: a muted
+// colour picked from the title, the title and the author. A real cover, when
+// it loads, is drawn on top of it.
+function placeholderCover(thumb, title, author) {
+  let hash = 0;
+  for (const c of title || '') hash = (hash * 31 + c.codePointAt(0)) >>> 0;
+  thumb.classList.add('ph');
+  thumb.style.setProperty('--ph-hue', hash % 360);
+  const box = document.createElement('span');
+  box.className = 'ph-art';
+  box.setAttribute('aria-hidden', 'true');
+  const initial = document.createElement('b');
+  initial.className = 'ph-initial';
+  initial.textContent = (title || '?').trim().charAt(0).toUpperCase();
+  const name = document.createElement('b');
+  name.className = 'ph-title';
+  name.textContent = title || '';
+  const by = document.createElement('small');
+  by.className = 'ph-author';
+  by.textContent = author || '';
+  box.append(initial, name, by);
+  thumb.prepend(box);
+}
+
 // An icon for a device from its name
 function deviceIcon(name) {
   const n = (name || '').toLowerCase();

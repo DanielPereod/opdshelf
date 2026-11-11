@@ -1,3 +1,4 @@
+<a class="skip-link" href="#books" id="skipLink">{{t "Skip to the books"}}</a>
 <div class="app" id="app" data-csrf="{{csrf}}">
   <aside class="side" id="side">
     <div class="brand"><img src="/static/icon.png" alt="">OPDShelf</div>
@@ -25,6 +26,15 @@
         <span class="live-dot" id="navLive" title="{{t "Connecting…"}}"></span>
         <span class="count" id="deviceCount"></span>
       </a>
+
+      <details class="nav-group" id="authorsGroup" hidden>
+        <summary><h2>{{t "Authors"}}</h2><i class="fas fa-chevron-down" aria-hidden="true"></i></summary>
+        <div id="authorShelves"></div>
+      </details>
+      <details class="nav-group" id="seriesGroup" hidden>
+        <summary><h2>{{t "Book series"}}</h2><i class="fas fa-chevron-down" aria-hidden="true"></i></summary>
+        <div id="seriesShelves"></div>
+      </details>
 
       {{#if folderTree}}
       <h2>{{t "Folders"}}</h2>
@@ -56,7 +66,7 @@
         </div>
       </div>
       <div class="side-actions">
-        <button type="button" class="icon-btn" onclick="toggleTheme()" title="{{t "Light or dark"}}"
+        <button type="button" class="icon-btn" data-theme-btn onclick="toggleTheme()" title="{{t "Light or dark"}}"
           aria-label="{{t "Light or dark"}}">
           <i class="fas fa-circle-half-stroke"></i>
         </button>
@@ -74,7 +84,7 @@
   </aside>
   <div class="scrim" id="scrim"></div>
 
-  <section class="main" id="libraryView" {{#if syncView}}hidden{{/if}}>
+  <main class="main" id="libraryView" tabindex="-1" {{#if syncView}}hidden{{/if}}>
     <header class="toolbar">
       <button type="button" class="icon-btn menu-btn" data-menu title="{{t "Shelves"}}" aria-label="{{t "Shelves"}}"><i
           class="fas fa-bars"></i></button>
@@ -86,6 +96,24 @@
         <kbd>/</kbd>
       </label>
       <span class="spacer"></span>
+      {{#if books}}
+      <label class="sort-select">
+        <span class="visually-hidden">{{t "Sort by"}}</span>
+        <i class="fas fa-arrow-down-wide-short" aria-hidden="true"></i>
+        <select id="sortSelect" class="input">
+          <option value="date:desc">{{t "Newest first"}}</option>
+          <option value="name:asc">{{t "Title A–Z"}}</option>
+          <option value="name:desc">{{t "Title Z–A"}}</option>
+          <option value="author:asc">{{t "Author"}}</option>
+          <option value="progress:desc">{{t "Progress"}}</option>
+          <option value="size:desc">{{t "Size"}}</option>
+          <option value="folder:asc">{{t "Folder"}}</option>
+          <option value="format:asc">{{t "Format"}}</option>
+        </select>
+      </label>
+      <button type="button" class="btn btn-quiet select-btn" id="selectBtn" aria-pressed="false" title="{{t "Select books"}}"><i
+          class="far fa-square-check"></i><span class="sel-label">{{t "Select"}}</span></button>
+      {{/if}}
       <div class="segmented" role="group" aria-label="{{t "View"}}">
         <button type="button" class="icon-btn" data-view="list" title="{{t "List"}}" aria-label="{{t "List"}}"><i
             class="fas fa-list"></i></button>
@@ -100,13 +128,13 @@
     {{#if notice}}
     <div class="notice" role="status">
       <i class="fas fa-check"></i>{{notice}}
-      <button type="button" class="icon-btn" data-dismiss title="{{t "Dismiss"}}"><i class="fas fa-xmark"></i></button>
+      <button type="button" class="icon-btn" data-dismiss title="{{t "Dismiss"}}" aria-label="{{t "Dismiss"}}"><i class="fas fa-xmark"></i></button>
     </div>
     {{/if}}
     {{#if error}}
     <div class="notice error" role="alert">
       <i class="fas fa-circle-exclamation"></i>{{error}}
-      <button type="button" class="icon-btn" data-dismiss title="{{t "Dismiss"}}"><i class="fas fa-xmark"></i></button>
+      <button type="button" class="icon-btn" data-dismiss title="{{t "Dismiss"}}" aria-label="{{t "Dismiss"}}"><i class="fas fa-xmark"></i></button>
     </div>
     {{/if}}
 
@@ -114,11 +142,15 @@
       <input type="hidden" name="csrf" value="{{csrf}}">
       <strong id="bulkCount"></strong>
       <div class="bulk-move">
-        <input class="input" name="folder" id="bulkFolder" list="folderList" placeholder="{{t "Folder (empty for root)"}}"
+        <input class="input" name="folder" id="bulkFolder" list="folderList" placeholder="{{t "Folder…"}}"
           aria-label="{{t "Destination folder"}}">
-        <button type="submit" class="btn" name="action" value="move"><i class="far fa-folder-open"></i>{{t "Move"}}</button>
+        <button type="submit" class="btn" name="action" value="move" title="{{t "Move"}}"><i class="far fa-folder-open"></i><span class="lbl">{{t "Move"}}</span></button>
       </div>
-      <button type="button" class="btn" id="bulkDelete"><i class="far fa-trash-can"></i>{{t "Delete"}}</button>
+      <button type="button" class="btn" data-bulk-mark="read" title="{{t "Mark as read"}}"><i class="far fa-circle-check"></i><span class="lbl">{{t "Mark as read"}}</span><span class="short">{{t "Read (done)"}}</span></button>
+      <button type="button" class="btn" data-bulk-mark="unread" title="{{t "Mark as unread"}}"><i class="far fa-circle"></i><span class="lbl">{{t "Mark as unread"}}</span><span class="short">{{t "Unread"}}</span></button>
+      <button type="button" class="btn bulk-move-toggle" id="bulkMoveToggle" aria-expanded="false" title="{{t "Move"}}"
+        aria-label="{{t "Move"}}"><i class="far fa-folder-open"></i></button>
+      <button type="button" class="btn btn-danger" id="bulkDelete" title="{{t "Delete"}}"><i class="far fa-trash-can"></i><span class="lbl">{{t "Delete"}}</span></button>
       <button type="button" class="icon-btn" id="bulkClear" title="{{t "Clear selection"}}"
         aria-label="{{t "Clear selection"}}"><i class="fas fa-xmark"></i></button>
     </form>
@@ -145,7 +177,7 @@
       <div class="list" id="bookList">
         {{#each books}}
         <div class="book{{#if (eq path ../book.path)}} selected{{/if}}" data-path="{{path}}" data-title="{{title}}"
-          data-authors="{{authors}}" data-folder="{{folder}}" data-format="{{format}}" data-added="{{modified}}"
+          data-authors="{{authors}}" data-author-list="{{authorList}}" data-folder="{{folder}}" data-format="{{format}}" data-added="{{modified}}"
           data-bytes="{{bytes}}" data-series="{{series}}" data-index="{{seriesIndex}}"
           data-incomplete="{{#if incomplete}}1{{/if}}" data-readable="{{#if readable}}1{{/if}}"
           data-cover="{{#if hasCover}}/thumb/{{urlPath path}}?v={{coverVersion}}{{/if}}">
@@ -161,12 +193,7 @@
             </span>
             <span class="book-name">
               <b title="{{title}}">{{title}}</b>
-              <span>{{#if authors}}{{authors}}{{else}}—{{/if}}{{#if series}} · {{series}}{{#if seriesIndex}} #{{seriesIndex}}{{/if}}{{/if}}</span>
-              {{#if noAuthors}}
-              <span class="flag"><i class="fas fa-circle-exclamation"></i>{{t "No author"}}</span>
-              {{else}}{{#unless hasCover}}
-              <span class="flag"><i class="far fa-image"></i>{{t "No cover"}}</span>
-              {{/unless}}{{/if}}
+              <span class="book-meta">{{#if noAuthors}}<em class="flag"><i class="fas fa-circle-exclamation"></i>{{t "No author"}}</em>{{else}}{{authors}}{{/if}}{{#if series}} · {{series}}{{#if seriesIndex}} #{{seriesIndex}}{{/if}}{{/if}}{{#unless noAuthors}}{{#unless hasCover}} <em class="flag" title="{{t "No cover"}}"><i class="far fa-image"></i><span class="visually-hidden">{{t "No cover"}}</span></em>{{/unless}}{{/unless}}</span>
             </span>
           </a>
           <span class="c-folder" title="{{folder}}">{{folder}}</span>
@@ -187,6 +214,7 @@
         <i class="fas fa-magnifying-glass"></i>
         <strong id="noMatchesTitle">{{t "No books match"}}</strong>
         <span id="noMatchesText">{{t "Try another word or shelf."}}</span>
+        <p><button type="button" class="btn" id="clearSearch"><i class="fas fa-xmark"></i>{{t "Clear search"}}</button></p>
       </div>
       {{else}}
       <div class="empty">
@@ -200,7 +228,7 @@
 
     <div class="drop-hint"><i class="fas fa-inbox"></i>{{t "Drop files anywhere to upload them to"}} <strong
         id="dropTarget">{{t "the library root"}}</strong></div>
-  </section>
+  </main>
 
   {{> sync}}
 
@@ -209,6 +237,23 @@
   </aside>
 </div>
 
+<datalist id="authorOptions"></datalist>
+<datalist id="seriesOptions"></datalist>
+<datalist id="languageOptions">
+  <option value="es">Español</option>
+  <option value="en">English</option>
+  <option value="fr">Français</option>
+  <option value="de">Deutsch</option>
+  <option value="it">Italiano</option>
+  <option value="pt">Português</option>
+  <option value="ca">Català</option>
+  <option value="eu">Euskara</option>
+  <option value="gl">Galego</option>
+  <option value="nl">Nederlands</option>
+  <option value="ru">Русский</option>
+  <option value="ja">日本語</option>
+  <option value="zh">中文</option>
+</datalist>
 <datalist id="folderList">
   {{#each folders}}<option value="{{this}}"></option>{{/each}}
 </datalist>
@@ -313,16 +358,66 @@
     const isReading = (p) => p && p.percentage > 0 && p.percentage < FINISHED;
     const isFinished = (p) => p && p.percentage >= FINISHED;
 
-    // Dates, in the reader's own locale
-    const thisYear = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
-    const otherYear = new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' });
+    // Dates and sizes in the page's language, and drawn covers for books without one
+    const pageLang = document.documentElement.lang || undefined;
+    const thisYear = new Intl.DateTimeFormat(pageLang, { day: 'numeric', month: 'short' });
+    const otherYear = new Intl.DateTimeFormat(pageLang, { month: 'short', year: 'numeric' });
     rows.forEach((row) => {
       const date = new Date(row.dataset.added);
       const cell = row.querySelector('[data-date]');
       cell.textContent = (date.getFullYear() === new Date().getFullYear() ? thisYear : otherYear).format(date);
-      cell.title = date.toLocaleString();
+      cell.title = date.toLocaleString(pageLang);
+      row.querySelector('.c-size').textContent = formatBytes(row.dataset.bytes);
+      placeholderCover(row.querySelector('.thumb'), row.dataset.title, row.dataset.authors);
     });
     $('recentCount').textContent = rows.filter((r) => Date.parse(r.dataset.added) > weekAgo).length;
+
+    // Authors and series shelves, from the books on the page
+    const authorsOf = (row) => (row.dataset.authorList || '').split('\n').filter(Boolean);
+    function buildShelves(group, box, kind, names) {
+      const counts = new Map();
+      names.forEach((n) => counts.set(n, (counts.get(n) || 0) + 1));
+      if (counts.size === 0) return;
+      const sorted = Array.from(counts.entries()).sort((a, b) => collator.compare(a[0], b[0]));
+      box.replaceChildren(...sorted.map(([name, count]) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'nav-item';
+        b.dataset.shelf = kind;
+        b.dataset.value = name;
+        b.innerHTML = `<i class="${kind === 'author' ? 'far fa-user' : 'fas fa-layer-group'}"></i><span class="label"></span><span class="count"></span>`;
+        b.querySelector('.label').textContent = name;
+        b.querySelector('.label').title = name;
+        b.querySelector('.count').textContent = count;
+        return b;
+      }));
+      // With many names, the first ones and a button for the rest
+      const SHOWN = 8;
+      if (sorted.length > SHOWN + 2) {
+        Array.from(box.children).slice(SHOWN).forEach((b) => b.classList.add('extra'));
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'link-btn nav-more';
+        const label = () => { more.textContent = group.classList.contains('expanded') ? t('Show fewer') : t('Show all ({n})', { n: sorted.length }); };
+        more.addEventListener('click', () => { group.classList.toggle('expanded'); label(); });
+        label();
+        box.append(more);
+      }
+      group.hidden = false;
+      const key = 'opdshelf:open:' + kind;
+      group.open = storeGet(key) === '1';
+      group.addEventListener('toggle', () => storeSet(key, group.open ? '1' : '0'));
+    }
+    buildShelves($('authorsGroup'), $('authorShelves'), 'author', rows.flatMap(authorsOf));
+    // Suggestions for the editor
+    const fillList = (id, names) => $(id).replaceChildren(...Array.from(new Set(names)).sort(collator.compare).map((n) => {
+      const o = document.createElement('option');
+      o.value = n;
+      return o;
+    }));
+    fillList('authorOptions', rows.flatMap(authorsOf));
+    fillList('seriesOptions', rows.map((r) => r.dataset.series).filter(Boolean));
+    buildShelves($('seriesGroup'), $('seriesShelves'), 'series', rows.map((r) => r.dataset.series).filter(Boolean));
     $('dropTarget').textContent = libraryRoot;
     $('dropOverlayTarget').textContent = libraryRoot;
 
@@ -367,6 +462,8 @@
         case 'incomplete': return d.incomplete === '1';
         case 'folder': return d.folder === state.value || d.folder.startsWith(state.value + '/');
         case 'format': return d.format === state.value;
+        case 'author': return authorsOf(row).includes(state.value);
+        case 'series': return d.series === state.value;
         default: return true;
       }
     }
@@ -401,6 +498,9 @@
       const compare = {
         name: byTitle,
         folder: (a, b) => collator.compare(a.dataset.folder, b.dataset.folder) || byTitle(a, b),
+        // Books without an author go last
+        author: (a, b) => (!a.dataset.authors - !b.dataset.authors)
+          || collator.compare(a.dataset.authors, b.dataset.authors) || byTitle(a, b),
         format: (a, b) => collator.compare(a.dataset.format, b.dataset.format) || byTitle(a, b),
         progress: (a, b) => (read(a) - read(b)) || byTitle(a, b),
         size: (a, b) => (Number(a.dataset.bytes) - Number(b.dataset.bytes)) || byTitle(a, b),
@@ -418,11 +518,26 @@
         $('noMatches').hidden = shown > 0 || rows.length === 0;
         const [title, text] = (!query && emptyTexts[state.shelf]) || [t('No books match'), t('Try another word or shelf.')];
         $('noMatchesTitle').textContent = title;
+        $('clearSearch').hidden = !query;
+        document.querySelector('.cols').hidden = shown === 0;
         $('noMatchesText').textContent = text;
       }
-      document.querySelectorAll('[data-sort]').forEach((b) => {
-        if (b.dataset.sort === state.sort) b.setAttribute('aria-sort', state.dir === 'desc' ? 'descending' : 'ascending');
-        else b.removeAttribute('aria-sort');
+      const sortSelect = $('sortSelect');
+      if (sortSelect) {
+        const wanted = state.sort + ':' + state.dir;
+        const option = Array.from(sortSelect.options).find((o) => o.value === wanted)
+          || Array.from(sortSelect.options).find((o) => o.value.startsWith(state.sort + ':'));
+        if (option) sortSelect.value = option.value;
+      }
+      // aria-sort only belongs on table headers, so the order is spoken in the button's name
+      document.querySelectorAll('button[data-sort]').forEach((b) => {
+        const active = b.dataset.sort === state.sort;
+        if (active) b.dataset.dir = state.dir;
+        else delete b.dataset.dir;
+        b.setAttribute('aria-pressed', active);
+        b.setAttribute('aria-label', active
+          ? t('{column}, sorted {order}', { column: b.textContent, order: state.dir === 'desc' ? t('descending') : t('ascending') })
+          : t('Sort by {column}', { column: b.textContent }));
       });
       renderContinue();
       updateBulk();
@@ -430,6 +545,9 @@
 
     function selectShelf(button) {
       showPage('library');
+      const group = button.closest('details');
+      if (group) group.open = true;
+      if (group && button.classList.contains('extra')) group.classList.add('expanded');
       document.querySelectorAll('[data-shelf]').forEach((b) => b.setAttribute('aria-current', b === button));
       state.shelf = button.dataset.shelf;
       state.value = button.dataset.value || '';
@@ -451,6 +569,17 @@
     document.addEventListener('click', (e) => {
       const go = e.target.closest('[data-goto-shelf]');
       if (go) selectShelf(document.querySelector(`[data-shelf="${go.dataset.gotoShelf}"]`));
+      // An author or a series in the book panel shows its shelf
+      const link = e.target.closest('[data-goto]');
+      if (link) {
+        const shelf = Array.from(document.querySelectorAll(`.nav-item[data-shelf="${link.dataset.goto}"]`))
+          .find((b) => b.dataset.value === link.dataset.value);
+        if (shelf) {
+          if (panelFloats.matches) closePanel(true);
+          selectShelf(shelf);
+          shelf.scrollIntoView({ block: 'nearest' });
+        }
+      }
     });
     // Text columns start A-Z, size, date and progress start with the biggest/newest;
     // clicking the active column again reverses it.
@@ -462,6 +591,17 @@
       storeSet('opdshelf:sort', state.sort + ':' + state.dir);
       refresh();
     }));
+    if ($('sortSelect')) $('sortSelect').addEventListener('change', (e) => {
+      [state.sort, state.dir] = e.target.value.split(':');
+      storeSet('opdshelf:sort', state.sort + ':' + state.dir);
+      refresh();
+    });
+    if ($('clearSearch')) $('clearSearch').addEventListener('click', () => {
+      $('bookSearch').value = '';
+      state.query = '';
+      refresh();
+      $('bookSearch').focus();
+    });
     $('bookSearch').addEventListener('input', (e) => { state.query = e.target.value; refresh(); });
     $('bookSearch').addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && e.target.value) { e.stopPropagation(); e.target.value = ''; state.query = ''; refresh(); }
@@ -474,12 +614,13 @@
     {
       // Older versions stored just 'name' or 'date'.
       const [key, dir] = (storeGet('opdshelf:sort') || '').split(':');
-      state.sort = document.querySelector(`[data-sort="${key}"]`) ? key : 'date';
+      state.sort = document.querySelector(`[data-sort="${key}"]`) || key === 'author' ? key : 'date';
       state.dir = dir === 'asc' || dir === 'desc' ? dir : firstDir(state.sort);
     }
 
     // ------------------------------------------------------------ reading progress
-    const pct = (p) => Math.round((p.percentage || 0) * 100);
+    // A finished book shows 100 %, even when its last page starts a bit before
+    const pct = (p) => (isFinished(p) ? 100 : Math.round((p.percentage || 0) * 100));
     function progressCell(p) {
       const cell = document.createElement('span');
       cell.className = 'prog';
@@ -529,6 +670,7 @@
         cover.className = 'thumb';
         cover.innerHTML = '<span></span>';
         cover.firstChild.textContent = d.format;
+        placeholderCover(cover, d.title, d.authors);
         if (d.cover) {
           const img = document.createElement('img');
           img.src = d.cover; img.alt = ''; img.loading = 'lazy';
@@ -561,6 +703,17 @@
         const data = await response.json();
         progress.clear();
         data.books.forEach((b) => { if (b.path) progress.set(b.path, b.current); });
+        // Marks made in the panel: "read" shows the book finished, "unread"
+        // hides the positions saved before it
+        (data.marks || []).forEach((m) => {
+          if (!m.path) return;
+          const p = progress.get(m.path);
+          if (m.state === 'read') {
+            progress.set(m.path, { ...(p || {}), percentage: 1, timestamp: Math.max(m.at, (p && p.timestamp) || 0), device: t('Marked as read'), marked: true });
+          } else if (p && p.timestamp <= m.at) {
+            progress.delete(m.path);
+          }
+        });
         paintProgress();
         refresh();
         document.dispatchEvent(new CustomEvent('progresschange'));
@@ -589,6 +742,11 @@
       document.dispatchEvent(new CustomEvent('pagechange', { detail: { page } }));
     }
     window.showPage = showPage;
+    $('skipLink').addEventListener('click', (e) => {
+      e.preventDefault();
+      const page = $('syncView').hidden ? $('libraryView') : $('syncView');
+      page.focus();
+    });
     document.querySelector('[data-page="sync"]').addEventListener('click', (e) => {
       if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
       e.preventDefault();
@@ -618,11 +776,37 @@
       rows.forEach((r) => { if (!r.hidden) r.querySelector('.pick input').checked = e.target.checked; });
       updateBulk();
     });
-    $('bulkClear').addEventListener('click', () => {
-      rows.forEach((r) => { r.querySelector('.pick input').checked = false; });
+    // Touch screens have no hover and phones hide the boxes: a button turns
+    // selecting on, and then tapping a book ticks it instead of opening it
+    function setSelecting(on) {
+      $('books').classList.toggle('selecting', on);
+      if ($('selectBtn')) $('selectBtn').setAttribute('aria-pressed', on);
+      if (!on) rows.forEach((r) => { r.querySelector('.pick input').checked = false; });
       updateBulk();
-    });
+    }
+    if ($('selectBtn')) $('selectBtn').addEventListener('click', () => setSelecting(!$('books').classList.contains('selecting')));
+    $('books').addEventListener('click', (e) => {
+      if (!$('books').classList.contains('selecting')) return;
+      const row = e.target.closest('.book');
+      if (!row || e.target.closest('.pick')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const box = row.querySelector('.pick input');
+      box.checked = !box.checked;
+      updateBulk();
+    }, true);
+    $('bulkClear').addEventListener('click', () => setSelecting(false));
     $('bulkDelete').addEventListener('click', () => $('bulkDeleteDialog').showModal());
+    // On phones the move field opens from a button, to keep the bar to two rows
+    $('bulkMoveToggle').addEventListener('click', () => {
+      const open = $('bulkForm').classList.toggle('moving');
+      $('bulkMoveToggle').setAttribute('aria-expanded', open);
+      if (open) $('bulkFolder').focus();
+    });
+    document.querySelectorAll('[data-bulk-mark]').forEach((b) => b.addEventListener('click', async () => {
+      await markBooks(picked().map((r) => r.dataset.path), b.dataset.bulkMark);
+      setSelecting(false);
+    }));
 
     // ------------------------------------------------------------ inspector
     const insp = $('insp');
@@ -669,6 +853,7 @@
 
     // How far the book in the panel was read, on every device
     async function paintReading() {
+      insp.querySelectorAll('[data-ph-title]:not(.ph)').forEach((el) => placeholderCover(el, el.dataset.phTitle, el.dataset.phAuthor));
       const box = insp.querySelector('[data-reading]');
       if (!box || !box.dataset.reading) return;
       let data;
@@ -681,19 +866,48 @@
         return;
       }
       const body = box.querySelector('[data-reading-body]');
-      if (!data.current) {
+      const path = insp.querySelector('[data-delete]').dataset.delete;
+      const mark = data.mark;
+      const hidden = mark && mark.state === 'unread' && data.current && data.current.timestamp <= mark.at;
+      const markedRead = mark && mark.state === 'read';
+      // Mark as read or unread, only in this panel
+      const actions = document.createElement('div');
+      actions.className = 'reading-actions';
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'btn btn-small';
+      const finished = markedRead || (!hidden && data.current && isFinished(data.current));
+      toggle.innerHTML = finished ? '<i class="far fa-circle"></i>' : '<i class="far fa-circle-check"></i>';
+      toggle.append(finished ? t('Mark as unread') : t('Mark as read'));
+      toggle.addEventListener('click', () => markBooks([path], finished ? 'unread' : 'read'));
+      actions.append(toggle);
+      if (mark) {
+        const note = document.createElement('small');
+        note.className = 'muted';
+        note.textContent = (markedRead ? t('Marked as read') : t('Marked as unread')) + ', ' + timeAgo(mark.at);
+        actions.append(note);
+      }
+      if (markedRead) {
+        const head = document.createElement('div');
+        head.className = 'reading-now';
+        head.innerHTML = '<strong></strong>';
+        head.firstChild.textContent = t('Read to the end');
+        body.replaceChildren(head, actions);
+        return;
+      }
+      if (!data.current || hidden) {
         body.innerHTML = '';
         const p = document.createElement('p');
         p.className = 'muted';
         p.textContent = t('Not started on any device yet.');
-        body.append(p);
+        body.append(p, actions);
         return;
       }
       const c = data.current;
       const head = document.createElement('div');
       head.className = 'reading-now';
       const big = document.createElement('strong');
-      big.textContent = isFinished(c) ? t('Finished') : pct(c) + '%';
+      big.textContent = isFinished(c) ? t('Read to the end') : pct(c) + '%';
       const where = document.createElement('span');
       where.textContent = t('on {device}, {when}', { device: c.device || t('another device'), when: timeAgo(c.timestamp) });
       head.append(big, where);
@@ -723,12 +937,37 @@
         li.append(icon, name, value, when);
         devices.append(li);
       });
-      body.replaceChildren(head, bar, devices);
+      body.replaceChildren(head, bar, devices, actions);
     }
+
+    // Marks books as read or unread in the panel; positions are not changed
+    async function markBooks(paths, markState) {
+      try {
+        const response = await fetch('/api/marks', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ paths, state: markState }),
+        });
+        if (!response.ok) throw new Error(response.statusText);
+      } catch (err) {
+        showToast(t('Cannot save: {reason}', { reason: err.message }));
+        return;
+      }
+      await loadProgress();
+      paintReading();
+      const n = paths.length;
+      showToast(markState === 'read'
+        ? (n === 1 ? t('Marked as read') : t('{n} books marked as read', { n }))
+        : (n === 1 ? t('Marked as unread') : t('{n} books marked as unread', { n })));
+    }
+    window.markBooks = markBooks;
     document.addEventListener('progresschange', paintReading);
 
+    // Below 1100px the panel floats over the list, which is dimmed; a click there closes it
+    const panelFloats = window.matchMedia('(max-width: 1100px)');
     document.addEventListener('click', (e) => {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      if (e.target.classList.contains('main') && panelFloats.matches && !insp.hidden) { closePanel(true); return; }
       const link = e.target.closest('.book-link, [data-panel]');
       if (link) { e.preventDefault(); openPanel(link.getAttribute('href'), true); return; }
       if (e.target.closest('[data-close]')) { e.preventDefault(); closePanel(true); return; }

@@ -1,11 +1,14 @@
 <div data-controls>
   <button type="button" id="zoomOut" class="icon-btn" title="{{t "Zoom out"}}" aria-label="{{t "Zoom out"}}"><i class="fas fa-magnifying-glass-minus"></i></button>
+  <button type="button" id="fit" class="icon-btn" title="{{t "Fit the whole page"}}" aria-label="{{t "Fit the whole page"}}"
+    aria-pressed="false"><i class="fas fa-expand"></i></button>
   <button type="button" id="zoomIn" class="icon-btn" title="{{t "Zoom in"}}" aria-label="{{t "Zoom in"}}"><i class="fas fa-magnifying-glass-plus"></i></button>
   <a href="/download/{{urlPath book.path}}" class="icon-btn" title="{{t "Download"}}" aria-label="{{t "Download"}}"><i class="fas fa-download"></i></a>
 </div>
 
 <main class="stage">
-  <div id="pages" class="scroll-stage pdf-pages">
+  <h1 class="visually-hidden">{{book.title}}</h1>
+  <div id="pages" class="scroll-stage pdf-pages" tabindex="0" role="region" aria-label="{{book.title}}">
     <div id="status" class="loading"><span><i class="fas fa-spinner fa-spin"></i> {{t "Loading…"}}</span></div>
   </div>
 </main>
@@ -40,7 +43,19 @@
 
   const first = await pdf.getPage(1);
   const base = first.getViewport({ scale: 1 });
-  scale = Math.min(2, Math.max(0.5, (container.clientWidth - 32) / base.width));
+  // Fit to the width, or the whole page in view (remembered)
+  const fitWidth = () => Math.min(2, Math.max(0.5, (container.clientWidth - 32) / base.width));
+  const fitPage = () => Math.max(0.3, Math.min(fitWidth(), (container.clientHeight - 32) / base.height));
+  let wholePage = storeGet('opdshelf:pdf-fit') === 'page';
+  scale = wholePage ? fitPage() : fitWidth();
+  const fitButton = document.getElementById('fit');
+  const paintFit = () => {
+    fitButton.setAttribute('aria-pressed', wholePage);
+    fitButton.title = wholePage ? t('Fit the width') : t('Fit the whole page');
+    fitButton.setAttribute('aria-label', fitButton.title);
+    fitButton.querySelector('i').className = wholePage ? 'fas fa-arrows-left-right' : 'fas fa-expand';
+  };
+  paintFit();
 
   async function renderPage(wrapper) {
     const number = Number(wrapper.dataset.page);
@@ -106,11 +121,19 @@
     }
   }, { passive: true });
 
+  fitButton.onclick = () => {
+    const p = currentPage();
+    wholePage = !wholePage;
+    storeSet('opdshelf:pdf-fit', wholePage ? 'page' : 'width');
+    scale = wholePage ? fitPage() : fitWidth();
+    paintFit();
+    build(p);
+  };
   document.getElementById('zoomIn').onclick = () => { const p = currentPage(); scale = Math.min(4, scale * 1.2); build(p); };
   document.getElementById('zoomOut').onclick = () => { const p = currentPage(); scale = Math.max(0.3, scale / 1.2); build(p); };
 
   function showPage(page) {
-    pageInfo.textContent = page + ' / ' + pdf.numPages;
+    pageInfo.textContent = t('Page {page} of {total}', { page, total: pdf.numPages });
     document.getElementById('progressBar').style.width = Math.round((page / pdf.numPages) * 100) + '%';
   }
 

@@ -8,6 +8,7 @@ pub mod edit;
 pub mod i18n;
 pub mod library;
 pub mod lookup;
+pub mod marks;
 pub mod metadata;
 pub mod opds;
 pub mod paths;

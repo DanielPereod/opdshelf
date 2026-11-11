@@ -33,6 +33,7 @@ pub struct AppState {
     pub templates: Arc<Handlebars<'static>>,
     pub lookup: Lookup,
     pub progress: Progress,
+    pub marks: crate::marks::Marks,
     pub documents: DocumentIds,
     pub presence: sync::Presence,
 }
@@ -48,6 +49,7 @@ pub fn router(config: Config) -> Router {
         templates: Arc::new(templates::registry()),
         lookup: Lookup::new(&config.openlibrary_url, &config.google_books_url),
         progress: Progress::open(&config.data_dir),
+        marks: crate::marks::Marks::open(&config.data_dir),
         documents: DocumentIds::open(&config.data_dir),
         presence: sync::Presence::default(),
         config: Arc::new(config),
@@ -110,6 +112,7 @@ pub fn router(config: Config) -> Router {
         .route("/api/progress", get(sync::list_progress))
         .route("/api/progress/events", get(sync::events))
         .route("/api/devices", get(sync::devices))
+        .route("/api/marks", axum::routing::put(sync::put_marks))
         .route("/api/devices/{device}", axum::routing::delete(sync::forget_device))
         .route(
             "/api/progress/{document}",
@@ -122,8 +125,41 @@ pub fn router(config: Config) -> Router {
         .route("/kosync/healthcheck", get(sync::kosync_health))
         .route("/static/{*path}", get(static_file))
         .route("/healthz", get(|| async { "ok" }))
+        .layer(middleware::from_fn_with_state(state.clone(), not_found_page))
         .layer(middleware::from_fn_with_state(state.clone(), require_auth))
         .with_state(state)
+}
+
+/// A browser that opens a page that does not exist (a moved book, an old
+/// link) gets a page of the panel with a way back instead of a blank one.
+async fn not_found_page(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    let wants_html = request.method() == axum::http::Method::GET
+        && request
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.contains("text/html"));
+    let path = request.uri().path().to_string();
+    let headers = request.headers().clone();
+    let response = next.run(request).await;
+    let raw = [
+        "/static/",
+        "/api/",
+        "/kosync/",
+        "/opds",
+        "/download/",
+        "/cover/",
+        "/thumb/",
+        "/page/",
+        "/pages/",
+        "/apps/",
+    ];
+    if response.status() != StatusCode::NOT_FOUND || !wants_html || raw.iter().any(|p| path.starts_with(p)) {
+        return response;
+    }
+    let mut page = page(&state, &headers, "not_found", "Not found - OPDShelf", json!({}));
+    *page.status_mut() = StatusCode::NOT_FOUND;
+    page
 }
 
 async fn require_auth(State(state): State<AppState>, request: Request, next: Next) -> Response {
@@ -250,6 +286,9 @@ pub fn book_json(book: &Book) -> serde_json::Value {
         "fileName": book.file_name,
         "title": book.title,
         "authors": book.author_line(),
+        // One per line, for the Authors shelf (a name can contain a comma)
+        "authorList": book.authors.join("\n"),
+        "authorNames": book.authors,
         "format": book.format,
         "size": format_size(book.size),
         "bytes": book.size,

@@ -44,9 +44,9 @@
       <div id="controls"></div>
       <span class="sync-state" id="syncState" data-state="saved" role="img"><i class="fas fa-cloud"></i></span>
       <div class="segmented" role="group" aria-label="{{t "Page colour"}}">
-        <button type="button" class="icon-btn" data-paper="light" title="{{t "Light page"}}" aria-label="{{t "Light page"}}"><i class="far fa-sun"></i></button>
-        <button type="button" class="icon-btn" data-paper="gray" title="{{t "Gray page"}}" aria-label="{{t "Gray page"}}"><i class="fas fa-circle-half-stroke"></i></button>
-        <button type="button" class="icon-btn" data-paper="dark" title="{{t "Dark page"}}" aria-label="{{t "Dark page"}}"><i class="far fa-moon"></i></button>
+        <button type="button" class="icon-btn" data-paper="light" title="{{t "Light page"}}" aria-label="{{t "Light page"}}"><span class="swatch light" aria-hidden="true"></span></button>
+        <button type="button" class="icon-btn" data-paper="gray" title="{{t "Gray page"}}" aria-label="{{t "Gray page"}}"><span class="swatch gray" aria-hidden="true"></span></button>
+        <button type="button" class="icon-btn" data-paper="dark" title="{{t "Dark page"}}" aria-label="{{t "Dark page"}}"><span class="swatch dark" aria-hidden="true"></span></button>
       </div>
     </header>
 
@@ -67,9 +67,17 @@
       });
       document.dispatchEvent(new CustomEvent('paperchange', { detail: { paper } }));
     }
+    // On small phones only the current colour shows, and it cycles to the next one
+    const paperOrder = ['light', 'gray', 'dark'];
+    const compactBar = window.matchMedia('(max-width: 520px)');
     document.querySelectorAll('button[data-paper]').forEach((b) => b.addEventListener('click', () => {
-      storeSet('opdshelf:paper', b.dataset.paper);
-      setPaper(b.dataset.paper);
+      let paper = b.dataset.paper;
+      if (compactBar.matches && b.getAttribute('aria-pressed') === 'true') {
+        paper = paperOrder[(paperOrder.indexOf(paper) + 1) % paperOrder.length];
+      }
+      storeSet('opdshelf:paper', paper);
+      setPaper(paper);
+      document.querySelector(`button[data-paper="${paper}"]`).focus();
     }));
     setPaper(readerPaper());
   </script>

@@ -7,18 +7,18 @@
     </div>
 
     {{#if error}}
-    <div class="notice error" role="alert"><i class="fas fa-circle-exclamation"></i>{{error}}</div>
+    <div class="notice error" role="alert" id="loginError"><i class="fas fa-circle-exclamation"></i>{{error}}</div>
     {{/if}}
 
     <label class="field" for="username">
       <span>{{t "Username"}}</span>
       <input type="text" id="username" name="username" autocomplete="username" autocapitalize="none"
-        spellcheck="false" required class="input" value="{{typedUsername}}" {{#unless typedUsername}}autofocus{{/unless}}>
+        spellcheck="false" required class="input" value="{{typedUsername}}" {{#if error}}aria-invalid="true" aria-describedby="loginError"{{/if}} {{#unless typedUsername}}autofocus{{/unless}}>
     </label>
     <label class="field" for="password">
       <span>{{t "Password"}}</span>
       <span class="password-row">
-        <input type="password" id="password" name="password" autocomplete="current-password" required class="input">
+        <input type="password" id="password" name="password" autocomplete="current-password" required class="input" {{#if error}}aria-invalid="true" aria-describedby="loginError"{{/if}}>
         <button type="button" class="icon-btn" id="showPassword" aria-pressed="false" title="{{t "Show password"}}"
           aria-label="{{t "Show password"}}"><i class="far fa-eye"></i></button>
       </span>

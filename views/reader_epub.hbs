@@ -10,6 +10,7 @@
 </nav>
 
 <main class="stage">
+  <h1 class="visually-hidden">{{book.title}}</h1>
   <div id="viewer" class="epub-viewer"></div>
   <button type="button" id="prev" class="page-turn prev" title="{{t "Previous page"}}" aria-label="{{t "Previous page"}}"><i class="fas fa-chevron-left"></i></button>
   <button type="button" id="next" class="page-turn next" title="{{t "Next page"}}" aria-label="{{t "Next page"}}"><i class="fas fa-chevron-right"></i></button>
@@ -26,6 +27,7 @@
 <script src="/static/vendor/epubjs/jszip.min.js"></script>
 <script src="/static/vendor/epubjs/epub.min.js"></script>
 <script src="/static/reader/xpointer.js"></script>
+<script src="/static/reader/typography.js?v={{v}}"></script>
 <script data-url="/download/{{urlPath book.path}}?inline=1" data-key="{{book.path}}" data-document="{{document}}">
   (function () {
     const { url, key, document: documentId } = document.currentScript.dataset;
@@ -40,7 +42,8 @@
     const markBtn = document.getElementById('markBtn');
 
     const book = ePub(url, { openAs: 'epub' });
-    const rendition = book.renderTo('viewer', { width: '100%', height: '100%', spread: 'auto' });
+    // Two pages side by side from 600px, so wide margins keep the spread
+    const rendition = book.renderTo('viewer', { width: '100%', height: '100%', spread: 'auto', minSpreadWidth: 600 });
 
     const papers = {
       light: { background: '#ffffff', color: '#111111', link: '#111111' },
@@ -59,6 +62,31 @@
     applyFont();
     document.getElementById('smaller').onclick = () => { fontSize = Math.max(60, fontSize - 10); applyFont(); };
     document.getElementById('larger').onclick = () => { fontSize = Math.min(250, fontSize + 10); applyFont(); };
+
+    // Font, line spacing and justification go in a style sheet of each page;
+    // the margins are the space around the viewer
+    let typoCss = '';
+    const injectTypo = (contents) => {
+      const doc = contents.document;
+      let style = doc.getElementById('opdshelf-typography');
+      if (!style) {
+        style = doc.createElement('style');
+        style.id = 'opdshelf-typography';
+        doc.head.append(style);
+      }
+      style.textContent = typoCss;
+    };
+    rendition.hooks.content.register(injectTypo);
+    ReaderTypography.mount((s) => {
+      typoCss = [
+        s.fontFamily ? `body, p, div, li, blockquote, span { font-family: ${s.fontFamily} !important; }` : '',
+        `body, p, li, blockquote { line-height: ${s.lineHeight} !important; }`,
+        s.justify ? 'p { text-align: justify !important; hyphens: auto; }' : '',
+      ].join('\n');
+      document.getElementById('viewer').style.setProperty('--page-margin', (s.margin * 100) + '%');
+      rendition.getContents().forEach(injectTypo);
+      requestAnimationFrame(() => { if (rendition.manager) rendition.resize(); });
+    });
 
     // The contents sit beside the page on wide screens and over it on phones
     const wide = window.matchMedia('(min-width: 761px)');
@@ -85,6 +113,10 @@
     };
     document.addEventListener('keydown', onKey);
     rendition.on('keydown', onKey);
+    // Screen readers name the frame that holds the page
+    rendition.on('rendered', (section, view) => {
+      if (view && view.iframe) view.iframe.title = document.title;
+    });
 
     // Swipe inside the book
     let touchX = null;
@@ -137,12 +169,16 @@
       if (current && current.start) showProgress(current.start.cfi);
     });
     function percentage(cfi, index) {
+      if (atEnd) return 1;
       if (locationsReady) return book.locations.percentageFromCfi(cfi);
       return index / Math.max(1, book.spine.length);
     }
+    // The last page counts as the whole book: locations put its start just
+    // before 100 %
+    let atEnd = false;
     function showProgress(cfi) {
       if (!locationsReady) return;
-      const pct = Math.round(book.locations.percentageFromCfi(cfi) * 100);
+      const pct = atEnd ? 100 : Math.round(book.locations.percentageFromCfi(cfi) * 100);
       progress.textContent = pct + '%';
       progressBar.style.width = pct + '%';
     }
@@ -161,6 +197,7 @@
     }
 
     rendition.on('relocated', (location) => {
+      atEnd = Boolean(location.atEnd);
       showProgress(location.start.cfi);
       markChapter(location.start.href);
       markBtn.hidden = true;

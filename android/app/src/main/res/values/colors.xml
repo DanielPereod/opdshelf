@@ -6,6 +6,6 @@
     <color name="pane">#FFFFFF</color>
     <color name="line">#EBEBEB</color>
     <color name="fg">#111111</color>
-    <color name="muted">#767676</color>
+    <color name="muted">#666666</color>
     <color name="inverse">#FFFFFF</color>
 </resources>

@@ -217,6 +217,8 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun setFinished(book: LocalBook, finished: Boolean) = app.store.setFinished(book.id, finished)
+
     fun cancelDownload(id: String) {
         jobs[id]?.cancel()
     }

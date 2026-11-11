@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ shows the app's own logo and background while it starts -->
+    <style name="Theme.OPDShelf" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="colorPrimary">@color/fg</item>
+        <item name="colorOnPrimary">@color/inverse</item>
+        <item name="android:windowSplashScreenBackground">@color/bg</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/ic_launcher_background</item>
+    </style>
+</resources>

@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.DownloadDone
+import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -126,6 +127,7 @@ fun BookTile(
     downloading: Float? = null,
     onLongClick: (() -> Unit)? = null,
     menu: List<MenuAction> = emptyList(),
+    finished: Boolean = false,
 ) {
     Column(
         Modifier.clip(RoundedCornerShape(6.dp))
@@ -151,6 +153,7 @@ fun BookTile(
         }
         when {
             downloading != null -> ReadBar(downloading, Modifier.fillMaxWidth().padding(top = Space.s))
+            finished -> ReadBar(1f, Modifier.fillMaxWidth().padding(top = Space.s))
             progress != null -> ReadBar(progress.toFloat(), Modifier.fillMaxWidth().padding(top = Space.s))
         }
         Spacer(Modifier.height(Space.s))
@@ -158,7 +161,13 @@ fun BookTile(
         if (authors.isNotEmpty()) {
             Text(authors.joinToString(", "), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        if (progress != null && progress > 0) {
+        if (finished) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.DoneAll, null, tint = shelf.muted, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(Space.xs))
+                Text(stringResource(R.string.finished), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
+            }
+        } else if (progress != null && progress > 0) {
             Text(percent(progress), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
         }
     }

@@ -30,6 +30,9 @@ import io.github.danielpereod.opdshelf.reader.ReaderOverlay
 import io.github.danielpereod.opdshelf.reader.ReaderPrefs
 import io.github.danielpereod.opdshelf.reader.ReaderUi
 import io.github.danielpereod.opdshelf.reader.TextSheet
+import io.github.danielpereod.opdshelf.reader.SearchHit
+import io.github.danielpereod.opdshelf.reader.ContentsSheet
+import io.github.danielpereod.opdshelf.reader.SearchSheet
 import io.github.danielpereod.opdshelf.reader.TocItem
 import io.github.danielpereod.opdshelf.reader.TocSheet
 import kotlinx.coroutines.runBlocking
@@ -147,6 +150,9 @@ class ScreenshotTest {
         val library = show()
         waitFor("Seguir leyendo")
         shot("03-inicio$suffix")
+        click("Leyendo 1")
+        shot("03b-inicio-leyendo$suffix")
+        click("Todos")
         click("Explorar")
         waitFor("Rimas")
         shot("04-explorar$suffix")
@@ -318,5 +324,38 @@ class ScreenshotTest {
             }
         }
         shot("09-lector-controles-sepia")
+    }
+
+    /** Bookmarks and search inside the book. */
+    @Test
+    fun readerExtras() {
+        val at = { href: String, p: Double ->
+            org.readium.r2.shared.publication.Locator(
+                href = Url(href)!!, mediaType = org.readium.r2.shared.util.mediatype.MediaType.XHTML,
+                locations = org.readium.r2.shared.publication.Locator.Locations(progression = p, totalProgression = p),
+            )
+        }
+        val marks = listOf(
+            io.github.danielpereod.opdshelf.data.Bookmark(at("c1.xhtml", 0.12).toJSON().toString(), "Capítulo primero", 0.12, "En un lugar de la Mancha, de cuyo nombre no quiero acordarme"),
+            io.github.danielpereod.opdshelf.data.Bookmark(at("c2.xhtml", 0.42).toJSON().toString(), "Capítulo segundo", 0.42),
+        )
+        val hits = listOf("Capítulo primero", "Capítulo segundo", "Capítulo tercero").mapIndexed { i, c ->
+            SearchHit(at("c${i + 1}.xhtml", 0.1 + i * 0.3), c, "y así, del poco dormir y del mucho leer, se le secó el celebro, de manera que vino a perder el ", "hidalgo", " juicio, que no había otra")
+        }
+        var screen by mutableStateOf(0)
+        compose.setContent {
+            AppTheme {
+                Box(Modifier.fillMaxSize().background(Color(0x66000000))) {
+                    Column(Modifier.align(Alignment.BottomCenter).background(shelf.pane)) {
+                        if (screen == 0) ContentsSheet(remember { readerUi().apply { toc = emptyList(); bookmarks = marks } }, noActions)
+                        else SearchSheet(remember { readerUi().apply { searchQuery = "hidalgo"; searchResults = hits; searched = true } }, noActions)
+                    }
+                }
+            }
+        }
+        listOf("12-lector-marcadores", "13-lector-buscar").forEachIndexed { i, name ->
+            screen = i
+            shot(name)
+        }
     }
 }

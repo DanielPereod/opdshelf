@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
@@ -19,7 +20,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -61,6 +61,7 @@ fun SettingsScreen(library: LibraryViewModel, onSaved: () -> Unit, onDisconnect:
     var editServer by remember { mutableStateOf(!settings.isConfigured) }
     var confirmDisconnect by remember { mutableStateOf(false) }
     var confirmRemoveAll by remember { mutableStateOf(false) }
+    var showLicenses by remember { mutableStateOf(false) }
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
 
     Column(modifier.fillMaxSize().background(shelf.bg)) {
@@ -71,7 +72,8 @@ fun SettingsScreen(library: LibraryViewModel, onSaved: () -> Unit, onDisconnect:
         ) {
           Column(Modifier.widthIn(max = ReadableWidth).fillMaxWidth().padding(horizontal = edgePadding, vertical = Space.s)) {
             SectionTitle(stringResource(R.string.app_theme), Modifier.padding(top = Space.l))
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+            @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
                 listOf(R.string.theme_system, R.string.theme_light, R.string.theme_dark).forEachIndexed { i, label ->
                     Pill(stringResource(label), AppearanceState.mode == i) {
                         AppearanceState.mode = i
@@ -153,6 +155,16 @@ fun SettingsScreen(library: LibraryViewModel, onSaved: () -> Unit, onDisconnect:
                 Icon(Icons.AutoMirrored.Outlined.OpenInNew, null, tint = shelf.muted, modifier = Modifier.size(20.dp))
             }
             HorizontalDivider(color = shelf.line)
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button) { showLicenses = true }
+                    .padding(vertical = Space.m),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(stringResource(R.string.licenses), color = shelf.fg, fontSize = TextSize.bodySmall, lineHeight = 20.sp, modifier = Modifier.weight(1f))
+                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = shelf.muted, modifier = Modifier.size(20.dp))
+            }
+            HorizontalDivider(color = shelf.line)
 
             if (settings.isConfigured) {
                 Spacer(Modifier.height(Space.xxl + Space.l))
@@ -179,6 +191,27 @@ fun SettingsScreen(library: LibraryViewModel, onSaved: () -> Unit, onDisconnect:
             onDismiss = { confirmDisconnect = false },
         )
     }
+    if (showLicenses) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showLicenses = false },
+            title = { Text(stringResource(R.string.licenses), color = shelf.fg) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(Space.m)) {
+                    LICENSES.forEach { (name, license) ->
+                        Column {
+                            Text(name, color = shelf.fg, fontSize = TextSize.bodySmall, fontWeight = FontWeight.SemiBold)
+                            Text(license, color = shelf.muted, fontSize = TextSize.caption)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLicenses = false }) { Text(stringResource(R.string.close), color = shelf.fg) }
+            },
+            containerColor = shelf.pane,
+            shape = RoundedCornerShape(12.dp),
+        )
+    }
     if (confirmRemoveAll) {
         ConfirmDialog(
             title = stringResource(R.string.remove_all_title),
@@ -195,8 +228,15 @@ fun SettingsScreen(library: LibraryViewModel, onSaved: () -> Unit, onDisconnect:
 
 @Composable
 private fun InfoRow(label: String, value: String) {
+    // Label and value side by side while they fit, one above the other with large fonts or long values
+    val stacked = androidx.compose.ui.platform.LocalDensity.current.fontScale >= 1.3f || value.length > 28
     Column {
-        Row(
+        if (stacked) Column(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(vertical = Space.m).semantics(mergeDescendants = true) {},
+        ) {
+            Text(label, color = shelf.muted, fontSize = TextSize.bodySmall, lineHeight = 20.sp)
+            Text(value, color = shelf.fg, fontSize = TextSize.bodySmall, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
+        } else Row(
             Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(vertical = Space.m).semantics(mergeDescendants = true) {},
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -211,3 +251,16 @@ private fun InfoRow(label: String, value: String) {
         HorizontalDivider(color = shelf.line)
     }
 }
+
+/** The libraries inside the app and their licenses. */
+private val LICENSES = listOf(
+    "Readium Kotlin Toolkit" to "BSD 3-Clause",
+    "PDFium (via Readium)" to "Apache License 2.0 / BSD 3-Clause",
+    "Android Jetpack (AndroidX, Compose, Material 3)" to "Apache License 2.0",
+    "Material Components for Android" to "Apache License 2.0",
+    "Kotlin, kotlinx.coroutines, kotlinx.serialization" to "Apache License 2.0",
+    "OkHttp" to "Apache License 2.0",
+    "Coil" to "Apache License 2.0",
+    "Material Symbols" to "Apache License 2.0",
+    "OPDShelf" to "MIT",
+)

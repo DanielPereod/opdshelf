@@ -6,6 +6,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.ui.focus.focusRequester
+import io.github.danielpereod.opdshelf.ui.TextSize
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.material.icons.outlined.SkipNext
@@ -24,7 +29,6 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import io.github.danielpereod.opdshelf.ui.Space
-import io.github.danielpereod.opdshelf.ui.TextSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -93,6 +97,18 @@ data class ReaderPrefs(
     /** 0 compact, 1 normal, 2 wide */
     val spacing: Int = 1,
     val scroll: Boolean = false,
+    /** Volume down and up turn the page while the bars are hidden. */
+    val volumeKeys: Boolean = true,
+    val keepScreenOn: Boolean = true,
+)
+
+/** A match of a search inside the book, with the words around it. */
+data class SearchHit(
+    val locator: org.readium.r2.shared.publication.Locator,
+    val chapter: String?,
+    val before: String,
+    val match: String,
+    val after: String,
 )
 
 /** An entry of the table of contents, flattened with its depth. */
@@ -112,8 +128,17 @@ class ReaderUi {
     var prefs by mutableStateOf(ReaderPrefs())
     var showHint by mutableStateOf(false)
     var sheet by mutableStateOf<Sheet?>(null)
+    var bookmarks by mutableStateOf<List<io.github.danielpereod.opdshelf.data.Bookmark>>(emptyList())
+    /** The bookmark of the page on screen, if it has one. */
+    var currentBookmark by mutableStateOf<io.github.danielpereod.opdshelf.data.Bookmark?>(null)
+    var searchable by mutableStateOf(false)
+    var searchQuery by mutableStateOf("")
+    var searchResults by mutableStateOf<List<SearchHit>>(emptyList())
+    var searching by mutableStateOf(false)
+    /** Whether a search ran, to tell "no matches" from "nothing searched yet". */
+    var searched by mutableStateOf(false)
 
-    enum class Sheet { Toc, Text }
+    enum class Sheet { Toc, Text, Search }
 }
 
 interface ReaderActions {
@@ -122,6 +147,11 @@ interface ReaderActions {
     fun goTo(item: TocItem)
     fun changePrefs(prefs: ReaderPrefs)
     fun dismissHint()
+    fun toggleBookmark() {}
+    fun goTo(bookmark: io.github.danielpereod.opdshelf.data.Bookmark) {}
+    fun remove(bookmark: io.github.danielpereod.opdshelf.data.Bookmark) {}
+    fun search(query: String) {}
+    fun goTo(hit: SearchHit) {}
 }
 
 /** Controls over the book: shown and hidden with a tap in the middle of the page. */
@@ -147,10 +177,13 @@ fun ReaderOverlay(ui: ReaderUi, actions: ReaderActions) {
 
     when (ui.sheet) {
         ReaderUi.Sheet.Toc -> ModalBottomSheet(onDismissRequest = { ui.sheet = null }, containerColor = shelf.pane) {
-            TocSheet(ui) {
-                ui.sheet = null
-                actions.goTo(it)
-            }
+            ContentsSheet(ui, actions)
+        }
+        ReaderUi.Sheet.Search -> ModalBottomSheet(
+            onDismissRequest = { ui.sheet = null }, containerColor = shelf.pane,
+            sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            SearchSheet(ui, actions)
         }
         ReaderUi.Sheet.Text -> ModalBottomSheet(onDismissRequest = { ui.sheet = null }, containerColor = shelf.pane) {
             TextSheet(ui.prefs, actions::changePrefs)
@@ -172,7 +205,19 @@ private fun TopBar(ui: ReaderUi, actions: ReaderActions) {
                     Text(it, color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            if (ui.toc.isNotEmpty()) {
+            if (ui.searchable) {
+                IconButton(onClick = { ui.sheet = ReaderUi.Sheet.Search }) {
+                    Icon(Icons.Outlined.Search, stringResource(R.string.search_book), tint = shelf.fg)
+                }
+            }
+            IconButton(onClick = actions::toggleBookmark) {
+                val marked = ui.currentBookmark != null
+                Icon(
+                    if (marked) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                    stringResource(if (marked) R.string.remove_bookmark else R.string.add_bookmark), tint = shelf.fg,
+                )
+            }
+            if (ui.toc.isNotEmpty() || ui.bookmarks.isNotEmpty()) {
                 IconButton(onClick = { ui.sheet = ReaderUi.Sheet.Toc }) {
                     Icon(Icons.AutoMirrored.Outlined.List, stringResource(R.string.contents), tint = shelf.fg)
                 }
@@ -256,12 +301,12 @@ private fun MarkHint(actions: ReaderActions) {
 }
 
 @Composable
-internal fun TocSheet(ui: ReaderUi, onPick: (TocItem) -> Unit) {
+internal fun TocSheet(ui: ReaderUi, showTitle: Boolean = true, onPick: (TocItem) -> Unit) {
     val current = ui.toc.indexOfLast { it.href.substringBefore('#') == ui.currentHref?.substringBefore('#') }
     val list = rememberLazyListState()
     LaunchedEffect(Unit) { if (current > 2) list.scrollToItem(current - 2) }
     Column(Modifier.padding(bottom = 16.dp)) {
-        Text(
+        if (showTitle) Text(
             stringResource(R.string.contents), color = shelf.fg, fontSize = 18.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(horizontal = Space.xl, vertical = Space.s).semantics { heading() },
         )
@@ -337,6 +382,8 @@ internal fun TextSheet(prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit) {
         Spacer(Modifier.height(Space.m))
         HorizontalDivider(color = shelf.line)
         Spacer(Modifier.height(Space.s))
+        ToggleRow(stringResource(R.string.volume_keys), null, prefs.volumeKeys) { onChange(prefs.copy(volumeKeys = it)) }
+        ToggleRow(stringResource(R.string.keep_screen_on), null, prefs.keepScreenOn) { onChange(prefs.copy(keepScreenOn = it)) }
         Row(
             Modifier.fillMaxWidth().heightIn(min = 56.dp)
                 .toggleable(value = prefs.scroll, role = androidx.compose.ui.semantics.Role.Switch) { onChange(prefs.copy(scroll = it)) }
@@ -396,3 +443,173 @@ private fun ThemeSwatch(label: String, colors: io.github.danielpereod.opdshelf.u
         )
     }
 }
+
+@Composable
+private fun ToggleRow(title: String, help: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp)
+            .toggleable(value = checked, role = androidx.compose.ui.semantics.Role.Switch, onValueChange = onChange)
+            .padding(vertical = Space.s),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = shelf.fg, fontSize = TextSize.body, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
+            help?.let { Text(it, color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp) }
+        }
+        Spacer(Modifier.width(Space.l))
+        Switch(
+            checked = checked, onCheckedChange = null,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = shelf.inverse, checkedTrackColor = shelf.fg,
+                uncheckedThumbColor = shelf.muted, uncheckedTrackColor = shelf.soft, uncheckedBorderColor = shelf.lineStrong,
+            ),
+        )
+    }
+}
+
+/** Contents and bookmarks, as two tabs of one sheet. */
+@Composable
+internal fun ContentsSheet(ui: ReaderUi, actions: ReaderActions) {
+    var tab by remember { mutableStateOf(if (ui.toc.isEmpty()) 1 else 0) }
+    Column {
+        androidx.compose.material3.PrimaryTabRow(
+            selectedTabIndex = tab, containerColor = shelf.pane, contentColor = shelf.fg,
+            indicator = {
+                androidx.compose.material3.TabRowDefaults.PrimaryIndicator(
+                    Modifier.tabIndicatorOffset(tab, matchContentSize = true), color = shelf.fg,
+                )
+            },
+            divider = { HorizontalDivider(color = shelf.line) },
+        ) {
+            listOf(R.string.contents, R.string.bookmarks).forEachIndexed { i, label ->
+                androidx.compose.material3.Tab(
+                    selected = tab == i, onClick = { tab = i },
+                    selectedContentColor = shelf.fg, unselectedContentColor = shelf.muted,
+                    text = {
+                        val n = if (i == 1 && ui.bookmarks.isNotEmpty()) " ${ui.bookmarks.size}" else ""
+                        Text(stringResource(label) + n, fontSize = TextSize.bodySmall, fontWeight = FontWeight.SemiBold)
+                    },
+                )
+            }
+        }
+        if (tab == 0) {
+            TocSheet(ui, showTitle = false) {
+                ui.sheet = null
+                actions.goTo(it)
+            }
+        } else {
+            BookmarksList(ui, actions)
+        }
+    }
+}
+
+@Composable
+private fun BookmarksList(ui: ReaderUi, actions: ReaderActions) {
+    if (ui.bookmarks.isEmpty()) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = Space.xl, vertical = Space.xxl),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(Icons.Outlined.BookmarkBorder, null, tint = shelf.muted, modifier = Modifier.size(32.dp))
+            Spacer(Modifier.height(Space.m))
+            Text(stringResource(R.string.no_bookmarks), color = shelf.fg, fontSize = TextSize.subtitle, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(Space.xs))
+            Text(
+                stringResource(R.string.no_bookmarks_text), color = shelf.muted, fontSize = TextSize.bodySmall, lineHeight = 20.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        }
+        return
+    }
+    LazyColumn(Modifier.padding(bottom = Space.l)) {
+        itemsIndexed(ui.bookmarks.sortedBy { it.progression }) { _, mark ->
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                    .clickable { ui.sheet = null; actions.goTo(mark) }
+                    .padding(start = Space.xl, end = Space.xs, top = Space.s, bottom = Space.s),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Filled.Bookmark, null, tint = shelf.fg, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(Space.l))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        mark.chapter ?: "—", color = shelf.fg, fontSize = TextSize.body, lineHeight = 22.sp,
+                        fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        listOfNotNull(percent(mark.progression), mark.text?.takeIf { it.isNotBlank() }?.let { "«${it.trim()}»" }).joinToString(" · "),
+                        color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                IconButton(onClick = { actions.remove(mark) }) {
+                    Icon(Icons.Outlined.Close, stringResource(R.string.remove_bookmark), tint = shelf.muted)
+                }
+            }
+        }
+    }
+}
+
+/** Search inside the book: a box, then each match with the words around it. */
+@Composable
+internal fun SearchSheet(ui: ReaderUi, actions: ReaderActions) {
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { if (ui.searchResults.isEmpty()) runCatching { focus.requestFocus() } }
+    Column(Modifier.fillMaxWidth().fillMaxHeight(0.9f)) {
+        Text(
+            stringResource(R.string.search_book), color = shelf.fg, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = Space.xl, vertical = Space.s).semantics { heading() },
+        )
+        io.github.danielpereod.opdshelf.ui.SearchBox(
+            ui.searchQuery, { ui.searchQuery = it }, stringResource(R.string.search_book_hint),
+            onSearch = { if (ui.searchQuery.isNotBlank()) actions.search(ui.searchQuery.trim()) },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = Space.xl, vertical = Space.s).focusRequester(focus),
+        )
+        when {
+            ui.searching && ui.searchResults.isEmpty() -> Row(
+                Modifier.fillMaxWidth().padding(Space.xl), verticalAlignment = Alignment.CenterVertically,
+            ) {
+                io.github.danielpereod.opdshelf.ui.Spinner(size = 20.dp)
+                Spacer(Modifier.width(Space.m))
+                Text(stringResource(R.string.searching), color = shelf.muted, fontSize = TextSize.bodySmall)
+            }
+            ui.searched && ui.searchResults.isEmpty() -> Column(Modifier.fillMaxWidth().padding(Space.xl)) {
+                Text(stringResource(R.string.no_matches), color = shelf.fg, fontSize = TextSize.subtitle, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.no_matches_text), color = shelf.muted, fontSize = TextSize.bodySmall, lineHeight = 20.sp)
+            }
+            ui.searchResults.isNotEmpty() -> {
+                val n = ui.searchResults.size
+                Text(
+                    if (n >= SEARCH_LIMIT) stringResource(R.string.search_count_more, SEARCH_LIMIT) else stringResource(R.string.search_count, n),
+                    color = shelf.muted, fontSize = TextSize.caption, modifier = Modifier.padding(horizontal = Space.xl, vertical = Space.xs),
+                )
+                LazyColumn {
+                    itemsIndexed(ui.searchResults) { _, hit ->
+                        Column(
+                            Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                                .clickable { ui.sheet = null; actions.goTo(hit) }
+                                .padding(horizontal = Space.xl, vertical = Space.m),
+                        ) {
+                            hit.chapter?.let {
+                                Text(it, color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            Text(
+                                androidx.compose.ui.text.buildAnnotatedString {
+                                    append("…" + hit.before.takeLast(60))
+                                    pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold, background = shelf.soft))
+                                    append(hit.match)
+                                    pop()
+                                    append(hit.after.take(60) + "…")
+                                },
+                                color = shelf.fg, fontSize = TextSize.bodySmall, lineHeight = 20.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        HorizontalDivider(color = shelf.line, modifier = Modifier.padding(horizontal = Space.xl))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Searches stop after this many matches: enough to find a passage. */
+const val SEARCH_LIMIT = 100

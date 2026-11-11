@@ -2,6 +2,19 @@ package io.github.danielpereod.opdshelf.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.automirrored.outlined.Sort
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.DoneAll
+import androidx.compose.material.icons.outlined.RemoveDone
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
@@ -35,7 +48,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -56,6 +68,13 @@ import java.io.File
 
 private enum class Sort(val label: Int) { Recent(R.string.sort_recent), Title(R.string.sort_title), Progress(R.string.sort_progress) }
 
+private enum class Filter(val label: Int, val test: (LocalBook) -> Boolean) {
+    All(R.string.filter_all, { true }),
+    Reading(R.string.filter_reading, { it.percentage > 0 && !it.finished }),
+    Unread(R.string.filter_unread, { it.percentage <= 0 && !it.finished }),
+    Finished(R.string.filter_finished, { it.finished }),
+}
+
 /** Home: the book to continue, then everything downloaded to this device. */
 @Composable
 fun HomeScreen(
@@ -70,6 +89,9 @@ fun HomeScreen(
     val loader = rememberImageLoader()
     val context = LocalContext.current
     var sort by rememberSaveable { mutableStateOf(Sort.Recent) }
+    var filter by rememberSaveable { mutableStateOf(Filter.All) }
+    var searching by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
     var removing by remember { mutableStateOf<LocalBook?>(null) }
     val wide = isWide
 
@@ -78,7 +100,17 @@ fun HomeScreen(
             stringResource(R.string.tab_home),
             // The rail already shows the logo on wide screens
             leading = if (wide) null else ({ Logo(24.dp) }),
-            actions = { if (books.isNotEmpty()) SyncButton(status) { library.syncNow() } },
+            actions = {
+                if (books.isNotEmpty()) {
+                    IconButton(onClick = { searching = !searching; if (!searching) query = "" }) {
+                        Icon(
+                            if (searching) Icons.Outlined.Close else Icons.Outlined.Search,
+                            stringResource(if (searching) R.string.close_search else R.string.search_my_books), tint = shelf.fg,
+                        )
+                    }
+                    SyncButton(status) { library.syncNow() }
+                }
+            },
         )
         if (books.isEmpty()) {
             EmptyState(
@@ -90,17 +122,35 @@ fun HomeScreen(
             )
             return
         }
-        val current = remember(books) {
-            books.filter { it.lastOpenedAt > 0 }.maxByOrNull { it.lastOpenedAt }
-                ?: books.filter { it.percentage > 0 }.maxByOrNull { it.percentage }
-        }
-        val sorted = remember(books, sort) {
-            when (sort) {
-                Sort.Recent -> books.sortedByDescending { maxOf(it.lastOpenedAt, it.addedAt) }
-                Sort.Title -> books.sortedBy { it.title.lowercase() }
-                Sort.Progress -> books.sortedByDescending { it.percentage }
+        if (searching) {
+            val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+            LaunchedEffect(Unit) { focus.requestFocus() }
+            Column(Modifier.background(shelf.pane)) {
+                SearchBox(
+                    query, { query = it }, stringResource(R.string.search_my_books), onSearch = {},
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = edgePadding, vertical = Space.m).focusRequester(focus),
+                )
+                HorizontalDivider(color = shelf.line)
             }
         }
+        val current = remember(books) {
+            books.filter { it.lastOpenedAt > 0 && !it.finished }.maxByOrNull { it.lastOpenedAt }
+                ?: books.filter { it.percentage > 0 && !it.finished }.maxByOrNull { it.percentage }
+        }
+        val shown = remember(books, sort, filter, query) {
+            val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+            books.filter(filter.test).filter { book ->
+                val haystack = (book.title + " " + book.authors.joinToString(" ")).lowercase()
+                words.all { it in haystack }
+            }.let { list ->
+                when (sort) {
+                    Sort.Recent -> list.sortedByDescending { maxOf(it.lastOpenedAt, it.addedAt) }
+                    Sort.Title -> list.sortedBy { it.title.lowercase() }
+                    Sort.Progress -> list.sortedByDescending { it.percentage }
+                }
+            }
+        }
+        val counts = remember(books) { Filter.entries.associateWith { f -> books.count(f.test) } }
         val used = remember(books) { formatSize(context.app.store.usedBytes()) }
         LazyVerticalGrid(
             columns = GridCells.Adaptive(gridCellWidth),
@@ -115,7 +165,7 @@ fun HomeScreen(
                     SyncLine(status, onSync = { library.syncNow() })
                 }
             }
-            if (current != null) {
+            if (current != null && query.isBlank() && filter == Filter.All) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Box(Modifier.fillMaxWidth()) {
                         ContinueCard(
@@ -132,35 +182,46 @@ fun HomeScreen(
                             pluralStringResource(R.plurals.books_on_device, books.size, books.size),
                             used,
                         ).joinToString(" · "),
+                        trailing = { SortMenu(sort) { sort = it } },
                     )
-                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = Space.xs), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-                        Sort.entries.forEach { Pill(stringResource(it.label), sort == it) { sort = it } }
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+                        Filter.entries.forEach { f ->
+                            val n = counts[f] ?: 0
+                            if (f == Filter.All || n > 0 || filter == f) {
+                                Pill(if (f == Filter.All) stringResource(f.label) else "${stringResource(f.label)} $n", filter == f) { filter = f }
+                            }
+                        }
                     }
                 }
             }
-            items(sorted, key = { it.id }) { book ->
+            if (shown.isEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Column(Modifier.fillMaxWidth().padding(vertical = Space.xxl), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(stringResource(R.string.no_books_filter), color = shelf.fg, fontSize = TextSize.subtitle, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(Space.xs))
+                        Text(stringResource(R.string.no_books_filter_text), color = shelf.muted, fontSize = TextSize.bodySmall)
+                    }
+                }
+            }
+            items(shown, key = { it.id }) { book ->
                 BookTile(
                     title = book.title, authors = book.authors,
                     cover = book.coverFile?.let { File(context.app.store.booksDir, it) },
                     format = book.format ?: book.fileName.substringAfterLast('.', ""),
-                    loader = loader, progress = book.percentage,
+                    loader = loader, progress = book.percentage, finished = book.finished,
                     onClick = { openBook(book) }, onLongClick = { showDetail(book) },
                     menu = listOf(
                         MenuAction(stringResource(R.string.read), Icons.AutoMirrored.Outlined.MenuBook) { openBook(book) },
                         MenuAction(stringResource(R.string.details), Icons.Outlined.Info) { showDetail(book) },
+                        if (book.finished) MenuAction(stringResource(R.string.mark_unfinished), Icons.Outlined.RemoveDone) { library.setFinished(book, false) }
+                        else MenuAction(stringResource(R.string.mark_finished), Icons.Outlined.DoneAll) { library.setFinished(book, true) },
                         MenuAction(stringResource(R.string.remove_from_device), Icons.Outlined.Delete, destructive = true) { removing = book },
                     ),
                 )
             }
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Text(
-                    stringResource(R.string.home_hint), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = Space.s),
-                )
-            }
         }
     }
+
 
     removing?.let { book ->
         ConfirmDialog(
@@ -212,6 +273,28 @@ private fun ContinueCard(book: LocalBook, loader: ImageLoader, onRead: () -> Uni
                 PrimaryButton(
                     stringResource(if (book.percentage > 0) R.string.continue_reading else R.string.read),
                     onRead, height = 48.dp,
+                )
+            }
+        }
+    }
+}
+
+/** "Sort ▾" with a menu of the orders. */
+@Composable
+private fun SortMenu(sort: Sort, onChange: (Sort) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        androidx.compose.material3.TextButton(onClick = { open = true }, modifier = Modifier.heightIn(min = 48.dp)) {
+            Icon(Icons.AutoMirrored.Outlined.Sort, null, tint = shelf.fg, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(Space.s))
+            Text(stringResource(sort.label), color = shelf.fg, fontSize = TextSize.label, fontWeight = FontWeight.SemiBold)
+        }
+        androidx.compose.material3.DropdownMenu(open, { open = false }, containerColor = shelf.pane) {
+            Sort.entries.forEach { s ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text(stringResource(s.label), color = shelf.fg, fontWeight = if (s == sort) FontWeight.Bold else FontWeight.Normal) },
+                    trailingIcon = { if (s == sort) Icon(Icons.Outlined.Check, null, tint = shelf.fg) },
+                    onClick = { open = false; onChange(s) },
                 )
             }
         }

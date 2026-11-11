@@ -4,6 +4,8 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DoneAll
+import androidx.compose.material.icons.outlined.RemoveDone
 import androidx.compose.material.icons.outlined.DownloadDone
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.Box
@@ -111,8 +113,14 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
                 )
                 if (local.percentage > 0) {
                     Spacer(Modifier.height(Space.m))
-                    ReadBar(local.percentage.toFloat(), Modifier.fillMaxWidth())
+                    ReadBar(if (local.finished) 1f else local.percentage.toFloat(), Modifier.fillMaxWidth())
                 }
+                Spacer(Modifier.height(Space.m))
+                SecondaryButton(
+                    stringResource(if (local.finished) R.string.mark_unfinished else R.string.mark_finished),
+                    { library.setFinished(local, !local.finished) }, Modifier.fillMaxWidth(),
+                    icon = if (local.finished) Icons.Outlined.RemoveDone else Icons.Outlined.DoneAll,
+                )
             }
             downloading != null -> {
                 PrimaryButton(
@@ -192,7 +200,7 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
                 destructive = true, icon = Icons.Outlined.Delete,
             )
             Spacer(Modifier.height(Space.s))
-            Text(stringResource(R.string.remove_help), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            Text(stringResource(R.string.remove_help), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, modifier = Modifier.fillMaxWidth())
         }
     }
 

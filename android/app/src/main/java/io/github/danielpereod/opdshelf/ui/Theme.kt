@@ -259,16 +259,21 @@ fun Header(
                 Spacer(Modifier.width(Space.m))
             }
             // Title and count take what the actions leave, so the actions always sit at the end
-            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    title, color = shelf.fg, fontSize = TextSize.title, fontWeight = FontWeight.Bold, lineHeight = 26.sp,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).semantics { heading() },
-                )
+            // The count runs on with the title, so it follows it when a long name wraps
+            val muted = shelf.muted
+            val text = androidx.compose.ui.text.buildAnnotatedString {
+                append(title)
                 if (count != null) {
-                    Spacer(Modifier.width(Space.s))
-                    Text(count.toString(), color = shelf.muted, fontSize = TextSize.bodySmall)
+                    append("\u2002")
+                    pushStyle(androidx.compose.ui.text.SpanStyle(color = muted, fontSize = TextSize.bodySmall, fontWeight = FontWeight.Normal))
+                    append(count.toString())
+                    pop()
                 }
             }
+            Text(
+                text, color = shelf.fg, fontSize = TextSize.title, fontWeight = FontWeight.Bold, lineHeight = 26.sp,
+                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).semantics { heading() },
+            )
             Row(verticalAlignment = Alignment.CenterVertically, content = actions)
         }
         HorizontalDivider(color = shelf.line)

@@ -27,6 +27,10 @@ import io.github.danielpereod.opdshelf.data.Position
 import io.github.danielpereod.opdshelf.data.PositionContext
 import io.github.danielpereod.opdshelf.data.json
 import io.github.danielpereod.opdshelf.ui.AppTheme
+import io.github.danielpereod.opdshelf.data.Bookmark
+import android.view.KeyEvent
+import org.readium.r2.shared.publication.services.search.isSearchable
+import org.readium.r2.shared.publication.services.search.search
 import io.github.danielpereod.opdshelf.ui.readerPalette
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
@@ -109,6 +113,8 @@ class ReaderActivity : AppCompatActivity() {
         app.store.markOpened(book.id)
         ui.title = book.title
         ui.prefs = loadPrefs()
+        ui.bookmarks = app.store.bookmarks(book.id)
+        applyScreenOn()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         container = FragmentContainerView(this).apply { id = View.generateViewId() }
         val overlay = ComposeView(this).apply {
@@ -189,6 +195,7 @@ class ReaderActivity : AppCompatActivity() {
         showBars(false)
         ui.reflowable = kind == Kind.EPUB
         ui.toc = flatten(pub.tableOfContents)
+        ui.searchable = pub.isSearchable
         ui.pages = pub.positions().size.takeIf { it > 0 }
         ui.showHint = kind == Kind.EPUB && !app.settings.markHintShown
         lifecycleScope.launch {
@@ -197,6 +204,7 @@ class ReaderActivity : AppCompatActivity() {
                 ui.progression = (locator.locations.totalProgression ?: 0.0).toFloat().coerceIn(0f, 1f)
                 ui.page = locator.locations.position
                 ui.currentHref = locator.href.toString()
+                ui.currentBookmark = ui.bookmarks.firstOrNull { onPage(it, locator) }
             }
         }
 
@@ -421,10 +429,113 @@ class ReaderActivity : AppCompatActivity() {
             this@ReaderActivity.prefs.edit().putString("prefs", json.encodeToString(prefs)).apply()
             (navigator as? EpubNavigatorFragment)?.submitPreferences(epubPreferences(prefs))
             showBars(ui.visible)
+            applyScreenOn()
         }
 
         override fun dismissHint() = this@ReaderActivity.dismissHint()
+
+        override fun toggleBookmark() {
+            val locator = navigator?.currentLocator?.value ?: return
+            val current = ui.currentBookmark
+            val list = if (current != null) {
+                ui.bookmarks - current
+            } else {
+                ui.bookmarks + Bookmark(
+                    locator = locator.toJSON().toString(),
+                    chapter = ui.chapter,
+                    progression = (locator.locations.totalProgression ?: 0.0).coerceIn(0.0, 1.0),
+                    text = locator.text.highlight?.take(120),
+                )
+            }
+            ui.bookmarks = list
+            app.store.setBookmarks(book.id, list)
+            ui.currentBookmark = list.firstOrNull { onPage(it, locator) }
+            if (current == null) Snackbar.make(root, R.string.bookmark_added, Snackbar.LENGTH_SHORT).show()
+        }
+
+        override fun goTo(bookmark: Bookmark) {
+            val locator = runCatching { Locator.fromJSON(JSONObject(bookmark.locator)) }.getOrNull() ?: return
+            navigator?.go(locator)
+        }
+
+        override fun remove(bookmark: Bookmark) {
+            ui.bookmarks = ui.bookmarks - bookmark
+            app.store.setBookmarks(book.id, ui.bookmarks)
+            ui.currentBookmark = navigator?.currentLocator?.value?.let { l -> ui.bookmarks.firstOrNull { onPage(it, l) } }
+        }
+
+        override fun search(query: String) {
+            val pub = publication ?: return
+            searchJob?.cancel()
+            ui.searchResults = emptyList()
+            ui.searching = true
+            ui.searched = false
+            searchJob = lifecycleScope.launch {
+                try {
+                    val iterator = pub.search(query) ?: return@launch
+                    val hits = mutableListOf<SearchHit>()
+                    while (hits.size < SEARCH_LIMIT) {
+                        val page = iterator.next().getOrNull() ?: break
+                        page.locators.forEach { l ->
+                            hits += SearchHit(
+                                locator = l,
+                                chapter = l.title ?: chapterOf(l.href.toString()),
+                                before = l.text.before.orEmpty().replace(Regex("\\s+"), " "),
+                                match = l.text.highlight.orEmpty(),
+                                after = l.text.after.orEmpty().replace(Regex("\\s+"), " "),
+                            )
+                        }
+                        ui.searchResults = hits.take(SEARCH_LIMIT)
+                    }
+                    iterator.close()
+                } finally {
+                    ui.searching = false
+                    ui.searched = true
+                }
+            }
+        }
+
+        override fun goTo(hit: SearchHit) {
+            navigator?.go(hit.locator)
+        }
     }
+
+    private var searchJob: kotlinx.coroutines.Job? = null
+
+    /** Whether a bookmark falls on the page of [locator]. */
+    private fun onPage(mark: Bookmark, locator: Locator): Boolean {
+        val saved = runCatching { Locator.fromJSON(JSONObject(mark.locator)) }.getOrNull() ?: return false
+        if (saved.href != locator.href) return false
+        saved.locations.position?.let { p -> locator.locations.position?.let { return it == p } }
+        val a = saved.locations.progression ?: return false
+        val b = locator.locations.progression ?: return false
+        return kotlin.math.abs(a - b) < 0.01
+    }
+
+    private fun applyScreenOn() {
+        if (ui.prefs.keepScreenOn) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    // Volume keys turn the page, while the bars are hidden and the setting is on
+    private fun pageKey(keyCode: Int): Int = when {
+        !ui.prefs.volumeKeys || ui.visible || ui.sheet != null -> 0
+        keyCode == KeyEvent.KEYCODE_VOLUME_DOWN -> 1
+        keyCode == KeyEvent.KEYCODE_VOLUME_UP -> -1
+        else -> 0
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        val nav = navigator as? OverflowableNavigator
+        when (pageKey(keyCode)) {
+            1 -> if (nav != null) { nav.goForward(); return true }
+            -1 -> if (nav != null) { nav.goBackward(); return true }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean =
+        if (pageKey(keyCode) != 0 && navigator is OverflowableNavigator) true else super.onKeyUp(keyCode, event)
 
     private fun flatten(links: List<Link>, depth: Int = 0): List<TocItem> = links.flatMap { link ->
         listOf(TocItem(link.title?.trim().orEmpty().ifEmpty { "—" }, depth, link.href.toString(), link)) +

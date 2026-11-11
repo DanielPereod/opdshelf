@@ -288,6 +288,8 @@ Builds without a release key are signed with a test key kept in the repository (
 
 Pushing a tag like `android-v1.2.0` builds the APK, signs it with the private release key and publishes it in GitHub Releases as `opdshelf-1.2.0.apk`. The version code comes from the tag (1.2.0 → 10200), so each release installs over the previous one.
 
+Besides those versioned releases, every push to `main` or `beta` that touches the app publishes a build to the `android-latest` or `android-beta` release, which is what the web panel offers. Its version code comes from the commit date, so each build installs over the previous one, and it is signed with the release key when the repository has one (with the test key otherwise).
+
 The release key is set up once. Create it and keep a copy of the file and its password somewhere safe: without them, later versions can no longer update the installed app.
 
 ```sh

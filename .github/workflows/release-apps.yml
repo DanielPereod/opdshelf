@@ -52,17 +52,32 @@ jobs:
           packages: platforms;android-37.0
       - uses: gradle/actions/setup-gradle@v4
 
-      # The app is signed with the debug key. With the same key every build,
-      # a new version installs over the old one; without the secret each run
-      # makes a new key and the app has to be uninstalled before updating.
-      - name: Use the stored signing key
+      # Each build gets a higher version code than the last, from the commit
+      # date, so Android installs it over the previous one, from either
+      # channel. Tagged releases (android-v1.2.3 → 10200) stay below it.
+      - name: Version
+        run: |
+          stamp=$(git log -1 --format=%ct)
+          echo "APP_VERSION_CODE=$(( (stamp - 1700000000) / 60 ))" >> "$GITHUB_ENV"
+          echo "APP_VERSION_NAME=$(date -u -d "@$stamp" +%Y.%m.%d)-$CHANNEL.${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
+
+      # Signed with the release key when the repository has it (see the
+      # README), else with the test key kept in android/app. Either way every
+      # build uses the same key, so updates install without uninstalling.
+      - name: Release key
         env:
-          KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
-        if: env.KEYSTORE != ''
-        run: mkdir -p ~/.android && echo "$KEYSTORE" | base64 -d > ~/.android/debug.keystore
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        if: env.KEYSTORE_BASE64 != ''
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "ANDROID_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
 
       - name: Build the APK
         working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           ./gradlew --no-daemon assembleRelease
           cp app/build/outputs/apk/release/app-release.apk ../opdshelf.apk

@@ -2,5 +2,5 @@ local _ = require("gettext")
 return {
     name = "opdshelf",
     fullname = _("OPDShelf"),
-    description = _([[Set a point in the text as your last position and open books exactly there on every device, through an OPDShelf server. Uses the server and account of Progress sync.]]),
+    description = _([[Live reading position sync with an OPDShelf server, with conflict handling and exact points set from the text, and a library browser with covers to download books from it.]]),
 }

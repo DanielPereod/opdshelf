@@ -263,7 +263,7 @@ fun SettingsScreen(modifier: Modifier, onSaved: () -> Unit) {
                             context.app.sync.schedule()
                             onSaved()
                         } catch (e: Exception) {
-                            error = context.getString(R.string.cannot_connect, e.message ?: e.toString())
+                            error = context.getString(R.string.cannot_connect, context.describe(e))
                         } finally {
                             checking = false
                         }

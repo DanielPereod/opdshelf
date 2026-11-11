@@ -29,4 +29,9 @@
     <string name="text_larger">Larger text</string>
     <string name="theme">Change theme</string>
     <string name="scroll_mode">Continuous scrolling</string>
+    <string name="error_tls">The secure (https) connection failed. If the server is on your network without https, write its address starting with http://. Otherwise check that its certificate is set up for that name.</string>
+    <string name="error_host">This server name cannot be found. Check the address and the connection.</string>
+    <string name="error_refused">Nothing answers at that address and port. Check that the server is running.</string>
+    <string name="error_timeout">The server takes too long to answer.</string>
+    <string name="error_login">Wrong username or password.</string>
 </resources>

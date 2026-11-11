@@ -75,7 +75,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 val feed = app.api.feed(url)
                 update(url) { it.copy(feed = feed, loading = false) }
             } catch (e: Exception) {
-                update(url) { it.copy(loading = false, error = e.message ?: e.toString()) }
+                update(url) { it.copy(loading = false, error = getApplication<Application>().describe(e)) }
             }
         }
     }
@@ -94,7 +94,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 }
             } catch (e: Exception) {
                 update(state.url) { it.copy(loadingMore = false) }
-                _messages.value = e.message
+                _messages.value = getApplication<Application>().describe(e)
             }
         }
     }
@@ -135,7 +135,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 runCatching { app.sync.start(document) }
                 onDone(book)
             } catch (e: Exception) {
-                _messages.value = e.message ?: e.toString()
+                _messages.value = getApplication<Application>().describe(e)
             } finally {
                 _downloads.value = _downloads.value - entry.id
             }

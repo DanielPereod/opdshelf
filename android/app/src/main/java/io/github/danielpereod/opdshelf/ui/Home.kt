@@ -109,7 +109,7 @@ fun HomeScreen(
             Header(
                 pluralStringResource(R.plurals.selected_count, picked.size, picked.size),
                 onBack = { picked = emptyList() },
-                backIcon = Icons.Outlined.Close, backLabel = stringResource(R.string.clear_selection),
+                backIcon = Icons.Outlined.Close, backLabel = stringResource(R.string.clear_selection), titleMaxLines = 1,
                 actions = {
                     IconButton(onClick = { library.setFinished(picked, !allFinished); picked = emptyList() }) {
                         Icon(
@@ -191,7 +191,7 @@ fun HomeScreen(
                     SyncLine(status, onSync = { library.syncNow() })
                 }
             }
-            if (current != null && query.isBlank() && filter == Filter.All) {
+            if (current != null && query.isBlank() && filter == Filter.All && !selecting) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Box(Modifier.fillMaxWidth()) {
                         ContinueCard(

@@ -247,6 +247,7 @@ fun Header(
     actions: @Composable RowScope.() -> Unit = {},
     backIcon: androidx.compose.ui.graphics.vector.ImageVector = Icons.AutoMirrored.Filled.ArrowBack,
     backLabel: String = stringResource(R.string.back),
+    titleMaxLines: Int = 2,
 ) {
     Column(Modifier.background(shelf.pane)) {
         Row(
@@ -274,7 +275,7 @@ fun Header(
             }
             Text(
                 text, color = shelf.fg, fontSize = TextSize.title, fontWeight = FontWeight.Bold, lineHeight = 26.sp,
-                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).semantics { heading() },
+                maxLines = titleMaxLines, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).semantics { heading() },
             )
             Row(verticalAlignment = Alignment.CenterVertically, content = actions)
         }

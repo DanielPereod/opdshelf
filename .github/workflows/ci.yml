@@ -8,17 +8,14 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # Runs in a Debian container: the runner's Ubuntu package mirrors keep
-    # timing out, and Debian's packages come from another network. The image
-    # also brings Rust.
-    container: rust:1-trixie
+    # Ubuntu's apt mirrors often fail to resolve on GitHub's runners, so the
+    # tools come from Alpine's packages instead, as in the Docker image
+    container: rust:1-alpine
     steps:
-      - uses: actions/checkout@v4
+      - name: Install PDF and comic tools, LuaJIT for the KOReader plugin, and Node
+        run: apk add --no-cache git tar zstd musl-dev poppler-utils libarchive-tools luajit lua5.1-cjson nodejs npm
 
-      - name: Install PDF and comic tools, and LuaJIT for the KOReader plugin
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends poppler-utils libarchive-tools luajit lua-cjson
+      - uses: actions/checkout@v4
 
       - name: KOReader plugin
         run: |
@@ -26,17 +23,12 @@ jobs:
           luajit koreader/test/library_test.lua koreader/opdshelf.koplugin
           luajit koreader/test/browser_test.lua koreader/opdshelf.koplugin
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
       - name: Build front-end assets
         run: |
           npm ci --no-audit --no-fund
           npm run build
 
-      - name: Rust tools
+      - name: Rust components
         run: rustup component add rustfmt clippy
 
       - uses: Swatinem/rust-cache@v2

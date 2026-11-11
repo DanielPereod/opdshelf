@@ -169,12 +169,16 @@
       if (current && current.start) showProgress(current.start.cfi);
     });
     function percentage(cfi, index) {
+      if (atEnd) return 1;
       if (locationsReady) return book.locations.percentageFromCfi(cfi);
       return index / Math.max(1, book.spine.length);
     }
+    // The last page counts as the whole book: locations put its start just
+    // before 100 %
+    let atEnd = false;
     function showProgress(cfi) {
       if (!locationsReady) return;
-      const pct = Math.round(book.locations.percentageFromCfi(cfi) * 100);
+      const pct = atEnd ? 100 : Math.round(book.locations.percentageFromCfi(cfi) * 100);
       progress.textContent = pct + '%';
       progressBar.style.width = pct + '%';
     }
@@ -193,6 +197,7 @@
     }
 
     rendition.on('relocated', (location) => {
+      atEnd = Boolean(location.atEnd);
       showProgress(location.start.cfi);
       markChapter(location.start.href);
       markBtn.hidden = true;

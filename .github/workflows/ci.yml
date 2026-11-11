@@ -8,11 +8,17 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Runs in a Debian container: the runner's Ubuntu package mirrors keep
+    # timing out, and Debian's packages come from another network. The image
+    # also brings Rust.
+    container: rust:1-trixie
     steps:
       - uses: actions/checkout@v4
 
       - name: Install PDF and comic tools, and LuaJIT for the KOReader plugin
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils libarchive-tools luajit lua-cjson
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends poppler-utils libarchive-tools luajit lua-cjson
 
       - name: KOReader plugin
         run: |
@@ -30,9 +36,8 @@ jobs:
           npm ci --no-audit --no-fund
           npm run build
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Rust tools
+        run: rustup component add rustfmt clippy
 
       - uses: Swatinem/rust-cache@v2
 

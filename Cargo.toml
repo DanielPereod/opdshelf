@@ -11,6 +11,7 @@ base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 encoding_rs = "0.8"
 form_urlencoded = "1"
+futures-util = { version = "0.3", default-features = false }
 handlebars = { version = "6", features = ["rust-embed"] }
 hmac = "0.12"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }

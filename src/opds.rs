@@ -111,6 +111,12 @@ impl Feed {
         if let Some(identifier) = &book.meta.identifier {
             let _ = write!(e, "<dc:identifier>{}</dc:identifier>", escape(identifier));
         }
+        if let Some(series) = &book.meta.series {
+            let _ = write!(e, "<calibre:series>{}</calibre:series>", escape(series));
+            if let Some(index) = &book.meta.series_index {
+                let _ = write!(e, "<calibre:series_index>{}</calibre:series_index>", escape(index));
+            }
+        }
         for subject in &book.meta.subjects {
             let _ = write!(e, r#"<category term="{0}" label="{0}"/>"#, escape(subject));
         }
@@ -192,7 +198,7 @@ impl Feed {
         self.link("search", "/opds/search?q={searchTerms}", ACQ);
 
         let mut xml = String::from(r#"<?xml version="1.0" encoding="UTF-8"?>"#);
-        xml.push_str(r#"<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:opds="http://opds-spec.org/2010/catalog" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">"#);
+        xml.push_str(r#"<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:opds="http://opds-spec.org/2010/catalog" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:calibre="http://calibre.kovidgoyal.net/2009/metadata">"#);
         let _ = write!(
             xml,
             "<id>{}</id><title>{}</title><updated>{}</updated>",

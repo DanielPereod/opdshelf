@@ -277,3 +277,104 @@ async fn koreader_plugin_marks_survive_progress_sync_resending_them() {
     assert_eq!(body["timestamp"], 1_700_000_000);
     assert_eq!(body["context"]["selected"], "she left");
 }
+
+#[tokio::test]
+async fn live_events_follow_position_changes() {
+    let app = app();
+    let response = app
+        .app
+        .clone()
+        .oneshot(
+            Request::get(format!("/api/progress/events?documents={DOC}"))
+                .header(header::AUTHORIZATION, basic())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response.headers()[header::CONTENT_TYPE]
+        .to_str()
+        .unwrap()
+        .starts_with("text/event-stream"));
+    let mut body = response.into_body();
+    async fn next(body: &mut Body) -> String {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), body.frame())
+            .await
+            .expect("an event")
+            .unwrap()
+            .unwrap();
+        String::from_utf8(frame.into_data().unwrap().to_vec()).unwrap()
+    }
+    let hello = next(&mut body).await;
+    assert!(hello.starts_with("event: hello\n"), "{hello}");
+
+    // A change of another book is not sent
+    let other = "0123456789abcdef0123456789abcdef";
+    let position = |device: &str, progress: &str| json!({ "progress": progress, "percentage": 0.5, "device": device, "device_id": device });
+    app.api("PUT", &format!("/api/progress/{other}"), Some(position("kobo", "/a")))
+        .await;
+    let (_, saved) = app
+        .api("PUT", &format!("/api/progress/{DOC}"), Some(position("kobo", "/b")))
+        .await;
+    assert_eq!(saved["accepted"], true);
+    assert!(saved["server_time"].is_i64());
+    let event = next(&mut body).await;
+    assert!(event.starts_with("event: progress\n"), "{event}");
+    let data: Value = serde_json::from_str(event.lines().nth(1).unwrap().trim_start_matches("data: ")).unwrap();
+    assert_eq!(data["document"], DOC);
+    assert_eq!(data["current"]["progress"], "/b");
+    assert_eq!(data["current"]["device_id"], "kobo");
+
+    // KOReader's own sync is announced too
+    app.kosync(
+        "PUT",
+        "/kosync/syncs/progress",
+        KEY,
+        Some(
+            json!({ "document": DOC, "progress": "/c", "percentage": 0.6, "device": "Kindle", "device_id": "kindle" }),
+        ),
+    )
+    .await;
+    let event = next(&mut body).await;
+    assert!(event.contains(r#""progress":"/c""#), "{event}");
+}
+
+#[tokio::test]
+async fn a_position_that_lost_is_not_accepted() {
+    let app = app();
+    let uri = format!("/api/progress/{DOC}");
+    app.api(
+        "PUT",
+        &uri,
+        Some(json!({ "progress": "/new", "percentage": 0.6, "device": "Phone", "device_id": "phone" })),
+    )
+    .await;
+    // Read offline an hour ago on a Kobo whose clock runs 10 minutes behind
+    let now = chrono::Utc::now().timestamp();
+    let (_, body) = app
+        .api(
+            "PUT",
+            &uri,
+            Some(json!({
+                "progress": "/old", "percentage": 0.4, "device": "Kobo", "device_id": "kobo",
+                "timestamp": now - 600 - 3600, "sent_at": now - 600,
+            })),
+        )
+        .await;
+    assert_eq!(body["accepted"], false);
+    assert_eq!(body["current"]["device_id"], "phone");
+    let (_, body) = app.api("GET", &uri, None).await;
+    let kobo = body["history"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["device_id"] == "kobo")
+        .unwrap()
+        .clone();
+    // Its time was put right: an hour ago, not an hour and ten minutes
+    assert!(
+        (kobo["timestamp"].as_i64().unwrap() - (now - 3600)).abs() <= 2,
+        "{kobo}"
+    );
+}

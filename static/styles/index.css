@@ -1346,6 +1346,54 @@ dialog::backdrop {
   inset: 12px 64px;
 }
 
+/* Floating notes of the reader, e.g. where a book was continued from */
+.reader-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 56px;
+  z-index: 20;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--pane);
+  color: var(--fg);
+  font-size: 13px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.15);
+}
+
+.reader-toast button {
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.mark-point {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  z-index: 2;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--pane);
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.15);
+}
+
+.mark-point[hidden] {
+  display: none;
+}
+
 .loading {
   position: absolute;
   inset: 0;

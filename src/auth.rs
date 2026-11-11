@@ -43,6 +43,20 @@ impl Auth {
         (user_ok & pass_ok).into()
     }
 
+    /// KOReader's sync plugin sends the MD5 of the password (in hex) instead of the password.
+    /// Accepts anything when authentication is off.
+    pub fn check_hashed_password(&self, username: &str, key: &str) -> bool {
+        use md5::{Digest, Md5};
+        let Some((user, pass)) = &self.credentials else {
+            return true;
+        };
+        let expected = hex(&Md5::digest(pass.as_bytes()));
+        let key = key.to_ascii_lowercase();
+        let user_ok = hmac(&self.secret, username.as_bytes()).ct_eq(&hmac(&self.secret, user.as_bytes()));
+        let key_ok = hmac(&self.secret, key.as_bytes()).ct_eq(&hmac(&self.secret, expected.as_bytes()));
+        (user_ok & key_ok).into()
+    }
+
     pub fn session_token(&self) -> String {
         hex(&hmac(&self.secret, b"session"))
     }
@@ -155,6 +169,17 @@ mod tests {
         assert!(a.is_authorized(&headers(header::AUTHORIZATION, &encode("a:b:c"))));
         assert!(!a.is_authorized(&headers(header::AUTHORIZATION, &encode("a:b"))));
         assert!(!a.is_authorized(&headers(header::AUTHORIZATION, &encode("x:b:c"))));
+    }
+
+    #[test]
+    fn hashed_password() {
+        let a = auth(Some("a"), Some("secret"));
+        // md5("secret")
+        assert!(a.check_hashed_password("a", "5ebe2294ecd0e0f08eab7690d2a6ee69"));
+        assert!(a.check_hashed_password("a", "5EBE2294ECD0E0F08EAB7690D2A6EE69"));
+        assert!(!a.check_hashed_password("a", "secret"));
+        assert!(!a.check_hashed_password("b", "5ebe2294ecd0e0f08eab7690d2a6ee69"));
+        assert!(auth(None, None).check_hashed_password("", ""));
     }
 
     #[test]

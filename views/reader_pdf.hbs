@@ -15,13 +15,14 @@
   <div class="track"><b id="progressBar"></b></div>
 </footer>
 
-<div id="pdfData" hidden data-url="/download/{{urlPath book.path}}?inline=1" data-key="{{book.path}}"></div>
+<div id="pdfData" hidden data-url="/download/{{urlPath book.path}}?inline=1" data-key="{{book.path}}" data-document="{{document}}"></div>
 <script type="module">
   import * as pdfjsLib from '/static/vendor/pdfjs/pdf.min.mjs';
   pdfjsLib.GlobalWorkerOptions.workerSrc = '/static/vendor/pdfjs/pdf.worker.min.mjs';
 
-  const { url, key } = document.getElementById('pdfData').dataset;
-  const positionKey = 'opdshelf:pdf:' + key;
+  const { url, key, document: documentId } = document.getElementById('pdfData').dataset;
+  const legacyKey = 'opdshelf:pdf:' + key;
+  const sync = ReaderSync.create(documentId);
   const container = document.getElementById('pages');
   const pageInfo = document.getElementById('pageInfo');
 
@@ -94,10 +95,15 @@
     if (el) container.scrollTop = el.offsetTop - 16;
   }
 
+  // Saved once the page changes, as KOReader does: the page number from 1
+  let savedPage = null;
   container.addEventListener('scroll', () => {
     const page = currentPage();
     showPage(page);
-    storeSet(positionKey, page);
+    if (savedPage !== null && page !== savedPage) {
+      savedPage = page;
+      sync.save({ progress: String(page), percentage: page / pdf.numPages });
+    }
   }, { passive: true });
 
   document.getElementById('zoomIn').onclick = () => { const p = currentPage(); scale = Math.min(4, scale * 1.2); build(p); };
@@ -108,6 +114,12 @@
     document.getElementById('progressBar').style.width = Math.round((page / pdf.numPages) * 100) + '%';
   }
 
-  build(Number(storeGet(positionKey) || 1));
+  const { record, from } = await sync.load();
+  const startPage = Math.min(pdf.numPages, Math.max(1, Math.round(
+    record ? Number(record.progress) || record.percentage * pdf.numPages : Number(storeGet(legacyKey) || 1),
+  ) || 1));
+  build(startPage);
   showPage(currentPage());
+  savedPage = startPage;
+  if (from) ReaderSync.toast(`Continuing from ${from} (page ${startPage})`);
 </script>

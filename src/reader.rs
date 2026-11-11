@@ -21,7 +21,16 @@ pub async fn read(State(state): State<AppState>, headers: HeaderMap, Path(path):
     if !book.readable {
         return (StatusCode::NOT_FOUND, "This format cannot be read in the browser").into_response();
     }
-    let mut data = json!({ "book": book_json(&book) });
+    let Some((_, file)) = state.library.book_path(&book.path) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    // The id positions are synced under (the same one KOReader uses)
+    let (size, modified) = (book.size, book.modified.timestamp());
+    let document = tokio::task::spawn_blocking(move || crate::progress::document_id(&file, size, modified))
+        .await
+        .ok()
+        .flatten();
+    let mut data = json!({ "book": book_json(&book), "document": document });
     let view = match paths::extension(&book.path).as_str() {
         "epub" | "kepub" => "reader_epub",
         "pdf" => "reader_pdf",

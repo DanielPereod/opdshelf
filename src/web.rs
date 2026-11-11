@@ -18,9 +18,10 @@ use crate::auth::Auth;
 use crate::config::Config;
 use crate::library::{format_size, Book, Library, SortMode};
 use crate::lookup::Lookup;
+use crate::progress::Progress;
 use crate::store::Store;
 use crate::templates::{self, Static};
-use crate::{covers, edit, opds, paths, reader};
+use crate::{covers, edit, opds, paths, reader, sync};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -29,6 +30,7 @@ pub struct AppState {
     pub auth: Auth,
     pub templates: Arc<Handlebars<'static>>,
     pub lookup: Lookup,
+    pub progress: Progress,
 }
 
 pub fn router(config: Config) -> Router {
@@ -41,6 +43,7 @@ pub fn router(config: Config) -> Router {
         auth: Auth::new(&config),
         templates: Arc::new(templates::registry()),
         lookup: Lookup::new(&config.openlibrary_url, &config.google_books_url),
+        progress: Progress::open(&config.data_dir),
         config: Arc::new(config),
     };
     let upload_limit = state.config.max_upload_bytes;
@@ -91,6 +94,15 @@ pub fn router(config: Config) -> Router {
         .route("/admin/lookup", get(edit::lookup))
         .route("/user/login", get(login_page).post(login))
         .route("/user/logout", post(logout))
+        .route(
+            "/api/progress/{document}",
+            get(sync::get_progress).put(sync::put_progress),
+        )
+        .route("/kosync/users/create", post(sync::kosync_register))
+        .route("/kosync/users/auth", get(sync::kosync_auth))
+        .route("/kosync/syncs/progress", axum::routing::put(sync::kosync_put))
+        .route("/kosync/syncs/progress/{document}", get(sync::kosync_get))
+        .route("/kosync/healthcheck", get(sync::kosync_health))
         .route("/static/{*path}", get(static_file))
         .route("/healthz", get(|| async { "ok" }))
         .layer(middleware::from_fn_with_state(state.clone(), require_auth))
@@ -99,7 +111,9 @@ pub fn router(config: Config) -> Router {
 
 async fn require_auth(State(state): State<AppState>, request: Request, next: Next) -> Response {
     let path = request.uri().path();
-    let public = path.starts_with("/static/") || path == "/user/login" || path == "/healthz";
+    // KOReader's sync plugin logs in with its own headers, checked by each /kosync handler
+    let public =
+        path.starts_with("/static/") || path.starts_with("/kosync/") || path == "/user/login" || path == "/healthz";
     if public || state.auth.is_authorized(request.headers()) {
         return next.run(request).await;
     }

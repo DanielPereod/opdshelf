@@ -16,10 +16,12 @@
   <input id="slider" type="range" min="1" value="1" aria-label="Page">
 </footer>
 
-<script data-path="{{urlPath book.path}}" data-key="{{book.path}}">
+<script data-path="{{urlPath book.path}}" data-key="{{book.path}}" data-document="{{document}}">
   (function () {
-    const { path, key } = document.currentScript.dataset;
-    const positionKey = 'opdshelf:comic:' + key;
+    const { path, key, document: documentId } = document.currentScript.dataset;
+    const legacyKey = 'opdshelf:comic:' + key;
+    const sync = ReaderSync.create(documentId);
+    let opened = false;
     const img = document.getElementById('pageImg');
     const counter = document.getElementById('counter');
     const slider = document.getElementById('slider');
@@ -36,7 +38,8 @@
       img.src = src(n);
       counter.textContent = (n + 1) + ' / ' + count;
       slider.value = n + 1;
-      storeSet(positionKey, n);
+      // Saved as the page number from 1, like KOReader, once the reader moves
+      if (opened) sync.save({ progress: String(n + 1), percentage: (n + 1) / count });
       // Preload the next pages
       [n + 1, n + 2].filter((p) => p < count).forEach((p) => { new Image().src = src(p); });
     }
@@ -70,13 +73,20 @@
     });
 
     img.onload = () => { status.hidden = true; };
-    fetch(`/pages/${path}`)
-      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
-      .then((data) => {
+    Promise.all([
+      fetch(`/pages/${path}`).then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); }),
+      sync.load(),
+    ])
+      .then(([data, { record, from }]) => {
         count = data.count;
         if (count === 0) throw new Error('no images found');
         slider.max = count;
-        show(Math.min(Number(storeGet(positionKey) || 0), count - 1));
+        const start = record
+          ? (Number(record.progress) || Math.round(record.percentage * count) || 1) - 1
+          : Number(storeGet(legacyKey) || 0);
+        show(Math.min(Math.max(0, start), count - 1));
+        opened = true;
+        if (from) ReaderSync.toast(`Continuing from ${from} (page ${current + 1})`);
       })
       .catch((err) => { status.textContent = 'Cannot open this comic: ' + err.message; });
   })();

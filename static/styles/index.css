@@ -411,6 +411,7 @@ input[type="checkbox"] {
 }
 
 .nav-item i {
+  flex: none;
   width: 16px;
   text-align: center;
   color: var(--muted);
@@ -1584,7 +1585,79 @@ dialog::backdrop {
 /* Named .epub-viewer because epub.js uses .epub-view for its own pages */
 .epub-viewer {
   position: absolute;
-  inset: 12px 64px;
+  inset: 12px calc(56px + var(--page-margin, 4%));
+}
+
+/* Text settings of the reader (static/reader/typography.js) */
+.typo-btn span {
+  font-family: var(--serif);
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+
+.typo-panel {
+  position: absolute;
+  top: 52px;
+  right: var(--sp-2);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  width: min(320px, calc(100vw - 16px));
+  padding: var(--sp-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background: var(--pane);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+}
+
+.typo-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.typo-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.typo-options {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+}
+
+.typo-options button {
+  height: var(--control);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.typo-options button:hover,
+.typo-options button[aria-pressed="true"] {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.typo-check {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.typo-check .typo-label {
+  font-size: var(--fs-sm);
+  color: var(--fg);
 }
 
 /* Floating notes of the reader, e.g. where a book was continued from */
@@ -1727,6 +1800,54 @@ dialog::backdrop {
   background: var(--danger);
   border-color: var(--danger);
   color: var(--on-danger);
+}
+
+.text-link {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+}
+
+.text-link:hover {
+  color: var(--fg);
+  text-decoration-color: currentColor;
+}
+
+/* Authors and series: collapsible groups of the sidebar */
+.nav-group summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: var(--sp-2);
+  border-radius: var(--r-sm);
+  list-style: none;
+  cursor: pointer;
+}
+
+.nav-group summary::-webkit-details-marker {
+  display: none;
+}
+
+.nav-group summary:hover {
+  background: var(--hover);
+}
+
+.nav-group summary h2 {
+  margin-bottom: var(--sp-2) !important;
+}
+
+.nav-group summary i {
+  margin-top: var(--sp-3);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  transition: transform 0.15s;
+}
+
+.nav-group:not([open]) summary i {
+  transform: rotate(-90deg);
 }
 
 .link-btn {
@@ -2875,7 +2996,7 @@ a.nav-item {
   }
 
   .epub-viewer {
-    inset: 8px 36px;
+    inset: 8px calc(32px + var(--page-margin, 4%) / 2);
   }
 
   .page-turn {
@@ -2906,6 +3027,12 @@ a.nav-item {
   .reader-bar .segmented .icon-btn[aria-pressed="true"] {
     background: none;
     color: var(--muted);
+  }
+
+  /* The size buttons are in the text settings */
+  .reader-bar #smaller,
+  .reader-bar #larger {
+    display: none;
   }
 }
 

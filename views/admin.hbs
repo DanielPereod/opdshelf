@@ -27,6 +27,15 @@
         <span class="count" id="deviceCount"></span>
       </a>
 
+      <details class="nav-group" id="authorsGroup" hidden>
+        <summary><h2>{{t "Authors"}}</h2><i class="fas fa-chevron-down" aria-hidden="true"></i></summary>
+        <div id="authorShelves"></div>
+      </details>
+      <details class="nav-group" id="seriesGroup" hidden>
+        <summary><h2>{{t "Book series"}}</h2><i class="fas fa-chevron-down" aria-hidden="true"></i></summary>
+        <div id="seriesShelves"></div>
+      </details>
+
       {{#if folderTree}}
       <h2>{{t "Folders"}}</h2>
       {{#each folderTree}}
@@ -164,7 +173,7 @@
       <div class="list" id="bookList">
         {{#each books}}
         <div class="book{{#if (eq path ../book.path)}} selected{{/if}}" data-path="{{path}}" data-title="{{title}}"
-          data-authors="{{authors}}" data-folder="{{folder}}" data-format="{{format}}" data-added="{{modified}}"
+          data-authors="{{authors}}" data-author-list="{{authorList}}" data-folder="{{folder}}" data-format="{{format}}" data-added="{{modified}}"
           data-bytes="{{bytes}}" data-series="{{series}}" data-index="{{seriesIndex}}"
           data-incomplete="{{#if incomplete}}1{{/if}}" data-readable="{{#if readable}}1{{/if}}"
           data-cover="{{#if hasCover}}/thumb/{{urlPath path}}?v={{coverVersion}}{{/if}}">
@@ -340,6 +349,33 @@
       placeholderCover(row.querySelector('.thumb'), row.dataset.title, row.dataset.authors);
     });
     $('recentCount').textContent = rows.filter((r) => Date.parse(r.dataset.added) > weekAgo).length;
+
+    // Authors and series shelves, from the books on the page
+    const authorsOf = (row) => (row.dataset.authorList || '').split('\n').filter(Boolean);
+    function buildShelves(group, box, kind, names) {
+      const counts = new Map();
+      names.forEach((n) => counts.set(n, (counts.get(n) || 0) + 1));
+      if (counts.size === 0) return;
+      const sorted = Array.from(counts.entries()).sort((a, b) => collator.compare(a[0], b[0]));
+      box.replaceChildren(...sorted.map(([name, count]) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'nav-item';
+        b.dataset.shelf = kind;
+        b.dataset.value = name;
+        b.innerHTML = `<i class="${kind === 'author' ? 'far fa-user' : 'fas fa-layer-group'}"></i><span class="label"></span><span class="count"></span>`;
+        b.querySelector('.label').textContent = name;
+        b.querySelector('.label').title = name;
+        b.querySelector('.count').textContent = count;
+        return b;
+      }));
+      group.hidden = false;
+      const key = 'opdshelf:open:' + kind;
+      group.open = storeGet(key) === '1';
+      group.addEventListener('toggle', () => storeSet(key, group.open ? '1' : '0'));
+    }
+    buildShelves($('authorsGroup'), $('authorShelves'), 'author', rows.flatMap(authorsOf));
+    buildShelves($('seriesGroup'), $('seriesShelves'), 'series', rows.map((r) => r.dataset.series).filter(Boolean));
     $('dropTarget').textContent = libraryRoot;
     $('dropOverlayTarget').textContent = libraryRoot;
 
@@ -384,6 +420,8 @@
         case 'incomplete': return d.incomplete === '1';
         case 'folder': return d.folder === state.value || d.folder.startsWith(state.value + '/');
         case 'format': return d.format === state.value;
+        case 'author': return authorsOf(row).includes(state.value);
+        case 'series': return d.series === state.value;
         default: return true;
       }
     }
@@ -463,6 +501,8 @@
 
     function selectShelf(button) {
       showPage('library');
+      const group = button.closest('details');
+      if (group) group.open = true;
       document.querySelectorAll('[data-shelf]').forEach((b) => b.setAttribute('aria-current', b === button));
       state.shelf = button.dataset.shelf;
       state.value = button.dataset.value || '';
@@ -484,6 +524,17 @@
     document.addEventListener('click', (e) => {
       const go = e.target.closest('[data-goto-shelf]');
       if (go) selectShelf(document.querySelector(`[data-shelf="${go.dataset.gotoShelf}"]`));
+      // An author or a series in the book panel shows its shelf
+      const link = e.target.closest('[data-goto]');
+      if (link) {
+        const shelf = Array.from(document.querySelectorAll(`.nav-item[data-shelf="${link.dataset.goto}"]`))
+          .find((b) => b.dataset.value === link.dataset.value);
+        if (shelf) {
+          if (panelFloats.matches) closePanel(true);
+          selectShelf(shelf);
+          shelf.scrollIntoView({ block: 'nearest' });
+        }
+      }
     });
     // Text columns start A-Z, size, date and progress start with the biggest/newest;
     // clicking the active column again reverses it.

@@ -26,6 +26,7 @@
 <script src="/static/vendor/epubjs/jszip.min.js"></script>
 <script src="/static/vendor/epubjs/epub.min.js"></script>
 <script src="/static/reader/xpointer.js"></script>
+<script src="/static/reader/typography.js?v={{v}}"></script>
 <script data-url="/download/{{urlPath book.path}}?inline=1" data-key="{{book.path}}" data-document="{{document}}">
   (function () {
     const { url, key, document: documentId } = document.currentScript.dataset;
@@ -59,6 +60,31 @@
     applyFont();
     document.getElementById('smaller').onclick = () => { fontSize = Math.max(60, fontSize - 10); applyFont(); };
     document.getElementById('larger').onclick = () => { fontSize = Math.min(250, fontSize + 10); applyFont(); };
+
+    // Font, line spacing and justification go in a style sheet of each page;
+    // the margins are the space around the viewer
+    let typoCss = '';
+    const injectTypo = (contents) => {
+      const doc = contents.document;
+      let style = doc.getElementById('opdshelf-typography');
+      if (!style) {
+        style = doc.createElement('style');
+        style.id = 'opdshelf-typography';
+        doc.head.append(style);
+      }
+      style.textContent = typoCss;
+    };
+    rendition.hooks.content.register(injectTypo);
+    ReaderTypography.mount((s) => {
+      typoCss = [
+        s.fontFamily ? `body, p, div, li, blockquote, span { font-family: ${s.fontFamily} !important; }` : '',
+        `body, p, li, blockquote { line-height: ${s.lineHeight} !important; }`,
+        s.justify ? 'p { text-align: justify !important; hyphens: auto; }' : '',
+      ].join('\n');
+      document.getElementById('viewer').style.setProperty('--page-margin', (s.margin * 100) + '%');
+      rendition.getContents().forEach(injectTypo);
+      requestAnimationFrame(() => { if (rendition.manager) rendition.resize(); });
+    });
 
     // The contents sit beside the page on wide screens and over it on phones
     const wide = window.matchMedia('(min-width: 761px)');

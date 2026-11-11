@@ -22,7 +22,8 @@
     {{/if}}
     <div>
       <h2>{{book.title}}</h2>
-      <p class="by">{{#if book.authors}}{{book.authors}}{{else}}{{t "Unknown author"}}{{/if}}</p>
+      <p class="by">{{#if book.authorNames}}{{#each book.authorNames}}{{#if @index}}, {{/if}}<button type="button" class="text-link"
+          data-goto="author" data-value="{{this}}" title="{{t "Show the books of {name}" name=this}}">{{this}}</button>{{/each}}{{else}}{{t "Unknown author"}}{{/if}}</p>
       <div class="stack">
         {{#if book.readable}}
         <a class="btn btn-primary" href="/read/{{urlPath book.path}}"><i class="fas fa-book-open"></i>{{t "Read"}}</a>
@@ -44,7 +45,8 @@
   <dl class="kv">
     {{#if meta.series}}
     <dt>{{t "Series"}}</dt>
-    <dd>{{meta.series}}{{#if meta.series_index}} #{{meta.series_index}}{{/if}}</dd>
+    <dd><button type="button" class="text-link" data-goto="series" data-value="{{meta.series}}"
+        title="{{t "Show the books of {name}" name=meta.series}}">{{meta.series}}</button>{{#if meta.series_index}} #{{meta.series_index}}{{/if}}</dd>
     {{/if}}
     <dt>{{t "Publisher"}}</dt>
     <dd>{{#if meta.publisher}}{{meta.publisher}}{{else}}—{{/if}}</dd>

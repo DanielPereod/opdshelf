@@ -15,6 +15,7 @@
   <span id="progress"></span>
 </footer>
 
+<script src="/static/reader/typography.js?v={{v}}"></script>
 <script data-key="{{book.path}}" data-document="{{document}}">
   (async function () {
     const { key, document: documentId } = document.currentScript.dataset;
@@ -27,6 +28,14 @@
     apply();
     document.getElementById('smaller').onclick = () => { size = Math.max(12, size - 2); apply(); };
     document.getElementById('larger').onclick = () => { size = Math.min(36, size + 2); apply(); };
+    const widths = { narrow: '48em', normal: '40em', wide: '32em' };
+    ReaderTypography.mount((s) => {
+      text.style.fontFamily = s.fontFamily || '';
+      text.style.lineHeight = s.lineHeight;
+      text.style.textAlign = s.justify ? 'justify' : '';
+      text.style.hyphens = s.justify ? 'auto' : '';
+      text.style.maxWidth = widths[s.margins];
+    });
     function showProgress() {
       const max = scroller.scrollHeight - scroller.clientHeight;
       const pct = max > 0 ? Math.round((scroller.scrollTop / max) * 100) : 100;

@@ -272,6 +272,9 @@ pub fn book_json(book: &Book) -> serde_json::Value {
         "fileName": book.file_name,
         "title": book.title,
         "authors": book.author_line(),
+        // One per line, for the Authors shelf (a name can contain a comma)
+        "authorList": book.authors.join("\n"),
+        "authorNames": book.authors,
         "format": book.format,
         "size": format_size(book.size),
         "bytes": book.size,

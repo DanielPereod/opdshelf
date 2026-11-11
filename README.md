@@ -236,6 +236,27 @@ With the plugin, KOReader also offers to go to a point set on another device whe
 
 Books are matched by KOReader's partial MD5 of the file, so a position follows a book that is renamed or moved. KOReader's EPUB positions (xpointers) and the web reader's are translated in the browser, with the surrounding text saved alongside to find the place again if the two disagree.
 
+### Android app
+
+[`android/`](android) is an app for reading the library on Android, also offline:
+
+- Browse and search the catalog, and download books to the phone (EPUB, PDF, CBZ).
+- Read them with [Readium](https://readium.org). The position is saved on the phone and sent to the server when there is a connection, so it is shared with KOReader and the web reader.
+- When a book was read further on another device, it opens there and says so. Select text and choose **Set as last position** to pin a sentence, as in KOReader.
+- EPUB positions are KOReader xpointers, worked out with the same script as the web reader.
+
+In the app's **Settings**, enter the server address (`192.168.1.10:3000` or `https://books.example.com`), OPDShelf's username and password, and a name for the device.
+
+To build it you need JDK 17 or newer and the Android SDK (platform 37):
+
+```sh
+cd android
+./gradlew assembleRelease   # app/build/outputs/apk/release/app-release.apk
+./gradlew testDebugUnitTest
+```
+
+The release APK is signed with the debug key so it can be installed directly. CI builds it on every pull request; download it from the run's artifacts.
+
 ### Progress API
 
 | Method | URL | Content |

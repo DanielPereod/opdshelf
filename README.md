@@ -55,7 +55,7 @@
 ðŸ“– **Read in the browser**
 - EPUB reader with table of contents, font size, dark mode and position memory
 - Reading position synced between browsers, devices and KOReader, also after reading offline
-- Select a sentence and set it as the last position, so every device opens the book exactly there
+- Select a sentence and set it as the last position, so every device opens the book exactly there (in KOReader too, with the included plugin)
 - PDF, comic (CBZ, CBR, CB7, CBT, with right-to-left mode) and TXT readers
 - Keyboard, touch swipe and mobile friendly
 
@@ -224,6 +224,16 @@ OPDShelf is also a KOReader sync server. In KOReader open a book, then **Tools â
 2. **Register / Login**: choose **Login** with OPDShelf's `ADMIN_USERNAME` and `ADMIN_PASSWORD` (there is a single account)
 3. Keep **Document matching method** on **Binary** (the default). **Filename** also works while the file keeps its name.
 
+#### Exact points from KOReader
+
+KOReader's own sync sends the top of the page you are on. To send an exact sentence, install the OPDShelf plugin from [`koreader/opdshelf.koplugin`](koreader/opdshelf.koplugin):
+
+1. Copy the `opdshelf.koplugin` folder into KOReader's `plugins` folder (`.adds/koreader/plugins` on Kobo, `koreader/plugins` on Kindle and in Android's storage) and restart KOReader.
+2. Set up Progress sync as above. The plugin uses its server and login.
+3. Select some text and choose **Set as last position**. Without a connection it is sent once the device is back online.
+
+With the plugin, KOReader also offers to go to a point set on another device when you open the book, and highlights it. While that point is on screen, Progress sync sends it instead of the top of the page, so closing the book or letting the device sleep does not replace it.
+
 Books are matched by KOReader's partial MD5 of the file, so a position follows a book that is renamed or moved. KOReader's EPUB positions (xpointers) and the web reader's are translated in the browser, with the surrounding text saved alongside to find the place again if the two disagree.
 
 ### Progress API
@@ -257,6 +267,7 @@ Version 2 is a rewrite in Rust of the original Bun server. The Docker image name
 npm ci && npm run build   # or: npm run watch:css
 cargo run                 # debug builds read views/ and static/ from disk
 cargo test                # unit and HTTP integration tests
+luajit koreader/test/plugin_test.lua koreader/opdshelf.koplugin   # KOReader plugin (needs lua-cjson)
 cargo fmt && cargo clippy --all-targets
 ```
 

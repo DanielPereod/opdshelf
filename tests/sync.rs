@@ -244,3 +244,36 @@ async fn koreader_file_name_ids_map_to_the_book() {
         .await;
     assert_eq!(body["progress"], "7");
 }
+
+#[tokio::test]
+async fn koreader_plugin_marks_survive_progress_sync_resending_them() {
+    let app = app();
+    // What the OPDShelf KOReader plugin sends for "Set as last position"
+    let mark = json!({
+        "document": DOC,
+        "progress": "/body/DocFragment[2]/body/p[7]/text().31",
+        "percentage": 0.3,
+        "device": "Kobo",
+        "device_id": "KOBO1",
+        "manual": true,
+        "timestamp": 1_700_000_000,
+        "context": { "before": "and then", "after": "she left", "selected": "she left" },
+    });
+    let (status, _) = app.kosync("PUT", "/kosync/syncs/progress", KEY, Some(mark)).await;
+    assert_eq!(status, StatusCode::OK);
+    // KOReader's own Progress sync then pushes the same point when the book is closed
+    let resend = json!({
+        "document": DOC,
+        "progress": "/body/DocFragment[2]/body/p[7]/text().31",
+        "percentage": 0.3,
+        "device": "Kobo",
+        "device_id": "KOBO1",
+    });
+    app.kosync("PUT", "/kosync/syncs/progress", KEY, Some(resend)).await;
+    let (_, body) = app
+        .kosync("GET", &format!("/kosync/syncs/progress/{DOC}"), KEY, None)
+        .await;
+    assert_eq!(body["manual"], true);
+    assert_eq!(body["timestamp"], 1_700_000_000);
+    assert_eq!(body["context"]["selected"], "she left");
+}

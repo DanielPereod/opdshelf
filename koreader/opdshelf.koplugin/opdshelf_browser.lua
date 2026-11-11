@@ -34,6 +34,7 @@ local Size = require("ui/size")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 local TitleBar = require("ui/widget/titlebar")
+local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
@@ -757,31 +758,14 @@ function Browser:download(entry, after)
     end
     local function go()
         NetworkMgr:runWhenOnline(function()
-            local size = formatSize(acquisition.length)
-            local message = InfoMessage:new{
-                text = size and T(_("Downloading %1 (%2)…"), entry.title, size) or T(_("Downloading %1…"), entry.title),
-                dismissable = false,
-            }
-            UIManager:show(message)
-            UIManager:forceRePaint()
-            util.makePath(self.plugin:downloadDir())
-            local ok, err = self.plugin.client:download(acquisition.href, path)
-            UIManager:close(message)
-            if not ok then
-                UIManager:show(InfoMessage:new{ text = T(_("Could not download the book: %1"), tostring(err)) })
-                return
-            end
-            -- Keep its cover, so the home screen shows it without opening the book
-            local cover = self:cachedCover(entry)
-            if cover then
-                local covers = self.plugin.state:readSetting("covers") or {}
-                covers[path] = cover
-                self.plugin.state:saveSetting("covers", covers)
-                self.plugin.state:flush()
-            end
-            if not self.closed and self.stack[1] then self:refresh() end
-            if self.on_download then self.on_download(path) end
-            if after then after(path) end
+            -- Never download inside the tap that asked for it. On e-ink (Kindle,
+            -- Kobo) the screen is only refreshed once the tap returns to UIManager:
+            -- a download that blocks there leaves a half drawn screen and no
+            -- message until it ends. So it starts on the next tick, and runs in a
+            -- subprocess so the screen keeps working and a tap can cancel it.
+            UIManager:nextTick(function()
+                Trapper:wrap(function() self:fetchBook(entry, acquisition, path, after) end)
+            end)
         end)
     end
     if downloaded then
@@ -797,6 +781,45 @@ function Browser:download(entry, after)
         return
     end
     go()
+end
+
+-- The download itself, run from Browser:download inside Trapper:wrap.
+function Browser:fetchBook(entry, acquisition, path, after)
+    local size = formatSize(acquisition.length)
+    local text = size and T(_("Downloading %1 (%2)…"), entry.title, size) or T(_("Downloading %1…"), entry.title)
+    local message = InfoMessage:new{ text = text .. "\n\n" .. _("Tap to cancel.") }
+    UIManager:show(message)
+    UIManager:forceRePaint()
+    util.makePath(self.plugin:downloadDir())
+    local client = self.plugin.client
+    local completed, ok, err = Trapper:dismissableRunInSubprocess(function()
+        return client:download(acquisition.href, path)
+    end, message)
+    if not completed then
+        -- Cancelled: the subprocess was killed half way
+        os.remove(path .. ".part")
+        UIManager:show(InfoMessage:new{ text = _("Download cancelled."), timeout = 2 })
+        return
+    end
+    UIManager:close(message)
+    if not ok or lfs.attributes(path, "mode") ~= "file" then
+        UIManager:show(InfoMessage:new{ text = T(_("Could not download the book: %1"), tostring(err or "?")) })
+        return
+    end
+    -- Keep its cover, so the home screen shows it without opening the book
+    local cover = self:cachedCover(entry)
+    if cover then
+        local covers = self.plugin.state:readSetting("covers") or {}
+        covers[path] = cover
+        self.plugin.state:saveSetting("covers", covers)
+        self.plugin.state:flush()
+    end
+    -- Out of the Trapper coroutine: opening a book from inside it is asking for trouble
+    UIManager:nextTick(function()
+        if not self.closed and self.stack[1] then self:refresh() end
+        if self.on_download then self.on_download(path) end
+        if after then after(path) end
+    end)
 end
 
 -- Long press: download without opening the details

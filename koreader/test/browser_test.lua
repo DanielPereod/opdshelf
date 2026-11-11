@@ -115,6 +115,17 @@ local history = {}
 package.preload["readhistory"] = function() return { hist = history } end
 package.preload["apps/reader/readerui"] = function() return { showReader = function(_, path) shown[#shown + 1] = { opened = path } end } end
 package.preload["httpasync"] = function() return nil end
+local trapper = { cancel = false, used = 0 }
+package.preload["ui/trapper"] = function() return {
+    wrap = function(_, f) f() end,
+    -- The download runs here; a cancelled one never gets to run
+    dismissableRunInSubprocess = function(_, task, widget)
+        trapper.used = trapper.used + 1
+        trapper.widget = widget
+        if trapper.cancel then return false end
+        return true, task()
+    end,
+} end
 
 local function check(cond, msg) if not cond then error("FAILED: " .. msg, 2) end print("ok - " .. msg) end
 
@@ -231,6 +242,13 @@ b2:start("https://books.example/opds/books", "Books")
 check(b2:statusLine(b2:currentLevel().entries[1]):match("read 42 %%"), "downloaded books show how far they were read")
 b2:quickDownload(b2:currentLevel().entries[2])
 check(shown[#shown].ok_text == "Read now", "a long press downloads and offers to read")
+check(trapper.used == 2 and trapper.widget.text:match("Tap to cancel"), "downloads away from the tap, in a subprocess that can be cancelled")
+trapper.cancel = true
+local before = #shown
+b2:quickDownload(b2:currentLevel().entries[3])
+check(not files["/books/b3.epub"] and shown[#shown].text == "Download cancelled." and #shown == before + 2,
+    "a cancelled download says so and offers nothing to read")
+trapper.cancel = false
 
 -- Search
 b2:search()

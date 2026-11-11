@@ -12,18 +12,28 @@ android {
         applicationId = "io.github.danielpereod.opdshelf"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // Set by the release workflow from the tag, e.g. android-v1.2.3
+        versionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 1
+        versionName = System.getenv("APP_VERSION_NAME") ?: "0.1.0"
     }
 
-    // One key shared by every build, here and in CI, so a newer APK installs over an older one
-    // without uninstalling it. It is for test builds only: anyone with the repository can sign with it.
     signingConfigs {
+        // Test builds, here and in CI, share one key so a newer APK installs over an older one.
+        // It is public, so APKs signed with it are for testing only.
         create("test") {
             storeFile = file("opdshelf-test.keystore")
             storePassword = "opdshelf"
             keyAlias = "opdshelf"
             keyPassword = "opdshelf"
+        }
+        // Published APKs are signed with the private release key, given by the release workflow
+        System.getenv("ANDROID_KEYSTORE")?.let { keystore ->
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
         }
     }
 
@@ -33,7 +43,7 @@ android {
         }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("test")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("test")
         }
     }
 

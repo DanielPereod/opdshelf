@@ -9,6 +9,14 @@ shows the English text.
 local gettext = require("gettext")
 
 local es = {
+    ["%1 · %2 %3"] = "%1 · %2 de %3",
+    ["Settings"] = "Ajustes",
+    ["Open at start and after a book"] = "Abrir al empezar y al cerrar un libro",
+    ["Stop opening at start and after a book"] = "No abrir al empezar ni al cerrar un libro",
+    ["Opens OPDShelf's home screen instead of the file browser when KOReader starts and after closing a book, and the file browser's home button goes there."] = "Abre la pantalla de inicio de OPDShelf en lugar del explorador de archivos al arrancar KOReader y al cerrar un libro, y el botón de la casa del explorador lleva a ella.",
+    ["January"] = "enero", ["February"] = "febrero", ["March"] = "marzo", ["April"] = "abril",
+    ["May"] = "mayo", ["June"] = "junio", ["July"] = "julio", ["August"] = "agosto",
+    ["September"] = "septiembre", ["October"] = "octubre", ["November"] = "noviembre", ["December"] = "diciembre",
     ["%1 #%2"] = "%1 n.º %2",
     ["%1 % read"] = "%1 % leído",
     ["%1 %"] = "%1 %",

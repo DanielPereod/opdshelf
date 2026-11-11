@@ -78,6 +78,7 @@ local function percent(value)
 end
 
 function OPDShelf:init()
+    OPDShelf.instance = self
     self.state = LuaSettings:open(DataStorage:getSettingsDir() .. "/opdshelf.lua")
     self.device_id = G_reader_settings:readSetting("device_id")
     self:migrateAccount()
@@ -87,9 +88,11 @@ function OPDShelf:init()
         self.ui.menu:registerToMainMenu(self)
     end
     if not self.ui.document then
-        -- The file browser: show the home screen over it when it is the start screen
+        self:patchFileManager()
+        -- The file browser: the home screen opens over it at start and after closing
+        -- a book, like a launcher
         UIManager:nextTick(function()
-            local wanted = home_requested or G_reader_settings:readSetting("start_with") == "opdshelf"
+            local wanted = home_requested or self:launcherEnabled()
             home_requested = false
             if self.ui.file_chooser and wanted then
                 self:showHome()
@@ -952,6 +955,55 @@ function OPDShelf:onOPDShelfHome()
     return true
 end
 
+--- Whether the home screen opens at start and after closing a book (on unless turned off).
+function OPDShelf:launcherEnabled()
+    local start_with = G_reader_settings:readSetting("start_with") or "filemanager"
+    if start_with == "opdshelf" then return true end
+    -- On by default, unless KOReader was set to start with something else
+    local on = self.state:readSetting("launcher")
+    if on == nil then return start_with == "filemanager" end
+    return on
+end
+
+function OPDShelf:setLauncher(on)
+    self.state:saveSetting("launcher", on)
+    self.state:flush()
+    local start_with = G_reader_settings:readSetting("start_with")
+    if on then
+        G_reader_settings:saveSetting("start_with", "opdshelf")
+    elseif start_with == "opdshelf" then
+        G_reader_settings:saveSetting("start_with", "filemanager")
+    end
+end
+
+-- Once per KOReader run: the file browser's home button opens the home screen,
+-- and "Start with" lists it even if its menu is built elsewhere
+function OPDShelf:patchFileManager()
+    local ok, FileManager = pcall(require, "apps/filemanager/filemanager")
+    if ok and type(FileManager) == "table" and FileManager.onHome and not FileManager._opdshelf_onHome then
+        local original = FileManager.onHome
+        FileManager._opdshelf_onHome = original
+        FileManager.onHome = function(fm, ...)
+            local plugin = rawget(fm, "opdshelf")
+            if plugin and plugin.launcherEnabled and plugin:launcherEnabled() then
+                plugin:showHome()
+                return true
+            end
+            return original(fm, ...)
+        end
+    end
+    local okm, FileManagerMenu = pcall(require, "apps/filemanager/filemanagermenu")
+    if okm and type(FileManagerMenu) == "table" and FileManagerMenu.getStartWithMenuTable and not FileManagerMenu._opdshelf_start_with then
+        local original = FileManagerMenu.getStartWithMenuTable
+        FileManagerMenu._opdshelf_start_with = original
+        FileManagerMenu.getStartWithMenuTable = function(...)
+            local menu = original(...)
+            OPDShelf.addStartWith(nil, { start_with = menu })
+            return menu
+        end
+    end
+end
+
 -- Adds "OPDShelf home" to File browser → Settings → Start with
 function OPDShelf:addStartWith(menu_items)
     local start_with = menu_items.start_with
@@ -960,9 +1012,24 @@ function OPDShelf:addStartWith(menu_items)
     table.insert(start_with.sub_item_table, {
         text = _("OPDShelf home"),
         checked_func = function() return G_reader_settings:readSetting("start_with") == "opdshelf" end,
-        callback = function() G_reader_settings:saveSetting("start_with", "opdshelf") end,
+        callback = function()
+            G_reader_settings:saveSetting("start_with", "opdshelf")
+            local plugin = OPDShelf.instance
+            if plugin then plugin.state:saveSetting("launcher", true) plugin.state:flush() end
+        end,
         radio = true,
     })
+    -- Choosing another start screen turns the launcher off
+    for _i, item in ipairs(start_with.sub_item_table) do
+        local callback = item.callback
+        if callback and item.text ~= _("OPDShelf home") then
+            item.callback = function(...)
+                local plugin = OPDShelf.instance
+                if plugin then plugin.state:saveSetting("launcher", false) plugin.state:flush() end
+                return callback(...)
+            end
+        end
+    end
     local text_func = start_with.text_func
     start_with.text_func = function()
         if G_reader_settings:readSetting("start_with") == "opdshelf" then
@@ -1052,12 +1119,9 @@ function OPDShelf:menuItems()
         },
         {
             text = _("Show the home screen at start"),
-            help_text = _("Opens OPDShelf's home screen instead of the file browser when KOReader starts and after closing a book. Also in File browser → Settings → Start with."),
-            checked_func = function() return G_reader_settings:readSetting("start_with") == "opdshelf" end,
-            callback = function()
-                local on = G_reader_settings:readSetting("start_with") == "opdshelf"
-                G_reader_settings:saveSetting("start_with", on and "filemanager" or "opdshelf")
-            end,
+            help_text = _("Opens OPDShelf's home screen instead of the file browser when KOReader starts and after closing a book, and the file browser's home button goes there."),
+            checked_func = function() return self:launcherEnabled() end,
+            callback = function() self:setLauncher(not self:launcherEnabled()) end,
             separator = true,
         },
         {

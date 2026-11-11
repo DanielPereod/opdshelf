@@ -3,7 +3,7 @@
 -- Run from the repository root: luajit koreader/test/browser_test.lua koreader/opdshelf.koplugin
 package.path = arg[1] .. "/?.lua;" .. package.path
 
-local shown, closed, requests = {}, {}, {}
+local shown, closed, requests, ticks = {}, {}, {}, {}
 local files = {}
 
 -- Any widget: remembers what it was given and has a size
@@ -26,6 +26,7 @@ function Widget:free() end
 function Widget:disable() self.disabled = true end
 function Widget:getInputText() return self.input_text or "hobbit" end
 function Widget:onShowKeyboard() end
+function Widget:setText(text) self.text = text end
 
 local widgets = {
     "ui/widget/container/bottomcontainer", "ui/widget/button", "ui/widget/buttondialog", "ui/widget/buttontable",
@@ -34,7 +35,7 @@ local widgets = {
     "ui/widget/container/inputcontainer", "ui/widget/inputdialog", "ui/widget/container/leftcontainer",
     "ui/widget/linewidget", "ui/widget/overlapgroup", "ui/widget/scrolltextwidget", "ui/widget/textboxwidget",
     "ui/widget/textwidget", "ui/widget/titlebar", "ui/widget/verticalgroup", "ui/widget/verticalspan",
-    "ui/widget/pathchooser", "ui/widget/progresswidget", "ui/widget/container/rightcontainer",
+    "ui/widget/pathchooser", "ui/widget/progresswidget", "ui/widget/container/rightcontainer", "ui/widget/iconwidget",
 }
 for _, name in ipairs(widgets) do
     package.preload[name] = function() return Widget:extend{ kind = name:match("([^/]+)$") } end
@@ -45,10 +46,13 @@ _G.G_reader_settings = {
     readSetting = function(_, k) return global[k] end,
     saveSetting = function(_, k, v) global[k] = v end,
     isFalse = function(_, k) return global[k] == false end,
+    isTrue = function(_, k) return global[k] == true end,
 }
 package.preload["datastorage"] = function() return { getDataDir = function() return "/tmp/opdshelf-test" end } end
 package.preload["device"] = function() return {
     hasKeys = function() return true end, isTouchDevice = function() return true end,
+    hasBattery = function() return true end,
+    getPowerDevice = function() return { getCapacity = function() return 87 end, isCharging = function() return false end } end,
     input = { group = { Back = "Back", PgFwd = "PgFwd", PgBack = "PgBack" } },
     screen = { getWidth = function() return 600 end, getHeight = function() return 800 end, scaleBySize = function(_, n) return n end },
 } end
@@ -61,14 +65,18 @@ package.preload["ui/geometry"] = function()
     return Geom
 end
 package.preload["ui/gesturerange"] = function() return { new = function(_, o) return o end } end
-package.preload["ui/network/manager"] = function() return { isOnline = function() return true end, runWhenOnline = function(_, f) f() end } end
+package.preload["ui/network/manager"] = function() return {
+    isOnline = function() return true end, isWifiOn = function() return true end, runWhenOnline = function(_, f) f() end,
+} end
 package.preload["ui/size"] = function() return {
     border = { thin = 1, button = 1 }, padding = { small = 2, default = 5, large = 10 }, line = { thin = 1 }, radius = { window = 7 },
 } end
 package.preload["ui/uimanager"] = function() return {
     show = function(_, w) shown[#shown + 1] = w end,
     close = function(_, w) closed[#closed + 1] = w end,
-    scheduleIn = function(_, _s, f) f() end,
+    -- What is due soon runs at once; the clock's minute ticks are kept to run by hand
+    scheduleIn = function(_, s, f) if s < 1 then f() else ticks[#ticks + 1] = f end end,
+    unschedule = function(_, f) for i = #ticks, 1, -1 do if ticks[i] == f then table.remove(ticks, i) end end end,
     nextTick = function(_, f) f() end,
     setDirty = function() end,
     forceRePaint = function() end,
@@ -163,6 +171,8 @@ local plugin = {
     device_id = "KOBO",
     noteServerTime = function() end,
     serverNow = function() return os.time() end,
+    launcherEnabled = function(self) return self.launcher end,
+    setLauncher = function(self, on) self.launcher = on end,
 }
 function plugin:showLibrary(search, url, title) self.library_opened = { search = search, url = url, title = title } end
 
@@ -279,6 +289,19 @@ check(has(seen, "^Title of b1%.epub$") and has(seen, "^42 %% read"), "continue r
 check(home.history[1].remote and has(seen, "^Further on Phone: 60 %%"), "and where another device went further")
 check(has(seen, "^Recently added to the library$") and has(seen, "^Title of other%.epub$"), "both shelves")
 check(has(seen, "✓ Book 1"), "books already downloaded are marked")
+check(has(seen, "^%d+:%d%d · %d+ %a+$") and has(seen, "^87 %%$"), "a status bar with the time, date and battery")
+for _, label in ipairs({ "Home", "Library", "Search", "Files", "Settings" }) do
+    check(has(seen, "^" .. label .. "$"), "a tab for " .. label)
+end
+check(#ticks == 1, "the clock waits for the next minute")
+local clock_before = home.clock_widget.text
+home.clock_widget.text = "old"
+table.remove(ticks)()
+check(home.clock_widget.text == clock_before and #ticks == 1, "and then updates itself")
+home:showMenu()
+local home_menu = shown[#shown]
+home_menu.buttons[2][1].callback()
+check(plugin.launcher == true, "the menu turns opening at start on")
 check(settings.home_recent and #settings.home_recent == 12, "keeps the shelf for when there is no connection")
 home:openLibrary(false, home.recent_url, "Recently added")
 check(plugin.library_opened.url == "https://books.example/opds/books", "see all opens the library there")
@@ -287,6 +310,7 @@ home.browser:showDetails(home.recent[2])
 check(#shown == before + 1, "a book of the shelf shows its details")
 home:openBook("/books/other.epub")
 check(home.closed and plugin.home == nil and shown[#shown].opened == "/books/other.epub", "opening a book leaves the home screen")
+check(#ticks == 0, "and stops its clock")
 -- Without a connection it shows what it kept
 plugin.ready = function() return true end
 local NetworkMgr = require("ui/network/manager")

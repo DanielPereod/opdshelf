@@ -15,7 +15,6 @@ It can replace KOReader's start screen (File browser → Settings → Start with
 local Blitbuffer = require("ffi/blitbuffer")
 local Button = require("ui/widget/button")
 local ButtonDialog = require("ui/widget/buttondialog")
-local ButtonTable = require("ui/widget/buttontable")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
 local Font = require("ui/font")
@@ -24,6 +23,7 @@ local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
+local IconWidget = require("ui/widget/iconwidget")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local LineWidget = require("ui/widget/linewidget")
@@ -112,6 +112,110 @@ function Home:show()
     UIManager:show(self)
     self:refresh()
     UIManager:scheduleIn(0.3, function() self:loadRemote() end)
+    self:scheduleClock()
+end
+
+-- The clock in the status bar changes on the minute, repainting only itself
+function Home:scheduleClock()
+    if self.clock_task then UIManager:unschedule(self.clock_task) end
+    self.clock_task = function()
+        self.clock_task = nil
+        if self.closed then return end
+        if self.clock_widget and self.clock_widget.setText then
+            self.clock_widget:setText(self:clockText())
+            local status = self.status_bar
+            UIManager:setDirty(self, function() return "ui", status and status.dimen end)
+        end
+        self:scheduleClock()
+    end
+    UIManager:scheduleIn(60 - os.date("*t").sec, self.clock_task)
+end
+
+function Home:clockText()
+    local twelve = G_reader_settings:isTrue("twelve_hour_clock")
+    local time = os.date(twelve and "%I:%M %p" or "%H:%M"):gsub("^0(%d:)", "%1")
+    local t = os.date("*t")
+    return T(_("%1 · %2 %3"), time, t.day, _(os.date("%B")))
+end
+
+-- Clock and date on the left; Wi-Fi and battery on the right
+function Home:statusBar()
+    local w = self.dimen.w - 2 * self.margin
+    local face = Font:getFace("smallinfofont", 15)
+    self.clock_widget = TextWidget:new{ text = self:clockText(), face = face, max_width = math.floor(w * 0.6) }
+    local right = HorizontalGroup:new{ align = "center" }
+    local h = self.clock_widget:getSize().h
+    local wifi = false
+    pcall(function() wifi = NetworkMgr:isWifiOn() end)
+    if wifi then
+        table.insert(right, IconWidget:new{ icon = "wifi", width = h, height = h })
+        table.insert(right, HorizontalSpan:new{ width = Size.padding.default * 2 })
+    end
+    local battery
+    pcall(function()
+        local powerd = Device:getPowerDevice()
+        if Device:hasBattery() then
+            battery = T(_("%1 %"), powerd:getCapacity()) .. (powerd:isCharging() and " +" or "")
+        end
+    end)
+    if battery then table.insert(right, TextWidget:new{ text = battery, face = face }) end
+    local bar_h = h + 2 * Size.padding.small
+    self.status_bar = OverlapGroup:new{
+        dimen = Geom:new{ w = w, h = bar_h },
+        LeftContainer:new{ dimen = Geom:new{ w = w, h = bar_h }, self.clock_widget },
+        RightContainer:new{ dimen = Geom:new{ w = w, h = bar_h }, right },
+    }
+    return self.status_bar
+end
+
+-- The tabs at the bottom, as in a phone app
+function Home:tabBar()
+    local tabs = {
+        { "home", _("Home"), function() self:refreshAll() end, true },
+        { "book.opened", _("Library"), function() self:openLibrary() end },
+        { "appbar.search", _("Search"), function() self:openLibrary(true) end },
+        { "appbar.filebrowser", _("Files"), function() self:onClose() end },
+        { "appbar.settings", _("Settings"), function() self:showMenu() end },
+    }
+    local tab_w = math.floor(self.dimen.w / #tabs)
+    local icon = Screen:scaleBySize(30)
+    local face = Font:getFace("smallinfofont", 13)
+    local tab_h = icon + face.size + 4 * Size.padding.default
+    local row = HorizontalGroup:new{ align = "top" }
+    for _i, tab in ipairs(tabs) do
+        local active = tab[4]
+        local column = VerticalGroup:new{
+            align = "center",
+            IconWidget:new{ icon = tab[1], width = icon, height = icon },
+            VerticalSpan:new{ width = Size.padding.small },
+            TextWidget:new{ text = tab[2], face = face, bold = active, max_width = tab_w - Size.padding.small },
+        }
+        table.insert(row, Item:new{
+            width = tab_w,
+            height = tab_h,
+            callback = tab[3],
+            OverlapGroup:new{
+                dimen = Geom:new{ w = tab_w, h = tab_h },
+                CenterContainer:new{ dimen = Geom:new{ w = tab_w, h = tab_h }, column },
+                -- The tab shown is marked with a bar on top
+                active and CenterContainer:new{
+                    dimen = Geom:new{ w = tab_w, h = Screen:scaleBySize(3) },
+                    LineWidget:new{ background = Blitbuffer.COLOR_BLACK, dimen = Geom:new{ w = math.floor(tab_w * 0.6), h = Screen:scaleBySize(3) } },
+                } or VerticalSpan:new{ width = 0 },
+            },
+        })
+    end
+    return VerticalGroup:new{
+        align = "center",
+        LineWidget:new{ background = Blitbuffer.COLOR_LIGHT_GRAY, dimen = Geom:new{ w = self.dimen.w, h = Size.line.thin } },
+        row,
+    }
+end
+
+function Home:refreshAll()
+    self:loadLocal()
+    self:refresh()
+    self:loadRemote()
 end
 
 -- The last books read here, newest first
@@ -461,27 +565,20 @@ function Home:refresh()
         subtitle = self:statusLine(),
         left_icon = "appbar.menu",
         left_icon_tap_callback = function() self:showMenu() end,
-        close_callback = function() self:onClose() end,
         show_parent = self,
     }
-    local actions = ButtonTable:new{
-        width = self.dimen.w - 2 * self.margin,
-        show_parent = self,
-        buttons = { {
-            { text = _("Library"), callback = function() self:openLibrary() end },
-            { text = _("Search"), callback = function() self:openLibrary(true) end },
-            { text = _("Files"), callback = function() self:onClose() end },
-        } },
-    }
-    local actions_h = actions:getSize().h + 2 * Size.padding.large
+    local status_bar = self:statusBar()
+    local actions = self:tabBar()
+    local actions_h = actions:getSize().h
     local header_h = Screen:scaleBySize(30)
     local space = Size.padding.large * 2
-    local content_h = self.dimen.h - title_bar:getHeight() - actions_h - 2 * header_h - 3 * space
+    local content_h = self.dimen.h - status_bar:getSize().h - title_bar:getHeight() - actions_h - 2 * header_h - 3 * space
     local hero_h = math.floor(content_h * 0.38)
     local shelf_h = math.floor((content_h - hero_h) / 2)
 
     local body = VerticalGroup:new{
         align = "center",
+        status_bar,
         title_bar,
         self:hero(hero_h),
         VerticalSpan:new{ width = space },
@@ -509,8 +606,7 @@ function Home:refresh()
             VerticalGroup:new{
                 align = "center",
                 VerticalSpan:new{ width = self.dimen.h - actions_h },
-                LineWidget:new{ background = Blitbuffer.COLOR_LIGHT_GRAY, dimen = Geom:new{ w = self.dimen.w, h = Size.line.thin } },
-                CenterContainer:new{ dimen = Geom:new{ w = self.dimen.w, h = actions_h - Size.line.thin }, actions },
+                actions,
             },
         },
     }
@@ -543,19 +639,15 @@ function Home:showMenu()
             callback()
         end } }
     end
-    local starts = G_reader_settings:readSetting("start_with") == "opdshelf"
+    local starts = self.plugin:launcherEnabled()
     dialog = ButtonDialog:new{
         title = _("OPDShelf"),
         title_align = "center",
         shrink_unneeded_width = true,
         buttons = {
-            item(_("Refresh"), function()
-                self:loadLocal()
-                self:refresh()
-                self:loadRemote()
-            end),
-            item(starts and _("Start KOReader in the file browser") or _("Start KOReader here"), function()
-                G_reader_settings:saveSetting("start_with", starts and "filemanager" or "opdshelf")
+            item(_("Refresh"), function() self:refreshAll() end),
+            item(starts and _("Stop opening at start and after a book") or _("Open at start and after a book"), function()
+                self.plugin:setLauncher(not starts)
             end),
             item(_("Server and account"), function()
                 self.plugin:editAccount(function() self:loadRemote() end)
@@ -571,9 +663,7 @@ end
 function Home:onSwipe(_arg, ges)
     if ges.direction == "south" then
         -- Pull down to refresh, as on phones
-        self:loadLocal()
-        self:refresh()
-        self:loadRemote()
+        self:refreshAll()
         return true
     end
 end
@@ -581,6 +671,7 @@ end
 function Home:onClose()
     if self.closed then return true end
     self.closed = true
+    if self.clock_task then UIManager:unschedule(self.clock_task) self.clock_task = nil end
     UIManager:close(self, "flashui")
     if self.plugin then self.plugin.home = nil end
     return true

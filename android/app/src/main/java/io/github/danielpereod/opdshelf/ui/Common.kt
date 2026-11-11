@@ -41,6 +41,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -106,7 +107,9 @@ fun formatSize(bytes: Long?): String? {
 fun relativeTime(millis: Long): String =
     DateUtils.getRelativeTimeSpanString(millis, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
 
-fun percent(fraction: Double) = "${(fraction.coerceIn(0.0, 1.0) * 100).toInt()} %"
+/** "42 %" or "42%", as the device's language writes percentages. */
+fun percent(fraction: Double): String =
+    java.text.NumberFormat.getPercentInstance(Locale.getDefault()).format(fraction.coerceIn(0.0, 1.0))
 
 /** A book of a grid: cover with the reading bar under it, title and author. */
 @Composable
@@ -123,7 +126,7 @@ fun BookTile(
     onLongClick: (() -> Unit)? = null,
 ) {
     Column(
-        Modifier.clip(RoundedCornerShape(4.dp))
+        Modifier.clip(RoundedCornerShape(6.dp))
             .combinedClickable(role = Role.Button, onClick = onClick, onLongClick = onLongClick, onLongClickLabel = onLongClick?.let { stringResource(R.string.details) })
             .semantics(mergeDescendants = true) {},
     ) {
@@ -132,7 +135,7 @@ fun BookTile(
             if (downloaded || downloading != null) {
                 val description = stringResource(R.string.downloaded_mark)
                 Box(
-                    Modifier.align(Alignment.BottomEnd).padding(6.dp).size(24.dp).clip(RoundedCornerShape(4.dp))
+                    Modifier.align(Alignment.BottomEnd).padding(Space.s).size(24.dp).clip(RoundedCornerShape(12.dp))
                         .background(shelf.fg).semantics { contentDescription = description },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -142,16 +145,16 @@ fun BookTile(
             }
         }
         when {
-            downloading != null -> ReadBar(downloading, Modifier.fillMaxWidth().padding(top = 6.dp))
-            progress != null -> ReadBar(progress.toFloat(), Modifier.fillMaxWidth().padding(top = 6.dp))
+            downloading != null -> ReadBar(downloading, Modifier.fillMaxWidth().padding(top = Space.s))
+            progress != null -> ReadBar(progress.toFloat(), Modifier.fillMaxWidth().padding(top = Space.s))
         }
-        Spacer(Modifier.height(8.dp))
-        Text(title, color = shelf.fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 17.sp)
+        Spacer(Modifier.height(Space.s))
+        Text(title, color = shelf.fg, fontSize = TextSize.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 20.sp)
         if (authors.isNotEmpty()) {
-            Text(authors.joinToString(", "), color = shelf.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(authors.joinToString(", "), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (progress != null && progress > 0) {
-            Text(percent(progress), color = shelf.muted, fontSize = 11.sp, fontFamily = Mono)
+            Text(percent(progress), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
         }
     }
 }
@@ -168,24 +171,24 @@ fun SyncLine(status: SyncStatus, onSync: () -> Unit, modifier: Modifier = Modifi
         else -> Icons.Outlined.CloudDone to stringResource(R.string.sync_ready)
     }
     Row(
-        modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(4.dp)).background(shelf.soft)
-            .clickable(onClickLabel = stringResource(R.string.sync_now), onClick = onSync).padding(horizontal = 12.dp),
+        modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(8.dp)).background(shelf.soft)
+            .clickable(onClickLabel = stringResource(R.string.sync_now), onClick = onSync).padding(horizontal = Space.l, vertical = Space.s),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(Space.m),
     ) {
-        Icon(icon, null, tint = shelf.fg, modifier = Modifier.size(18.dp))
-        Text(text, color = shelf.fg, fontSize = 13.sp, modifier = Modifier.weight(1f))
-        if (status.syncing) Spinner(size = 16.dp)
-        else Text(stringResource(R.string.sync_now), color = shelf.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Icon(icon, null, tint = shelf.fg, modifier = Modifier.size(20.dp))
+        Text(text, color = shelf.fg, fontSize = TextSize.label, lineHeight = 18.sp, modifier = Modifier.weight(1f))
+        if (status.syncing) Spinner(size = 20.dp)
+        else Text(stringResource(R.string.sync_now), color = shelf.fg, fontSize = TextSize.label, fontWeight = FontWeight.SemiBold)
     }
 }
 
 @Composable
 fun SectionTitle(text: String, modifier: Modifier = Modifier, trailing: @Composable () -> Unit = {}) {
-    Row(modifier.fillMaxWidth().padding(top = 8.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.fillMaxWidth().padding(top = Space.s, bottom = Space.m), verticalAlignment = Alignment.CenterVertically) {
         Text(
-            text.uppercase(), color = shelf.muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
-            letterSpacing = 0.8.sp, modifier = Modifier.weight(1f),
+            text.uppercase(), color = shelf.muted, fontSize = TextSize.overline, fontWeight = FontWeight.Bold,
+            letterSpacing = 0.8.sp, lineHeight = 16.sp, modifier = Modifier.weight(1f).semantics { heading() },
         )
         trailing()
     }

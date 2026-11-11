@@ -170,6 +170,42 @@ class ScreenshotTest {
     @Config(qualifiers = "+night")
     fun appDark() = screens("-oscuro")
 
+    // The same screens on other sizes: a small phone, a tablet both ways, a phone on its side
+
+    @Test
+    @Config(qualifiers = "es-rES-w360dp-h640dp-xhdpi")
+    fun appSmall() = screens("-pequeno")
+
+    @Test
+    @Config(qualifiers = "es-rES-w800dp-h1280dp-xhdpi")
+    fun appTablet() = screens("-tablet")
+
+    @Test
+    @Config(qualifiers = "es-rES-w1280dp-h800dp-land-xhdpi")
+    fun appTabletLandscape() = screens("-tablet-horizontal")
+
+    @Test
+    @Config(qualifiers = "es-rES-w860dp-h400dp-land-xxhdpi")
+    fun appPhoneLandscape() = screens("-movil-horizontal")
+
+    /** The first run with the largest system font, on a small phone. */
+    @Test
+    @Config(qualifiers = "es-rES-w360dp-h640dp-xhdpi")
+    fun welcomeLargeFont() {
+        org.robolectric.RuntimeEnvironment.setFontScale(1.5f)
+        show()
+        shot("01-bienvenida-letra-grande")
+        click("Conectar mi servidor")
+        shot("02-conectar-letra-grande")
+    }
+
+    @Test
+    @Config(qualifiers = "es-rES-w800dp-h1280dp-xhdpi")
+    fun welcomeTablet() {
+        show()
+        shot("01-bienvenida-tablet")
+    }
+
     // -----------------------------------------------------------------------
     // The reader's controls, over a page of text
 

@@ -6,6 +6,14 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import io.github.danielpereod.opdshelf.ui.Space
+import io.github.danielpereod.opdshelf.ui.TextSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -143,14 +151,14 @@ fun ReaderOverlay(ui: ReaderUi, actions: ReaderActions) {
 @Composable
 private fun TopBar(ui: ReaderUi, actions: ReaderActions) {
     Column(Modifier.fillMaxWidth().background(shelf.pane).statusBarsPadding()) {
-        Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = actions::close) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.close_book), tint = shelf.fg)
             }
             Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
-                Text(ui.title, color = shelf.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(ui.title, color = shelf.fg, fontSize = TextSize.subtitle, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 ui.chapter?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, color = shelf.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(it, color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             if (ui.toc.isNotEmpty()) {
@@ -174,7 +182,7 @@ private fun BottomBar(ui: ReaderUi, actions: ReaderActions) {
     val shown = dragging ?: ui.progression
     Column(Modifier.fillMaxWidth().background(shelf.pane).navigationBarsPadding()) {
         HorizontalDivider(color = shelf.line)
-        Column(Modifier.padding(horizontal = 20.dp, vertical = 10.dp)) {
+        Column(Modifier.padding(horizontal = Space.xl, vertical = Space.s)) {
             Slider(
                 value = shown,
                 onValueChange = { dragging = it },
@@ -193,10 +201,11 @@ private fun BottomBar(ui: ReaderUi, actions: ReaderActions) {
                 Text(
                     if (!ui.reflowable && page != null && pages != null) stringResource(R.string.page_of, page, pages)
                     else ui.chapter.orEmpty(),
-                    color = shelf.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Text(percent(shown.toDouble()), color = shelf.fg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.width(Space.l))
+                Text(percent(shown.toDouble()), color = shelf.fg, fontSize = TextSize.caption, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -205,13 +214,13 @@ private fun BottomBar(ui: ReaderUi, actions: ReaderActions) {
 @Composable
 private fun MarkHint(actions: ReaderActions) {
     Row(
-        Modifier.navigationBarsPadding().padding(16.dp).fillMaxWidth().clip(RoundedCornerShape(8.dp))
-            .background(shelf.fg).padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+        Modifier.navigationBarsPadding().padding(Space.l).widthIn(max = 560.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(shelf.fg).padding(start = Space.l, top = Space.s, bottom = Space.s, end = Space.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.Outlined.FormatQuote, null, tint = shelf.inverse, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(12.dp))
-        Text(stringResource(R.string.mark_hint), color = shelf.inverse, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.weight(1f))
+        Text(stringResource(R.string.mark_hint), color = shelf.inverse, fontSize = TextSize.label, lineHeight = 20.sp, modifier = Modifier.weight(1f))
         IconButton(onClick = actions::dismissHint) {
             Icon(Icons.Outlined.Close, stringResource(R.string.got_it), tint = shelf.inverse)
         }
@@ -226,18 +235,20 @@ internal fun TocSheet(ui: ReaderUi, onPick: (TocItem) -> Unit) {
     Column(Modifier.padding(bottom = 16.dp)) {
         Text(
             stringResource(R.string.contents), color = shelf.fg, fontSize = 18.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = Space.xl, vertical = Space.s).semantics { heading() },
         )
         LazyColumn(state = list) {
             itemsIndexed(ui.toc) { index, item ->
                 val selected = index == current
                 Row(
-                    Modifier.fillMaxWidth().clickable { onPick(item) }
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .selectable(selected = selected, onClick = { onPick(item) })
                         .background(if (selected) shelf.soft else shelf.pane)
-                        .padding(start = (20 + item.depth * 16).dp, end = 20.dp, top = 14.dp, bottom = 14.dp),
+                        .padding(start = (24 + item.depth * 16).dp, end = 24.dp, top = 12.dp, bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        item.title, color = shelf.fg, fontSize = 15.sp,
+                        item.title, color = shelf.fg, fontSize = TextSize.body, lineHeight = 22.sp,
                         fontWeight = if (selected || item.depth == 0) FontWeight.SemiBold else FontWeight.Normal,
                     )
                 }
@@ -248,48 +259,53 @@ internal fun TocSheet(ui: ReaderUi, onPick: (TocItem) -> Unit) {
 
 @Composable
 internal fun TextSheet(prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit) {
-    Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 28.dp)) {
+    Column(Modifier.padding(start = Space.xl, end = Space.xl, bottom = Space.xxl)) {
         SectionTitle(stringResource(R.string.text_size))
         Row(verticalAlignment = Alignment.CenterVertically) {
             SizeButton("A−", stringResource(R.string.text_smaller)) { onChange(prefs.copy(fontSize = (prefs.fontSize - 0.1).coerceAtLeast(0.6))) }
             Text(
-                percent(prefs.fontSize).replace(" ", ""), color = shelf.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                "${(prefs.fontSize * 100).toInt()}\u00A0%", color = shelf.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
             SizeButton("A+", stringResource(R.string.text_larger)) { onChange(prefs.copy(fontSize = (prefs.fontSize + 0.1).coerceAtMost(2.5))) }
         }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(Space.s))
         SectionTitle(stringResource(R.string.theme))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(R.string.theme_light, R.string.theme_sepia, R.string.theme_dark).forEachIndexed { i, label ->
                 Pill(stringResource(label), prefs.theme == i) { onChange(prefs.copy(theme = i)) }
             }
         }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(Space.s))
         SectionTitle(stringResource(R.string.font))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(R.string.font_book, R.string.font_serif, R.string.font_sans).forEachIndexed { i, label ->
                 Pill(stringResource(label), prefs.font == i) { onChange(prefs.copy(font = i)) }
             }
         }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(Space.s))
         SectionTitle(stringResource(R.string.line_spacing))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(R.string.spacing_compact, R.string.spacing_normal, R.string.spacing_wide).forEachIndexed { i, label ->
                 Pill(stringResource(label), prefs.spacing == i) { onChange(prefs.copy(spacing = i)) }
             }
         }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(Space.m))
+        HorizontalDivider(color = shelf.line)
+        Spacer(Modifier.height(Space.s))
         Row(
-            Modifier.fillMaxWidth().clickable { onChange(prefs.copy(scroll = !prefs.scroll)) }.padding(vertical = 8.dp),
+            Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                .toggleable(value = prefs.scroll, role = androidx.compose.ui.semantics.Role.Switch) { onChange(prefs.copy(scroll = it)) }
+                .padding(vertical = Space.s),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.scroll_mode), color = shelf.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                Text(stringResource(R.string.scroll_mode_help), color = shelf.muted, fontSize = 12.sp)
+                Text(stringResource(R.string.scroll_mode), color = shelf.fg, fontSize = TextSize.body, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.scroll_mode_help), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
             }
+            Spacer(Modifier.width(Space.l))
             Switch(
-                checked = prefs.scroll, onCheckedChange = { onChange(prefs.copy(scroll = it)) },
+                checked = prefs.scroll, onCheckedChange = null,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = shelf.inverse, checkedTrackColor = shelf.fg,
                     uncheckedThumbColor = shelf.muted, uncheckedTrackColor = shelf.soft, uncheckedBorderColor = shelf.lineStrong,
@@ -302,7 +318,7 @@ internal fun TextSheet(prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit) {
 @Composable
 private fun SizeButton(label: String, description: String, onClick: () -> Unit) {
     Box(
-        Modifier.size(width = 64.dp, height = 44.dp).clip(RoundedCornerShape(6.dp)).background(shelf.soft)
+        Modifier.size(width = 72.dp, height = 48.dp).clip(RoundedCornerShape(8.dp)).background(shelf.soft)
             .clickable(onClickLabel = description, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Text(label, color = shelf.fg, fontSize = 16.sp, fontWeight = FontWeight.Bold) }

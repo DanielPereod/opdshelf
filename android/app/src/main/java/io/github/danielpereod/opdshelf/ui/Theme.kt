@@ -4,6 +4,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,6 +64,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 
 /** The web interface's palette (static/styles/index.css). */
 @Immutable
@@ -80,13 +86,13 @@ data class ShelfColors(
 private val Light = ShelfColors(
     bg = Color(0xFFFAFAFA), pane = Color(0xFFFFFFFF), hover = Color(0xFFF3F3F3),
     line = Color(0xFFEBEBEB), lineStrong = Color(0xFFD4D4D4), fg = Color(0xFF111111),
-    muted = Color(0xFF767676), soft = Color(0xFFF1F1F1), inverse = Color(0xFFFFFFFF),
+    muted = Color(0xFF666666), soft = Color(0xFFF1F1F1), inverse = Color(0xFFFFFFFF),
 )
 
 private val Dark = ShelfColors(
-    bg = Color(0xFF0B0B0B), pane = Color(0xFF0B0B0B), hover = Color(0xFF181818),
+    bg = Color(0xFF0B0B0B), pane = Color(0xFF121212), hover = Color(0xFF181818),
     line = Color(0xFF222222), lineStrong = Color(0xFF333333), fg = Color(0xFFECECEC),
-    muted = Color(0xFF8B8B8B), soft = Color(0xFF1B1B1B), inverse = Color(0xFF0B0B0B),
+    muted = Color(0xFF9A9A9A), soft = Color(0xFF1B1B1B), inverse = Color(0xFF0B0B0B),
 )
 
 val LocalShelf = staticCompositionLocalOf { Light }
@@ -95,6 +101,44 @@ val LocalShelf = staticCompositionLocalOf { Light }
 val shelf: ShelfColors @Composable get() = LocalShelf.current
 
 val Mono = FontFamily.Monospace
+
+/**
+ * Spacing on Material's 4 dp baseline grid, so every margin and gap is one of these.
+ * Screen edges use [Space.edge]; tablets get more room through [contentPadding].
+ */
+object Space {
+    val xs = 4.dp
+    val s = 8.dp
+    val m = 12.dp
+    val l = 16.dp
+    val xl = 24.dp
+    val xxl = 32.dp
+    val edge = 16.dp
+}
+
+/** The text sizes of the app, a reduced Material 3 type scale. */
+object TextSize {
+    val display = 28.sp
+    val headline = 22.sp
+    val title = 20.sp
+    val subtitle = 16.sp
+    val body = 15.sp
+    val bodySmall = 14.sp
+    val label = 13.sp
+    val caption = 12.sp
+    val overline = 11.sp
+}
+
+/** Wider than a phone in portrait: tablets, foldables open, phones in landscape. */
+val isWide: Boolean
+    @Composable get() = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 600
+
+/** Text and forms stay readable on wide screens: about 75 characters per line at most. */
+val ReadableWidth = 640.dp
+
+/** Side margin of a screen: 16 dp on phones, 24 dp on tablets. */
+val edgePadding: Dp
+    @Composable get() = if (isWide) Space.xl else Space.edge
 
 @Composable
 fun AppTheme(content: @Composable () -> Unit) {
@@ -149,7 +193,7 @@ fun Header(
 ) {
     Column(Modifier.background(shelf.pane)) {
         Row(
-            Modifier.fillMaxWidth().height(56.dp).padding(start = if (onBack != null) 4.dp else 16.dp, end = 8.dp),
+            Modifier.fillMaxWidth().height(64.dp).padding(start = if (onBack != null) 4.dp else edgePadding, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (onBack != null) {
@@ -157,18 +201,20 @@ fun Header(
             }
             leading?.let {
                 it()
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(Space.m))
             }
-            Text(
-                title, color = shelf.fg, fontSize = 18.sp, fontWeight = FontWeight.Bold,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
-            )
-            if (count != null) {
-                Spacer(Modifier.width(6.dp))
-                Text(count.toString(), color = shelf.muted, fontSize = 13.sp)
+            // Title and count take what the actions leave, so the actions always sit at the end
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    title, color = shelf.fg, fontSize = TextSize.title, fontWeight = FontWeight.Bold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).semantics { heading() },
+                )
+                if (count != null) {
+                    Spacer(Modifier.width(Space.s))
+                    Text(count.toString(), color = shelf.muted, fontSize = TextSize.bodySmall)
+                }
             }
-            Spacer(Modifier.weight(1f))
-            actions()
+            Row(verticalAlignment = Alignment.CenterVertically, content = actions)
         }
         HorizontalDivider(color = shelf.line)
     }
@@ -181,26 +227,26 @@ fun SearchBox(value: String, onChange: (String) -> Unit, placeholder: String, on
         value = value,
         onValueChange = onChange,
         singleLine = true,
-        textStyle = TextStyle(color = shelf.fg, fontSize = 15.sp),
+        textStyle = TextStyle(color = shelf.fg, fontSize = TextSize.subtitle),
         cursorBrush = SolidColor(shelf.fg),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { onSearch() }),
         modifier = modifier,
         decorationBox = { field ->
             Row(
-                Modifier.height(40.dp).clip(RoundedCornerShape(4.dp)).background(shelf.pane)
-                    .border(1.dp, shelf.lineStrong, RoundedCornerShape(4.dp)).padding(horizontal = 10.dp),
+                Modifier.height(48.dp).clip(RoundedCornerShape(6.dp)).background(shelf.pane)
+                    .border(1.dp, shelf.lineStrong, RoundedCornerShape(6.dp)).padding(start = Space.m, end = Space.xs),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Default.Search, null, tint = shelf.muted, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
+                Icon(Icons.Default.Search, null, tint = shelf.muted, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(Space.m))
                 Box(Modifier.weight(1f)) {
-                    if (value.isEmpty()) Text(placeholder, color = shelf.muted, fontSize = 15.sp)
+                    if (value.isEmpty()) Text(placeholder, color = shelf.muted, fontSize = TextSize.subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     field()
                 }
                 if (value.isNotEmpty()) {
-                    IconButton(onClick = { onChange("") }, modifier = Modifier.size(40.dp)) {
-                        Icon(Icons.Default.Close, stringResource(R.string.clear_search), tint = shelf.muted, modifier = Modifier.size(18.dp))
+                    IconButton(onClick = { onChange("") }) {
+                        Icon(Icons.Default.Close, stringResource(R.string.clear_search), tint = shelf.muted, modifier = Modifier.size(20.dp))
                     }
                 }
             }
@@ -212,32 +258,33 @@ fun SearchBox(value: String, onChange: (String) -> Unit, placeholder: String, on
 @Composable
 fun Badge(text: String) {
     Text(
-        text.uppercase(), color = shelf.muted, fontSize = 10.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp,
-        modifier = Modifier.border(1.dp, shelf.lineStrong, RoundedCornerShape(3.dp)).padding(horizontal = 5.dp, vertical = 1.dp),
+        text.uppercase(), color = shelf.muted, fontSize = TextSize.overline, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp,
+        lineHeight = 16.sp, maxLines = 1,
+        modifier = Modifier.border(1.dp, shelf.lineStrong, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp),
     )
 }
 
 /** The black button of the web (Upload, Sign in). */
 @Composable
-fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, height: Dp = 36.dp) {
+fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, height: Dp = 40.dp) {
     Button(
-        onClick = onClick, enabled = enabled, shape = RoundedCornerShape(4.dp),
+        onClick = onClick, enabled = enabled, shape = RoundedCornerShape(6.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = shelf.fg, contentColor = shelf.inverse,
             disabledContainerColor = shelf.soft, disabledContentColor = shelf.muted,
         ),
-        contentPadding = PaddingValues(horizontal = 14.dp),
+        contentPadding = PaddingValues(horizontal = Space.l),
         modifier = modifier.height(height),
-    ) { Text(text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
+    ) { Text(text, fontWeight = FontWeight.SemiBold, fontSize = TextSize.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
 }
 
 @Composable
-fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, height: Dp = 48.dp) {
     OutlinedButton(
-        onClick = onClick, shape = RoundedCornerShape(4.dp), border = BorderStroke(1.dp, shelf.lineStrong),
+        onClick = onClick, shape = RoundedCornerShape(6.dp), border = BorderStroke(1.dp, shelf.lineStrong),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = shelf.fg),
-        contentPadding = PaddingValues(horizontal = 14.dp), modifier = modifier.height(36.dp),
-    ) { Text(text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
+        contentPadding = PaddingValues(horizontal = Space.l), modifier = modifier.height(height),
+    ) { Text(text, fontWeight = FontWeight.SemiBold, fontSize = TextSize.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
 }
 
 /** A field with its label above, as in the web's sign-in form. */
@@ -252,12 +299,12 @@ fun LabeledField(
     visualTransformation: VisualTransformation = VisualTransformation.None,
     trailing: (@Composable () -> Unit)? = null,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, color = shelf.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
+        Text(label, color = shelf.fg, fontSize = TextSize.label, fontWeight = FontWeight.SemiBold)
         OutlinedTextField(
             value = value, onValueChange = onChange, singleLine = true,
             placeholder = placeholder?.let { { Text(it, color = shelf.muted) } },
-            shape = RoundedCornerShape(4.dp),
+            shape = RoundedCornerShape(6.dp),
             visualTransformation = visualTransformation,
             trailingIcon = trailing,
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
@@ -268,14 +315,14 @@ fun LabeledField(
             ),
             modifier = Modifier.fillMaxWidth(),
         )
-        if (help != null) Text(help, color = shelf.muted, fontSize = 12.sp, lineHeight = 17.sp)
+        if (help != null) Text(help, color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
     }
 }
 
 /** A thin black bar on a soft track: how far a book was read. */
 @Composable
 fun ReadBar(fraction: Float, modifier: Modifier = Modifier) {
-    Box(modifier.height(3.dp).clip(RoundedCornerShape(2.dp)).background(shelf.soft)) {
+    Box(modifier.height(4.dp).clip(RoundedCornerShape(2.dp)).background(shelf.lineStrong.copy(alpha = 0.6f))) {
         Box(Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0f, 1f)).background(shelf.fg))
     }
 }
@@ -292,15 +339,21 @@ fun Spinner(modifier: Modifier = Modifier, size: Dp = 22.dp, onDark: Boolean = f
 /** A choice among a few, like the web sidebar's sections: filled when selected. */
 @Composable
 fun Pill(text: String, selected: Boolean, onClick: () -> Unit) {
+    // 32 dp to the eye, like Material's chips, but 48 dp to the finger
     Box(
-        Modifier.height(34.dp).clip(RoundedCornerShape(17.dp))
-            .background(if (selected) shelf.fg else shelf.pane)
-            .border(1.dp, if (selected) shelf.fg else shelf.lineStrong, RoundedCornerShape(17.dp))
-            .clickable(role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick)
-            .padding(horizontal = 14.dp),
+        Modifier.height(48.dp)
+            .selectable(selected = selected, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = if (selected) shelf.inverse else shelf.fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Box(
+            Modifier.height(32.dp).clip(RoundedCornerShape(16.dp))
+                .background(if (selected) shelf.fg else shelf.pane)
+                .border(1.dp, if (selected) shelf.fg else shelf.lineStrong, RoundedCornerShape(16.dp))
+                .padding(horizontal = Space.l),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text, color = if (selected) shelf.inverse else shelf.fg, fontSize = TextSize.label, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        }
     }
 }
 
@@ -314,24 +367,29 @@ fun EmptyState(
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
 ) {
     Column(
-        Modifier.fillMaxSize().padding(32.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Space.xxl),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (icon != null) {
-            Box(Modifier.size(56.dp).clip(RoundedCornerShape(28.dp)).background(shelf.soft), contentAlignment = Alignment.Center) {
-                Icon(icon, null, tint = shelf.fg, modifier = Modifier.size(26.dp))
+        Column(Modifier.widthIn(max = 400.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (icon != null) {
+                Box(Modifier.size(64.dp).clip(RoundedCornerShape(32.dp)).background(shelf.soft), contentAlignment = Alignment.Center) {
+                    Icon(icon, null, tint = shelf.fg, modifier = Modifier.size(28.dp))
+                }
+                Spacer(Modifier.height(Space.l))
             }
-            Spacer(Modifier.height(16.dp))
-        }
-        if (title != null) {
-            Text(title, color = shelf.fg, fontSize = 17.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            Spacer(Modifier.height(6.dp))
-        }
-        Text(text, color = shelf.muted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-        if (action != null) {
-            Spacer(Modifier.height(20.dp))
-            PrimaryButton(action, onAction)
+            if (title != null) {
+                Text(
+                    title, color = shelf.fg, fontSize = TextSize.title, fontWeight = FontWeight.Bold, lineHeight = 26.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.semantics { heading() },
+                )
+                Spacer(Modifier.height(Space.s))
+            }
+            Text(text, color = shelf.muted, fontSize = TextSize.bodySmall, lineHeight = 20.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            if (action != null) {
+                Spacer(Modifier.height(Space.xl))
+                PrimaryButton(action, onAction, height = 48.dp)
+            }
         }
     }
 }

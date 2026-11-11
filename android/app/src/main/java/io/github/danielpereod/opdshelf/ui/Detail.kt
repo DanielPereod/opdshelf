@@ -2,6 +2,13 @@ package io.github.danielpereod.opdshelf.ui
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -57,6 +64,7 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
     val downloading = downloads[detail.bookId]
     var confirmRemove by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
+    var cut by remember { mutableStateOf(false) }
 
     val title = entry?.title ?: local?.title.orEmpty()
     val authors = entry?.authors ?: local?.authors.orEmpty()
@@ -67,28 +75,36 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
 
     Column(modifier.fillMaxSize().background(shelf.bg)) {
         Header(stringResource(R.string.details), onBack = { library.closeDetail() })
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+          Column(Modifier.widthIn(max = ReadableWidth).fillMaxWidth().padding(horizontal = edgePadding, vertical = Space.xl)) {
             Row {
-                Cover(cover, title, format, loader, Modifier.size(width = 120.dp, height = 180.dp), large = true)
-                Spacer(Modifier.width(18.dp))
+                val wide = isWide
+                Cover(
+                    cover, title, format, loader,
+                    Modifier.size(width = if (wide) 160.dp else 120.dp, height = if (wide) 240.dp else 180.dp), large = true,
+                )
+                Spacer(Modifier.width(if (wide) Space.xl else Space.l))
                 Column(Modifier.weight(1f)) {
-                    Text(title, color = shelf.fg, fontSize = 22.sp, fontWeight = FontWeight.Bold, lineHeight = 27.sp)
+                    Text(
+                        title, color = shelf.fg, fontSize = TextSize.headline, fontWeight = FontWeight.Bold, lineHeight = 28.sp,
+                        modifier = Modifier.semantics { heading() },
+                    )
                     if (authors.isNotEmpty()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(authors.joinToString(", "), color = shelf.muted, fontSize = 15.sp)
+                        Spacer(Modifier.height(Space.xs))
+                        Text(authors.joinToString(", "), color = shelf.muted, fontSize = TextSize.body, lineHeight = 22.sp)
                     }
-                    Spacer(Modifier.height(12.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Spacer(Modifier.height(Space.m))
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s)) {
                         format?.let { Badge(it) }
-                        formatSize(size)?.let { Text(it, color = shelf.muted, fontSize = 12.sp, fontFamily = Mono) }
+                        formatSize(size)?.let { Text(it, color = shelf.muted, fontSize = TextSize.caption) }
                     }
                     if (local != null) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(stringResource(R.string.on_device), color = shelf.muted, fontSize = 12.sp)
+                        Spacer(Modifier.height(Space.s))
+                        Text(stringResource(R.string.on_device), color = shelf.muted, fontSize = TextSize.caption)
                     }
                 }
             }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(Space.xl))
 
             // The main action, always in the same place
             when {
@@ -99,7 +115,7 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
                         { openBook(local) }, Modifier.fillMaxWidth(), height = 48.dp,
                     )
                     if (local.percentage > 0) {
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(Space.m))
                         ReadBar(local.percentage.toFloat(), Modifier.fillMaxWidth())
                     }
                 }
@@ -108,7 +124,7 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
                         stringResource(R.string.downloading, percent(downloading.toDouble())), {},
                         Modifier.fillMaxWidth(), enabled = false, height = 48.dp,
                     )
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(Space.m))
                     ReadBar(downloading, Modifier.fillMaxWidth())
                 }
                 entry?.acquisition != null -> {
@@ -116,60 +132,68 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
                         listOfNotNull(stringResource(R.string.download), formatSize(size)).joinToString(" · "),
                         { library.download(entry) }, Modifier.fillMaxWidth(), height = 48.dp,
                     )
-                    Spacer(Modifier.height(8.dp))
-                    Text(stringResource(R.string.download_help), color = shelf.muted, fontSize = 12.sp, lineHeight = 17.sp)
+                    Spacer(Modifier.height(Space.s))
+                    Text(stringResource(R.string.download_help), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
                 }
             }
 
             // Where it was left, as the server knows it
             remote?.takeIf { it.timestamp > 0 }?.let { position ->
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(Space.xl))
                 Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(shelf.soft).padding(14.dp),
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(shelf.soft).padding(Space.l),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(if (position.manual) Icons.Outlined.FormatQuote else Icons.Outlined.Devices, null, tint = shelf.fg, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(Space.m))
                     Column(Modifier.weight(1f)) {
                         Text(
                             stringResource(if (position.manual) R.string.marked_on else R.string.left_on, position.device.ifEmpty { "?" }),
-                            color = shelf.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                            color = shelf.fg, fontSize = TextSize.bodySmall, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold,
                         )
                         Text(
                             "${percent(position.percentage)} · ${relativeTime(position.timestamp * 1000)}",
-                            color = shelf.muted, fontSize = 12.sp,
+                            color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp,
                         )
                         position.context?.selected?.takeIf { position.manual && it.isNotBlank() }?.let {
-                            Text("«$it»", color = shelf.muted, fontSize = 12.sp, maxLines = 2)
+                            Text("«$it»", color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
             }
 
             summary?.let {
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(Space.xxl))
                 SectionTitle(stringResource(R.string.summary))
                 Text(
-                    it, color = shelf.fg, fontSize = 15.sp, lineHeight = 22.sp,
-                    maxLines = if (expanded) Int.MAX_VALUE else 6,
-                    modifier = Modifier.animateContentSize().clickable { expanded = !expanded },
+                    it, color = shelf.fg, fontSize = TextSize.body, lineHeight = 24.sp,
+                    maxLines = if (expanded) Int.MAX_VALUE else 6, overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { layout -> if (!expanded) cut = layout.hasVisualOverflow },
+                    modifier = Modifier.animateContentSize(),
                 )
-                if (!expanded && it.length > 280) {
-                    Text(
-                        stringResource(R.string.read_more), color = shelf.fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = 6.dp).clickable { expanded = true },
-                    )
+                // Only when the summary really is cut: on a tablet six lines often hold all of it
+                if (!expanded && cut) {
+                    Box(
+                        Modifier.heightIn(min = 48.dp).clickable(role = Role.Button) { expanded = true },
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        Text(
+                            stringResource(R.string.read_more), color = shelf.fg, fontSize = TextSize.bodySmall, fontWeight = FontWeight.SemiBold,
+                            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                        )
+                    }
                 }
             }
 
             if (local != null) {
-                Spacer(Modifier.height(32.dp))
+                Spacer(Modifier.height(Space.xxl))
                 HorizontalDivider(color = shelf.line)
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(Space.l))
                 SecondaryButton(stringResource(R.string.remove_from_device), { confirmRemove = true }, Modifier.fillMaxWidth())
-                Spacer(Modifier.height(6.dp))
-                Text(stringResource(R.string.remove_help), color = shelf.muted, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(Space.s))
+                Text(stringResource(R.string.remove_help), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
             }
+          }
         }
     }
 

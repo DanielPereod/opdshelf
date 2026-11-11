@@ -1,6 +1,11 @@
 package io.github.danielpereod.opdshelf.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -48,9 +53,11 @@ fun SettingsScreen(library: LibraryViewModel, onSaved: () -> Unit, onDisconnect:
     Column(modifier.fillMaxSize().background(shelf.bg)) {
         Header(stringResource(R.string.tab_settings))
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 20.dp, vertical = 8.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding(),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            SectionTitle(stringResource(R.string.settings_server), Modifier.padding(top = 16.dp))
+          Column(Modifier.widthIn(max = ReadableWidth).fillMaxWidth().padding(horizontal = edgePadding, vertical = Space.s)) {
+            SectionTitle(stringResource(R.string.settings_server), Modifier.padding(top = Space.l))
             if (editServer) {
                 ConnectForm(
                     onConnected = { editServer = false; onSaved() },
@@ -59,45 +66,43 @@ fun SettingsScreen(library: LibraryViewModel, onSaved: () -> Unit, onDisconnect:
             } else {
                 InfoRow(stringResource(R.string.server), settings.serverUrl)
                 InfoRow(stringResource(R.string.username), settings.username.ifEmpty { "—" })
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(Space.l))
                 SecondaryButton(stringResource(R.string.change_server), { editServer = true }, Modifier.fillMaxWidth())
             }
 
-            SectionTitle(stringResource(R.string.settings_sync), Modifier.padding(top = 28.dp))
+            SectionTitle(stringResource(R.string.settings_sync), Modifier.padding(top = Space.xxl))
             SyncLine(status, onSync = { library.syncNow() })
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(Space.xl))
             LabeledField(
                 stringResource(R.string.device_name), device,
                 { device = it; settings.deviceName = it },
                 help = stringResource(R.string.device_name_help),
             )
-            Spacer(Modifier.height(12.dp))
-            Text(stringResource(R.string.sync_explained), color = shelf.muted, fontSize = 13.sp, lineHeight = 19.sp)
+            Spacer(Modifier.height(Space.l))
+            Text(stringResource(R.string.sync_explained), color = shelf.muted, fontSize = TextSize.label, lineHeight = 20.sp)
             if (settings.isConfigured) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(Space.s))
                 Text(
                     stringResource(R.string.koreader_hint, settings.serverUrl + "/kosync"),
-                    color = shelf.muted, fontSize = 13.sp, lineHeight = 19.sp,
+                    color = shelf.muted, fontSize = TextSize.label, lineHeight = 20.sp,
                 )
             }
 
-            SectionTitle(stringResource(R.string.settings_storage), Modifier.padding(top = 28.dp))
+            SectionTitle(stringResource(R.string.settings_storage), Modifier.padding(top = Space.xxl))
             InfoRow(
                 pluralStringResource(R.plurals.books_on_device, books.size, books.size),
                 formatSize(remember(books) { context.app.store.usedBytes() }) ?: "0 B",
             )
 
-            SectionTitle(stringResource(R.string.settings_about), Modifier.padding(top = 28.dp))
+            SectionTitle(stringResource(R.string.settings_about), Modifier.padding(top = Space.xxl))
             InfoRow(stringResource(R.string.version), BuildConfig.VERSION_NAME)
 
             if (settings.isConfigured) {
-                Spacer(Modifier.height(28.dp))
-                HorizontalDivider(color = shelf.line)
-                TextButton(onClick = { confirmDisconnect = true }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                    Text(stringResource(R.string.disconnect), color = shelf.fg, fontWeight = FontWeight.SemiBold)
-                }
+                Spacer(Modifier.height(Space.xxl))
+                SecondaryButton(stringResource(R.string.disconnect), { confirmDisconnect = true }, Modifier.fillMaxWidth())
             }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(Space.xl))
+          }
         }
     }
 
@@ -123,10 +128,17 @@ fun SettingsScreen(library: LibraryViewModel, onSaved: () -> Unit, onDisconnect:
 @Composable
 private fun InfoRow(label: String, value: String) {
     Column {
-        Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, color = shelf.muted, fontSize = 14.sp)
-            Spacer(Modifier.padding(horizontal = 8.dp))
-            Text(value, color = shelf.fg, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(vertical = Space.m).semantics(mergeDescendants = true) {},
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, color = shelf.muted, fontSize = TextSize.bodySmall, lineHeight = 20.sp)
+            Spacer(Modifier.width(Space.l))
+            Text(
+                value, color = shelf.fg, fontSize = TextSize.bodySmall, lineHeight = 20.sp, fontWeight = FontWeight.Medium,
+                maxLines = 1, overflow = TextOverflow.MiddleEllipsis, textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                modifier = Modifier.weight(1f),
+            )
         }
         HorizontalDivider(color = shelf.line)
     }

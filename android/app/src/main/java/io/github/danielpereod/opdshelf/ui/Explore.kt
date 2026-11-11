@@ -3,6 +3,8 @@ package io.github.danielpereod.opdshelf.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,7 +66,7 @@ import io.github.danielpereod.opdshelf.data.LocalBook
 /** The web's list/grid switch: two icons in a hairline box. */
 @Composable
 private fun ViewSwitch(grid: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.clip(RoundedCornerShape(4.dp)).border(1.dp, shelf.lineStrong, RoundedCornerShape(4.dp)).padding(2.dp)) {
+    Row(Modifier.padding(end = Space.s).clip(RoundedCornerShape(8.dp)).border(1.dp, shelf.lineStrong, RoundedCornerShape(8.dp)).padding(2.dp)) {
         SwitchOption(Icons.AutoMirrored.Outlined.ViewList, stringResource(R.string.view_list), !grid) { onChange(false) }
         SwitchOption(Icons.Outlined.GridView, stringResource(R.string.view_grid), grid) { onChange(true) }
     }
@@ -73,10 +75,11 @@ private fun ViewSwitch(grid: Boolean, onChange: (Boolean) -> Unit) {
 @Composable
 private fun SwitchOption(icon: ImageVector, label: String, selected: Boolean, onClick: () -> Unit) {
     Box(
-        Modifier.size(36.dp).clip(RoundedCornerShape(3.dp))
-            .background(if (selected) shelf.soft else shelf.pane).clickable(role = Role.Tab, onClick = onClick),
+        Modifier.size(width = 48.dp, height = 40.dp).clip(RoundedCornerShape(6.dp))
+            .background(if (selected) shelf.soft else shelf.pane)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Icon(icon, label, tint = if (selected) shelf.fg else shelf.muted, modifier = Modifier.size(18.dp)) }
+    ) { Icon(icon, label, tint = if (selected) shelf.fg else shelf.muted, modifier = Modifier.size(20.dp)) }
 }
 
 /** The server's catalog: sections, search, and books to open or download. */
@@ -111,17 +114,17 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
                         library.search(query.trim())
                     }
                 },
-                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = edgePadding, end = edgePadding, top = Space.m),
             )
             if (atRoot) {
                 Row(
-                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = edgePadding, vertical = Space.xs),
+                    horizontalArrangement = Arrangement.spacedBy(Space.s),
                 ) {
                     Section.entries.forEach { s -> Pill(stringResource(s.label), section == s) { library.selectSection(s) } }
                 }
             } else {
-                Spacer(Modifier.size(10.dp))
+                Spacer(Modifier.size(Space.m))
             }
             HorizontalDivider(color = shelf.line)
         }
@@ -149,10 +152,10 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
                 val useGrid = grid && hasBooks
                 LazyVerticalGrid(
                     state = list,
-                    columns = if (useGrid) GridCells.Adaptive(104.dp) else GridCells.Fixed(1),
-                    contentPadding = if (useGrid) PaddingValues(16.dp) else PaddingValues(0.dp),
-                    horizontalArrangement = Arrangement.spacedBy(if (useGrid) 14.dp else 0.dp),
-                    verticalArrangement = Arrangement.spacedBy(if (useGrid) 18.dp else 0.dp),
+                    columns = if (useGrid) GridCells.Adaptive(if (isWide) 128.dp else 104.dp) else GridCells.Fixed(1),
+                    contentPadding = if (useGrid) PaddingValues(horizontal = edgePadding, vertical = Space.l) else PaddingValues(0.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (useGrid) Space.l else 0.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (useGrid) Space.xl else 0.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     items(
@@ -180,7 +183,7 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
                     }
                     if (state.loadingMore) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
-                            Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) { Spinner() }
+                            Box(Modifier.fillMaxWidth().padding(Space.l), Alignment.Center) { Spinner() }
                         }
                     }
                 }
@@ -194,22 +197,22 @@ private fun FolderRow(entry: Entry, section: Section, onClick: () -> Unit) {
     val icon = if (section == Section.Authors) Icons.Outlined.Person else Icons.Outlined.Folder
     Column(Modifier.background(shelf.pane)) {
         Row(
-            Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().heightIn(min = 72.dp).clickable(onClick = onClick).padding(horizontal = edgePadding, vertical = Space.m),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.size(40.dp).clip(RoundedCornerShape(20.dp)).background(shelf.soft), contentAlignment = Alignment.Center) {
                 Icon(icon, null, tint = shelf.fg, modifier = Modifier.size(20.dp))
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(Space.l))
             Column(Modifier.weight(1f)) {
-                Text(entry.title, color = shelf.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(entry.title, color = shelf.fg, fontSize = TextSize.subtitle, fontWeight = FontWeight.SemiBold, lineHeight = 22.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val count = entry.summary?.let { Regex("""^(\d+) books?$""").find(it.trim()) }?.groupValues?.get(1)?.toIntOrNull()
                 val subtitle = count?.let { pluralStringResource(R.plurals.book_count, it, it) } ?: entry.summary
-                subtitle?.let { Text(it, color = shelf.muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                subtitle?.let { Text(it, color = shelf.muted, fontSize = TextSize.label, lineHeight = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
             Icon(Icons.Default.ChevronRight, null, tint = shelf.muted)
         }
-        HorizontalDivider(color = shelf.line)
+        HorizontalDivider(color = shelf.line, modifier = Modifier.padding(start = edgePadding + 56.dp))
     }
 }
 
@@ -227,38 +230,38 @@ private fun BookRow(
     Column(Modifier.background(shelf.pane)) {
         Row(
             Modifier.fillMaxWidth().clickable(onClickLabel = stringResource(R.string.details), onClick = onClick)
-                .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+                .padding(start = edgePadding, end = Space.s, top = Space.m, bottom = Space.m),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Cover(entry.thumbnailUrl ?: entry.coverUrl, entry.title, format, loader, Modifier.size(width = 40.dp, height = 60.dp))
-            Spacer(Modifier.width(12.dp))
+            Cover(entry.thumbnailUrl ?: entry.coverUrl, entry.title, format, loader, Modifier.size(width = 48.dp, height = 72.dp))
+            Spacer(Modifier.width(Space.l))
             Column(Modifier.weight(1f)) {
-                Text(entry.title, color = shelf.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(entry.title, color = shelf.fg, fontSize = TextSize.subtitle, fontWeight = FontWeight.SemiBold, lineHeight = 22.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (entry.authors.isNotEmpty()) {
-                    Text(entry.authors.joinToString(", "), color = shelf.muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(entry.authors.joinToString(", "), color = shelf.muted, fontSize = TextSize.label, lineHeight = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.padding(top = Space.xs), verticalAlignment = Alignment.CenterVertically) {
                     format?.let { Badge(it) }
                     formatSize(entry.acquisition?.length)?.let {
-                        Spacer(Modifier.width(8.dp))
-                        Text(it, color = shelf.muted, fontSize = 11.sp, fontFamily = Mono)
+                        Spacer(Modifier.width(Space.s))
+                        Text(it, color = shelf.muted, fontSize = TextSize.caption)
                     }
                     if (local != null) {
-                        Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.on_device), color = shelf.muted, fontSize = 11.sp)
+                        Spacer(Modifier.width(Space.s))
+                        Text(stringResource(R.string.on_device), color = shelf.muted, fontSize = TextSize.caption)
                     }
                 }
-                if (progress != null) ReadBar(progress, Modifier.fillMaxWidth().padding(top = 8.dp))
+                if (progress != null) ReadBar(progress, Modifier.fillMaxWidth().padding(top = Space.s))
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(Space.s))
             when {
-                local != null -> PrimaryButton(stringResource(R.string.read), { onRead(local) }, height = 36.dp)
+                local != null -> PrimaryButton(stringResource(R.string.read), { onRead(local) }, Modifier.padding(end = Space.s))
                 progress != null -> Box(Modifier.size(48.dp), Alignment.Center) { Spinner(size = 20.dp) }
                 else -> IconButton(onClick = onDownload) {
                     Icon(Icons.Outlined.Download, stringResource(R.string.download_title, entry.title), tint = shelf.fg)
                 }
             }
         }
-        HorizontalDivider(color = shelf.line)
+        HorizontalDivider(color = shelf.line, modifier = Modifier.padding(start = edgePadding + 64.dp))
     }
 }

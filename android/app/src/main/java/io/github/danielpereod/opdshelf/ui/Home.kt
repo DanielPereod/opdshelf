@@ -2,6 +2,7 @@ package io.github.danielpereod.opdshelf.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -67,7 +68,7 @@ fun HomeScreen(
     Column(modifier.fillMaxSize().background(shelf.bg)) {
         Header(
             stringResource(R.string.tab_home),
-            leading = { Image(painterResource(R.drawable.logo), null, Modifier.size(22.dp)) },
+            leading = { Image(painterResource(R.drawable.logo), null, Modifier.size(24.dp)) },
         )
         if (books.isEmpty()) {
             EmptyState(
@@ -92,10 +93,10 @@ fun HomeScreen(
         }
         val used = remember(books) { formatSize(context.app.store.usedBytes()) }
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(104.dp),
-            contentPadding = PaddingValues(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            columns = GridCells.Adaptive(if (isWide) 128.dp else 104.dp),
+            contentPadding = PaddingValues(horizontal = edgePadding, vertical = Space.l),
+            horizontalArrangement = Arrangement.spacedBy(Space.l),
+            verticalArrangement = Arrangement.spacedBy(Space.xl),
             modifier = Modifier.fillMaxSize(),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -107,14 +108,14 @@ fun HomeScreen(
                 }
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Column {
+                Column(Modifier.padding(top = Space.s)) {
                     SectionTitle(
                         listOfNotNull(
                             pluralStringResource(R.plurals.books_on_device, books.size, books.size),
                             used,
                         ).joinToString(" · "),
                     )
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = Space.xs), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
                         Sort.entries.forEach { Pill(stringResource(it.label), sort == it) { sort = it } }
                     }
                 }
@@ -130,8 +131,9 @@ fun HomeScreen(
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Text(
-                    stringResource(R.string.home_hint), color = shelf.muted, fontSize = 12.sp,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    stringResource(R.string.home_hint), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = Space.s),
                 )
             }
         }
@@ -143,36 +145,38 @@ private fun ContinueCard(book: LocalBook, loader: ImageLoader, onRead: () -> Uni
     val context = LocalContext.current
     val position = remember(book) { context.app.store.position(book.document)?.position }
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(shelf.pane)
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(shelf.pane)
+            .border(1.dp, shelf.line, RoundedCornerShape(12.dp))
             .clickable(onClickLabel = stringResource(R.string.details), onClick = onDetails)
-            .padding(16.dp),
+            .padding(Space.l),
     ) {
         SectionTitle(stringResource(if (book.percentage > 0) R.string.continue_reading else R.string.start_reading), Modifier.padding(top = 0.dp))
         Row {
             Cover(
                 book.coverFile?.let { File(context.app.store.booksDir, it) }, book.title,
-                book.format, loader, Modifier.size(width = 84.dp, height = 126.dp),
+                book.format, loader, Modifier.size(width = 88.dp, height = 132.dp),
             )
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(Space.l))
             Column(Modifier.weight(1f)) {
-                Text(book.title, color = shelf.fg, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis, lineHeight = 23.sp)
+                Text(book.title, color = shelf.fg, fontSize = TextSize.title, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis, lineHeight = 26.sp)
                 if (book.authors.isNotEmpty()) {
-                    Text(book.authors.joinToString(", "), color = shelf.muted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(Space.xs))
+                    Text(book.authors.joinToString(", "), color = shelf.muted, fontSize = TextSize.bodySmall, lineHeight = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(Space.m))
                 ReadBar(book.percentage.toFloat(), Modifier.fillMaxWidth())
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(Space.s))
                 val where = position?.takeIf { it.timestamp > 0 && it.device.isNotEmpty() }?.let {
                     stringResource(R.string.read_on, it.device, relativeTime(it.timestamp * 1000))
                 }
                 Text(
                     listOfNotNull(percent(book.percentage), where).joinToString(" · "),
-                    color = shelf.muted, fontSize = 12.sp, maxLines = 2,
+                    color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 2,
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(Space.l))
                 PrimaryButton(
                     stringResource(if (book.percentage > 0) R.string.continue_reading else R.string.read),
-                    onRead, height = 40.dp,
+                    onRead, height = 48.dp,
                 )
             }
         }

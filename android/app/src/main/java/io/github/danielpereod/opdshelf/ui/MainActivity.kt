@@ -13,6 +13,20 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Explore
@@ -105,13 +119,24 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
     BackHandler(enabled = detail == null && tab == Tab.Explore && stack.size > 1) { library.back() }
     BackHandler(enabled = detail == null && tab != Tab.Home && !(tab == Tab.Explore && stack.size > 1)) { tab = Tab.Home }
 
+    val wide = isWide
+    val tabs = listOf(
+        Triple(Tab.Home, Icons.AutoMirrored.Outlined.LibraryBooks, R.string.tab_home),
+        Triple(Tab.Explore, Icons.Outlined.Explore, R.string.tab_explore),
+        Triple(Tab.Settings, Icons.Outlined.Settings, R.string.tab_settings),
+    )
+    val select: (Tab) -> Unit = {
+        if (detail != null) library.closeDetail()
+        tab = it
+    }
     Scaffold(
         containerColor = shelf.bg,
         snackbarHost = {
             SnackbarHost(snackbar) { Snackbar(it, containerColor = shelf.fg, contentColor = shelf.inverse, shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)) }
         },
         bottomBar = {
-            if (detail == null) {
+            // Phones: a bar at the bottom. Wide screens get a rail at the side instead.
+            if (detail == null && !wide) {
                 Column {
                     HorizontalDivider(color = shelf.line)
                     NavigationBar(containerColor = shelf.pane, tonalElevation = 0.dp) {
@@ -119,31 +144,45 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
                             selectedIconColor = shelf.fg, selectedTextColor = shelf.fg, indicatorColor = shelf.soft,
                             unselectedIconColor = shelf.muted, unselectedTextColor = shelf.muted,
                         )
-                        NavigationBarItem(
-                            selected = tab == Tab.Home, onClick = { tab = Tab.Home }, colors = colors,
-                            icon = { Icon(Icons.AutoMirrored.Outlined.LibraryBooks, null) },
-                            label = { Text(stringResource(R.string.tab_home), fontWeight = FontWeight.Medium) },
-                        )
-                        NavigationBarItem(
-                            selected = tab == Tab.Explore, onClick = { tab = Tab.Explore }, colors = colors,
-                            icon = { Icon(Icons.Outlined.Explore, null) },
-                            label = { Text(stringResource(R.string.tab_explore), fontWeight = FontWeight.Medium) },
-                        )
-                        NavigationBarItem(
-                            selected = tab == Tab.Settings, onClick = { tab = Tab.Settings }, colors = colors,
-                            icon = { Icon(Icons.Outlined.Settings, null) },
-                            label = { Text(stringResource(R.string.tab_settings), fontWeight = FontWeight.Medium) },
-                        )
+                        tabs.forEach { (t, icon, label) ->
+                            NavigationBarItem(
+                                selected = tab == t, onClick = { select(t) }, colors = colors,
+                                icon = { Icon(icon, null) },
+                                label = { Text(stringResource(label), fontWeight = FontWeight.Medium, maxLines = 1) },
+                            )
+                        }
                     }
                 }
             }
         },
     ) { padding ->
-        val modifier = Modifier.padding(padding)
+      Row(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+        if (wide) {
+            NavigationRail(
+                containerColor = shelf.pane,
+                header = { Image(painterResource(R.drawable.logo), null, Modifier.padding(vertical = 12.dp).size(32.dp)) },
+            ) {
+                val colors = NavigationRailItemDefaults.colors(
+                    selectedIconColor = shelf.fg, selectedTextColor = shelf.fg, indicatorColor = shelf.soft,
+                    unselectedIconColor = shelf.muted, unselectedTextColor = shelf.muted,
+                )
+                Spacer(Modifier.height(Space.s))
+                tabs.forEach { (t, icon, label) ->
+                    NavigationRailItem(
+                        selected = tab == t && detail == null, onClick = { select(t) }, colors = colors,
+                        icon = { Icon(icon, null) },
+                        label = { Text(stringResource(label), fontWeight = FontWeight.Medium, maxLines = 1) },
+                        modifier = Modifier.padding(vertical = Space.xs),
+                    )
+                }
+            }
+            androidx.compose.foundation.layout.Box(Modifier.fillMaxHeight().width(1.dp).background(shelf.line))
+        }
+        val modifier = Modifier.weight(1f)
         val current = detail
         if (current != null) {
             DetailScreen(library, current, openBook, modifier)
-            return@Scaffold
+            return@Row
         }
         when (tab) {
             Tab.Home -> HomeScreen(
@@ -163,5 +202,6 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
                 modifier = modifier,
             )
         }
+      }
     }
 }

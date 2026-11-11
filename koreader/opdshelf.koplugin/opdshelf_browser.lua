@@ -28,6 +28,7 @@ local LeftContainer = require("ui/widget/container/leftcontainer")
 local LineWidget = require("ui/widget/linewidget")
 local NetworkMgr = require("ui/network/manager")
 local OverlapGroup = require("ui/widget/overlapgroup")
+local ProgressWidget = require("ui/widget/progresswidget")
 local ScrollTextWidget = require("ui/widget/scrolltextwidget")
 local Size = require("ui/size")
 local TextBoxWidget = require("ui/widget/textboxwidget")
@@ -42,7 +43,7 @@ local md5 = require("ffi/sha2").md5
 local util = require("util")
 local OPDS = require("opdshelf_opds")
 local T = require("ffi/util").template
-local _ = require("gettext")
+local _ = require("opdshelf_i18n")
 local Input = Device.input
 local Screen = Device.screen
 
@@ -78,9 +79,21 @@ local function seriesLine(entry)
     return entry.series
 end
 
--- A cover from the cache, or a frame with the title while it is not there
+-- A cover from the cache (a file path, or { bb = BlitBuffer } kept by the caller),
+-- or a frame with the title while it is not there
 local function coverWidget(entry, path, width, height)
-    if path then
+    if type(path) == "table" and path.bb then
+        return CenterContainer:new{
+            dimen = Geom:new{ w = width, h = height },
+            ImageWidget:new{
+                image = path.bb,
+                image_disposable = false,
+                width = width,
+                height = height,
+                scale_factor = 0,
+            },
+        }
+    elseif path then
         return CenterContainer:new{
             dimen = Geom:new{ w = width, h = height },
             ImageWidget:new{
@@ -125,19 +138,42 @@ local Item = InputContainer:extend{
 
 function Item:init()
     self.dimen = Geom:new{ x = 0, y = 0, w = self.width, h = self.height }
+    -- A frame around the content, so a tap can flash it like KOReader's own menus
+    self[1] = FrameContainer:new{
+        bordersize = 0, padding = 0, margin = 0,
+        background = Blitbuffer.COLOR_WHITE,
+        self[1],
+    }
     self.ges_events = {
         TapItem = { GestureRange:new{ ges = "tap", range = self.dimen } },
         HoldItem = { GestureRange:new{ ges = "hold", range = self.dimen } },
     }
 end
 
+function Item:flash()
+    local frame = self[1]
+    if not frame.dimen or G_reader_settings:isFalse("flash_ui") then return end
+    frame.invert = true
+    UIManager:widgetInvert(frame, frame.dimen.x, frame.dimen.y)
+    UIManager:setDirty(nil, "fast", frame.dimen)
+    UIManager:forceRePaint()
+    if UIManager.yieldToEPDC then UIManager:yieldToEPDC() end
+    frame.invert = false
+    UIManager:widgetInvert(frame, frame.dimen.x, frame.dimen.y)
+    UIManager:setDirty(nil, "ui", frame.dimen)
+end
+
 function Item:onTapItem()
+    self:flash()
     if self.callback then self.callback() end
     return true
 end
 
 function Item:onHoldItem()
-    if self.hold_callback then self.hold_callback() end
+    if self.hold_callback then
+        self:flash()
+        self.hold_callback()
+    end
     return true
 end
 
@@ -332,6 +368,16 @@ function Browser:listItem(entry, w, h)
         addLine(table.concat(entry.authors, ", "))
         addLine(seriesLine(entry), Font:getFace("cfont", 15))
         addLine(self:statusLine(entry), Font:getFace("cfont", 14))
+        local path, downloaded = self:localFile(entry)
+        local percent = downloaded and readPercent(path)
+        if percent and percent > 0 then
+            table.insert(lines, VerticalSpan:new{ width = Size.padding.small })
+            table.insert(lines, ProgressWidget:new{
+                width = math.min(text_w, Screen:scaleBySize(160)), height = Screen:scaleBySize(4),
+                percentage = percent, margin_h = 0, margin_v = 0, radius = 0, bordersize = 0,
+                bgcolor = Blitbuffer.COLOR_LIGHT_GRAY, fillcolor = Blitbuffer.COLOR_BLACK,
+            })
+        end
     else
         addLine(entry.summary)
     end
@@ -614,8 +660,23 @@ function Browser:onClose()
     self.closed = true
     self.cover_token = nil
     UIManager:close(self, "flashui")
-    if self.plugin then self.plugin.browser = nil end
+    if self.plugin and self.plugin.browser == self then
+        self.plugin.browser = nil
+        -- Opening the library again goes back to where it was
+        if self.stack[1] and not self.temporary then
+            self.plugin.library_session = { stack = self.stack, root = self.root, view = self.view }
+        end
+    end
     return true
+end
+
+-- Shows the library where it was left in this session
+function Browser:resume(session)
+    self.stack = session.stack
+    self.root = session.root
+    self.closed = false
+    UIManager:show(self)
+    self:refresh()
 end
 
 function Browser:showMenu()
@@ -687,7 +748,11 @@ function Browser:download(entry, after)
     end
     local function go()
         NetworkMgr:runWhenOnline(function()
-            local message = InfoMessage:new{ text = T(_("Downloading %1…"), entry.title), dismissable = false }
+            local size = formatSize(acquisition.length)
+            local message = InfoMessage:new{
+                text = size and T(_("Downloading %1 (%2)…"), entry.title, size) or T(_("Downloading %1…"), entry.title),
+                dismissable = false,
+            }
             UIManager:show(message)
             UIManager:forceRePaint()
             util.makePath(self.plugin:downloadDir())
@@ -697,7 +762,16 @@ function Browser:download(entry, after)
                 UIManager:show(InfoMessage:new{ text = T(_("Could not download the book: %1"), tostring(err)) })
                 return
             end
-            if not self.closed then self:refresh() end
+            -- Keep its cover, so the home screen shows it without opening the book
+            local cover = self:cachedCover(entry)
+            if cover then
+                local covers = self.plugin.state:readSetting("covers") or {}
+                covers[path] = cover
+                self.plugin.state:saveSetting("covers", covers)
+                self.plugin.state:flush()
+            end
+            if not self.closed and self.stack[1] then self:refresh() end
+            if self.on_download then self.on_download(path) end
             if after then after(path) end
         end)
     end
@@ -729,7 +803,9 @@ function Browser:quickDownload(entry)
 end
 
 function Browser:openBook(path)
-    self:onClose()
+    if self.on_open_book then self.on_open_book(path) end
+    if self.stack[1] then self:onClose() end
+    if self.plugin and self.plugin.home then self.plugin.home:onClose() end
     local ReaderUI = require("apps/reader/readerui")
     ReaderUI:showReader(path)
 end
@@ -790,12 +866,28 @@ function Browser:showDetails(entry)
     line(_("Publisher:"), entry.publisher)
     line(_("Published:"), entry.issued and entry.issued:sub(1, 10))
     if #entry.categories > 0 then line(_("Subjects:"), table.concat(entry.categories, ", ")) end
-    line(nil, self:statusLine(entry))
-
     local path, downloaded = self:localFile(entry)
+    local status = self:statusLine(entry)
+    if status ~= "" then
+        table.insert(info, VerticalSpan:new{ width = Size.padding.default })
+        table.insert(info, TextBoxWidget:new{
+            text = status, face = Font:getFace("cfont", 17), bold = downloaded, width = info_w,
+        })
+        local percent = downloaded and readPercent(path)
+        if percent and percent > 0 then
+            table.insert(info, VerticalSpan:new{ width = Size.padding.default })
+            table.insert(info, ProgressWidget:new{
+                width = info_w, height = Screen:scaleBySize(6), percentage = percent,
+                margin_h = 0, margin_v = 0, radius = 0, bordersize = 0,
+                bgcolor = Blitbuffer.COLOR_LIGHT_GRAY, fillcolor = Blitbuffer.COLOR_BLACK,
+            })
+        end
+    end
+
     local buttons = { {
         {
-            text = downloaded and _("Download again") or _("Download"),
+            text = downloaded and _("Download again") or _("Download only"),
+            font_bold = false,
             callback = function()
                 close()
                 self:download(entry)
@@ -803,6 +895,7 @@ function Browser:showDetails(entry)
         },
         {
             text = downloaded and _("Read") or _("Download and read"),
+            font_bold = true,
             callback = function()
                 close()
                 if downloaded then
@@ -858,5 +951,12 @@ function Browser:showDetails(entry)
     }
     UIManager:show(details)
 end
+
+-- Shared with the home screen
+Browser.coverWidget = coverWidget
+Browser.Item = Item
+Browser.readPercent = readPercent
+Browser.seriesLine = seriesLine
+Browser.COVER_RATIO = COVER_RATIO
 
 return Browser

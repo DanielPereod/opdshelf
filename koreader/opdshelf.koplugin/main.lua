@@ -12,6 +12,8 @@ OPDShelf for KOReader.
   sentence, so every device opens the book right there.
 - A library browser for the server's OPDS catalog, with covers as a list or
   a grid, search, book details and downloads.
+- A home screen that can replace KOReader's start screen: the book to
+  continue, the newest books on the server and the last ones read here.
 
 @module koplugin.opdshelf
 --]]
@@ -38,7 +40,7 @@ local Client = require("opdshelf_client")
 local Stream = require("opdshelf_stream")
 local Sync = require("opdshelf_sync")
 local T = require("ffi/util").template
-local _ = require("gettext")
+local _ = require("opdshelf_i18n")
 
 -- Words of text saved before and after a position, to find it again if the
 -- xpointer does not lead to the same words in another reader
@@ -68,6 +70,9 @@ local function utf8Head(s, max)
     return s:sub(1, cut)
 end
 
+-- Set when the home screen is asked for from a book, to show it in the file browser that follows
+local home_requested = false
+
 local function percent(value)
     return T(_("%1 %"), math.floor((value or 0) * 100 + 0.5))
 end
@@ -80,6 +85,16 @@ function OPDShelf:init()
     self:onDispatcherRegisterActions()
     if self.ui.menu then
         self.ui.menu:registerToMainMenu(self)
+    end
+    if not self.ui.document then
+        -- The file browser: show the home screen over it when it is the start screen
+        UIManager:nextTick(function()
+            local wanted = home_requested or G_reader_settings:readSetting("start_with") == "opdshelf"
+            home_requested = false
+            if self.ui.file_chooser and wanted then
+                self:showHome()
+            end
+        end)
     end
     if self.ui.highlight and self.ui.document then
         self.ui.highlight:addToHighlightDialog("12_opdshelf_last_position", function(highlight)
@@ -99,6 +114,9 @@ function OPDShelf:init()
 end
 
 function OPDShelf:onDispatcherRegisterActions()
+    Dispatcher:registerAction("opdshelf_home", {
+        category = "none", event = "OPDShelfHome", title = _("OPDShelf home"), general = true,
+    })
     Dispatcher:registerAction("opdshelf_library", {
         category = "none", event = "OPDShelfLibrary", title = _("OPDShelf library"), general = true,
     })
@@ -888,12 +906,24 @@ function OPDShelf:chooseDownloadDir(done)
     })
 end
 
-function OPDShelf:showLibrary(search)
+--- Opens the library: where it was left, at `url` if given, or searching.
+function OPDShelf:showLibrary(search, url, title)
     self:withAccount(function()
-        if self.browser then return end
+        if self.browser then
+            if search then self.browser:search() end
+            return
+        end
         local Browser = require("opdshelf_browser")
         self.browser = Browser:new{ plugin = self }
-        self.browser:start()
+        local session = self.library_session
+        if url then
+            self.browser:start(url, title)
+            if session then self.browser.root = session.root end
+        elseif session then
+            self.browser:resume(session)
+        else
+            self.browser:start()
+        end
         if search then self.browser:search() end
     end)
 end
@@ -901,6 +931,45 @@ end
 function OPDShelf:onOPDShelfLibrary()
     self:showLibrary()
     return true
+end
+
+function OPDShelf:showHome()
+    if self.home then return end
+    if self.ui.document then
+        -- From a book: go to the file browser, as KOReader's own start screens do,
+        -- and the plugin there shows the home screen
+        home_requested = true
+        self.ui:onHome()
+        return
+    end
+    local Home = require("opdshelf_home")
+    self.home = Home:new{ plugin = self }
+    self.home:show()
+end
+
+function OPDShelf:onOPDShelfHome()
+    self:showHome()
+    return true
+end
+
+-- Adds "OPDShelf home" to File browser → Settings → Start with
+function OPDShelf:addStartWith(menu_items)
+    local start_with = menu_items.start_with
+    if not start_with or not start_with.sub_item_table or start_with.opdshelf then return end
+    start_with.opdshelf = true
+    table.insert(start_with.sub_item_table, {
+        text = _("OPDShelf home"),
+        checked_func = function() return G_reader_settings:readSetting("start_with") == "opdshelf" end,
+        callback = function() G_reader_settings:saveSetting("start_with", "opdshelf") end,
+        radio = true,
+    })
+    local text_func = start_with.text_func
+    start_with.text_func = function()
+        if G_reader_settings:readSetting("start_with") == "opdshelf" then
+            return T(_("Start with: %1"), _("OPDShelf home"))
+        end
+        return text_func and text_func() or start_with.text
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -958,6 +1027,7 @@ local function choiceMenu(self, key, default, choices)
 end
 
 function OPDShelf:addToMainMenu(menu_items)
+    self:addStartWith(menu_items)
     menu_items.opdshelf = {
         text = _("OPDShelf"),
         sorting_hint = "tools",
@@ -969,12 +1039,25 @@ function OPDShelf:menuItems()
     local in_book = self:hasBook()
     return {
         {
+            text = _("Home"),
+            callback = function() self:showHome() end,
+        },
+        {
             text = _("Library"),
             callback = function() self:showLibrary() end,
         },
         {
             text = _("Search the library"),
             callback = function() self:showLibrary(true) end,
+        },
+        {
+            text = _("Show the home screen at start"),
+            help_text = _("Opens OPDShelf's home screen instead of the file browser when KOReader starts and after closing a book. Also in File browser → Settings → Start with."),
+            checked_func = function() return G_reader_settings:readSetting("start_with") == "opdshelf" end,
+            callback = function()
+                local on = G_reader_settings:readSetting("start_with") == "opdshelf"
+                G_reader_settings:saveSetting("start_with", on and "filemanager" or "opdshelf")
+            end,
             separator = true,
         },
         {

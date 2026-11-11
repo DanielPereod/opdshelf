@@ -307,4 +307,21 @@ check(p.stream.headers.Authorization == "Basic B64(admin:secret)", "with the log
 p:onSuspend()
 check(p.stream == nil, "closes it when the device sleeps")
 p:onCloseDocument()
+
+-- 10. The home screen as KOReader's start screen
+local start_with = { sub_item_table = { { text = "file browser" } }, text_func = function() return "Start with: file browser" end }
+local menu_items = { start_with = start_with }
+p:addToMainMenu(menu_items)
+p:addToMainMenu(menu_items)
+check(#start_with.sub_item_table == 2 and start_with.sub_item_table[2].text == "OPDShelf home", "adds the home screen to Start with, once")
+check(start_with.text_func() == "Start with: file browser", "keeps KOReader's text for its own choices")
+start_with.sub_item_table[2].callback()
+check(global_settings:readSetting("start_with") == "opdshelf" and start_with.sub_item_table[2].checked_func(), "can be chosen")
+check(start_with.text_func() == "Start with: OPDShelf home", "and says so")
+check(menu_items.opdshelf.sub_item_table_func()[1].text == "Home", "the plugin's menu opens it")
+global_settings:saveSetting("language", "es")
+local _es = dofile(plugin_dir .. "/opdshelf_i18n.lua")
+check(_es("Home") == "Inicio" and _es("Not in the catalog") == "Not in the catalog", "speaks Spanish, and English for the rest")
+global_settings:saveSetting("language", "en")
+check(_es("Home") == "Home", "and English otherwise")
 print("all good")

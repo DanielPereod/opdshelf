@@ -22,6 +22,10 @@ FROM alpine:3.22
 # pdfinfo/pdftoppm for PDF covers, bsdtar for CBR/CB7/CBT comics
 RUN apk add --no-cache poppler-utils libarchive-tools
 COPY --from=builder /app/target/release/opdshelf /usr/local/bin/opdshelf
+# The Android app, offered for download in the web panel. The publish workflow
+# builds it into apps/ before building the image; elsewhere the folder only
+# holds its README and the panel explains how to add the APK.
+COPY apps/ /app/apps/
 WORKDIR /app
 RUN mkdir -p /app/books
 

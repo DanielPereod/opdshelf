@@ -12,6 +12,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # The Android app goes inside the image, so every server offers it for download
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platforms;android-37.0
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build the Android app
+        working-directory: android
+        run: |
+          ./gradlew --no-daemon assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk ../apps/opdshelf.apk
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 

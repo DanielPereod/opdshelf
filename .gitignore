@@ -4,3 +4,4 @@ node_modules
 books/
 static/styles/app.css
 static/vendor/
+apps/*.apk

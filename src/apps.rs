@@ -1,8 +1,9 @@
 //! Downloads of OPDShelf's own reading apps from the web panel.
 //!
 //! The KOReader plugin is embedded in the binary and zipped on request, so it
-//! always matches the server. The Android app is too big to embed: it is
-//! served when its APK is copied to DATA_DIR/apps/opdshelf.apk.
+//! always matches the server. The Android app is too big to embed: the
+//! Docker image carries it in /app/apps (built by the publish workflow), and
+//! an APK copied to DATA_DIR/apps/opdshelf.apk takes its place.
 
 use axum::body::Body;
 use axum::extract::{Request, State};
@@ -24,9 +25,17 @@ struct Plugin;
 pub const PLUGIN_FILE: &str = "opdshelf.koplugin.zip";
 pub const APK_FILE: &str = "opdshelf.apk";
 
-/// Where the Android app is looked for.
+/// Where the Docker image keeps the Android app built with it.
+const BUNDLED_APPS: &str = "/app/apps";
+
+/// Where the Android app is: one added to DATA_DIR wins over the bundled one.
 pub fn apk_path(state: &AppState) -> PathBuf {
-    state.config.data_dir.join("apps").join(APK_FILE)
+    let own = state.config.data_dir.join("apps").join(APK_FILE);
+    let bundled = std::path::Path::new(BUNDLED_APPS).join(APK_FILE);
+    if !own.is_file() && bundled.is_file() {
+        return bundled;
+    }
+    own
 }
 
 /// Size in bytes of the Android app, when it is there to download.

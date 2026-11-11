@@ -63,7 +63,7 @@
 🔄 **Devices and sync page**
 - Every device that syncs (browsers, KOReader, the Android app) with its last activity, the books it is on and how far, and whether it is connected right now
 - Live feed of reading activity, and the addresses to set up OPDS apps, KOReader and the Android app
-- Download the KOReader plugin (always the one that matches the server) and the Android app from the panel. To offer the app, copy its APK to `DATA_DIR/apps/opdshelf.apk`
+- Download the KOReader plugin (always the one that matches the server) and the Android app from the panel. The Docker image carries the app; an APK copied to `DATA_DIR/apps/opdshelf.apk` takes its place
 - Reading progress in the library: **Reading** and **Finished** shelves, a **Continue reading** row, progress bars in the list and on the covers, and per-device positions in each book's panel
 
 🌍 **English and Spanish**

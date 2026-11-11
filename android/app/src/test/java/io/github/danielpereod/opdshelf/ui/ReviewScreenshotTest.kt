@@ -119,9 +119,17 @@ class ReviewScreenshotTest {
             Thread.sleep(1500); shot("$p-04d-sin-resultados")
             compose.runOnUiThread { library.back() }
         }
-        safe("detail-remote") { click("Recientes"); waitFor("La Regenta"); click("La Regenta"); waitFor("Descargar · "); shot("$p-06-ficha"); compose.runOnUiThread { library.closeDetail() } }
-        safe("detail-local") { click("Don Quijote de la Mancha"); waitFor("Seguir leyendo ·"); shot("$p-06b-ficha-local")
-            click("Quitar del dispositivo"); shot("$p-06c-dialogo-quitar"); click("Cancelar"); compose.runOnUiThread { library.closeDetail() } }
+        try {
+            safe("detail-remote") { click("Recientes"); waitFor("La Regenta"); click("La Regenta"); waitFor("Descargar · "); shot("$p-06-ficha") }
+        } finally {
+            compose.runOnUiThread { library.closeDetail() }
+        }
+        try {
+            safe("detail-local") { click("Don Quijote de la Mancha"); waitFor("Seguir leyendo ·"); shot("$p-06b-ficha-local")
+                click("Quitar del dispositivo"); shot("$p-06c-dialogo-quitar"); click("Cancelar") }
+        } finally {
+            compose.runOnUiThread { library.closeDetail() }
+        }
         click("Ajustes"); shot("$p-07-ajustes")
         safe("change-server") { click("Cambiar de servidor"); shot("$p-07b-ajustes-servidor") }
         safe("disconnect") { click("Mis libros"); click("Ajustes"); click("Desconectar de este servidor"); shot("$p-07c-dialogo-desconectar") }

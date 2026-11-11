@@ -2,6 +2,12 @@ package io.github.danielpereod.opdshelf.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.runtime.remember
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -64,11 +70,15 @@ fun HomeScreen(
     val loader = rememberImageLoader()
     val context = LocalContext.current
     var sort by rememberSaveable { mutableStateOf(Sort.Recent) }
+    var removing by remember { mutableStateOf<LocalBook?>(null) }
+    val wide = isWide
 
     Column(modifier.fillMaxSize().background(shelf.bg)) {
         Header(
             stringResource(R.string.tab_home),
-            leading = { Image(painterResource(R.drawable.logo), null, Modifier.size(24.dp)) },
+            // The rail already shows the logo on wide screens
+            leading = if (wide) null else ({ Logo(24.dp) }),
+            actions = { if (books.isNotEmpty()) SyncButton(status) { library.syncNow() } },
         )
         if (books.isEmpty()) {
             EmptyState(
@@ -93,18 +103,26 @@ fun HomeScreen(
         }
         val used = remember(books) { formatSize(context.app.store.usedBytes()) }
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(if (isWide) 128.dp else 104.dp),
+            columns = GridCells.Adaptive(gridCellWidth),
             contentPadding = PaddingValues(horizontal = edgePadding, vertical = Space.l),
-            horizontalArrangement = Arrangement.spacedBy(Space.l),
+            horizontalArrangement = Arrangement.spacedBy(if (wide) Space.l else Space.m),
             verticalArrangement = Arrangement.spacedBy(Space.xl),
             modifier = Modifier.fillMaxSize(),
         ) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                SyncLine(status, onSync = { library.syncNow() })
+            // Syncing is silent while it works: a line only when positions are waiting to be sent
+            if (status.pending > 0) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    SyncLine(status, onSync = { library.syncNow() })
+                }
             }
             if (current != null) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    ContinueCard(current, loader, onRead = { openBook(current) }, onDetails = { showDetail(current) })
+                    Box(Modifier.fillMaxWidth()) {
+                        ContinueCard(
+                            current, loader, onRead = { openBook(current) }, onDetails = { showDetail(current) },
+                            modifier = Modifier.widthIn(max = 720.dp),
+                        )
+                    }
                 }
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -127,6 +145,11 @@ fun HomeScreen(
                     format = book.format ?: book.fileName.substringAfterLast('.', ""),
                     loader = loader, progress = book.percentage,
                     onClick = { openBook(book) }, onLongClick = { showDetail(book) },
+                    menu = listOf(
+                        MenuAction(stringResource(R.string.read), Icons.AutoMirrored.Outlined.MenuBook) { openBook(book) },
+                        MenuAction(stringResource(R.string.details), Icons.Outlined.Info) { showDetail(book) },
+                        MenuAction(stringResource(R.string.remove_from_device), Icons.Outlined.Delete, destructive = true) { removing = book },
+                    ),
                 )
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -138,19 +161,31 @@ fun HomeScreen(
             }
         }
     }
+
+    removing?.let { book ->
+        ConfirmDialog(
+            title = stringResource(R.string.remove_title),
+            text = stringResource(R.string.remove_text, book.title),
+            confirm = stringResource(R.string.remove),
+            onConfirm = {
+                removing = null
+                library.delete(book)
+            },
+            onDismiss = { removing = null },
+        )
+    }
 }
 
 @Composable
-private fun ContinueCard(book: LocalBook, loader: ImageLoader, onRead: () -> Unit, onDetails: () -> Unit) {
+private fun ContinueCard(book: LocalBook, loader: ImageLoader, onRead: () -> Unit, onDetails: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val position = remember(book) { context.app.store.position(book.document)?.position }
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(shelf.pane)
+        modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(shelf.pane)
             .border(1.dp, shelf.line, RoundedCornerShape(12.dp))
             .clickable(onClickLabel = stringResource(R.string.details), onClick = onDetails)
             .padding(Space.l),
     ) {
-        SectionTitle(stringResource(if (book.percentage > 0) R.string.continue_reading else R.string.start_reading), Modifier.padding(top = 0.dp))
         Row {
             Cover(
                 book.coverFile?.let { File(context.app.store.booksDir, it) }, book.title,

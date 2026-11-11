@@ -40,6 +40,14 @@ enum class Section(@StringRes val label: Int, val path: String) {
     Folders(R.string.section_folders, "/opds/folders"),
 }
 
+/** A message under the screen, with what its button does: read the new book, or try again. */
+data class Notice(
+    val text: String,
+    @StringRes val action: Int? = null,
+    val book: LocalBook? = null,
+    val retry: Entry? = null,
+)
+
 /** The book whose details are open: from the catalog, or only on this device. */
 data class Detail(val entry: Entry?, val bookId: String)
 
@@ -57,8 +65,11 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _downloads = MutableStateFlow<Map<String, Float>>(emptyMap())
     val downloads: StateFlow<Map<String, Float>> = _downloads.asStateFlow()
 
-    private val _messages = MutableStateFlow<String?>(null)
-    val messages: StateFlow<String?> = _messages.asStateFlow()
+    private val _messages = MutableStateFlow<Notice?>(null)
+    val messages: StateFlow<Notice?> = _messages.asStateFlow()
+
+    /** Running downloads, to cancel them. */
+    private val jobs = mutableMapOf<String, kotlinx.coroutines.Job>()
 
     private val _detail = MutableStateFlow<Detail?>(null)
     val detail: StateFlow<Detail?> = _detail.asStateFlow()
@@ -129,7 +140,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 }
             } catch (e: Exception) {
                 update(state.url) { it.copy(loadingMore = false) }
-                _messages.value = text.describe(e)
+                _messages.value = Notice(text.describe(e))
             }
         }
     }
@@ -161,7 +172,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         val acquisition = entry.acquisition ?: return
         if (_downloads.value.containsKey(entry.id)) return
         _downloads.value = _downloads.value + (entry.id to 0f)
-        viewModelScope.launch {
+        jobs[entry.id] = viewModelScope.launch {
             try {
                 val base = sha1(entry.id).take(16)
                 val ext = extension(acquisition.url, acquisition.type)
@@ -191,19 +202,32 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 // Where it was left on other devices
                 runCatching { app.sync.start(document) }
                 if (_detail.value?.bookId == book.id) showDetail(entry, book.id)
-                _messages.value = text.getString(R.string.downloaded, book.title)
+                _messages.value = Notice(text.getString(R.string.downloaded, book.title), R.string.read, book = book)
                 onDone(book)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                app.store.booksDir.listFiles()?.filter { it.name.startsWith(sha1(entry.id).take(16)) }?.forEach { it.delete() }
+                _messages.value = Notice(text.getString(R.string.download_cancelled))
+                throw e
             } catch (e: Exception) {
-                _messages.value = text.describe(e)
+                _messages.value = Notice(text.describe(e), R.string.retry, retry = entry)
             } finally {
                 _downloads.value = _downloads.value - entry.id
+                jobs.remove(entry.id)
             }
         }
     }
 
+    fun cancelDownload(id: String) {
+        jobs[id]?.cancel()
+    }
+
     fun delete(book: LocalBook) {
         app.store.removeBook(book)
-        _messages.value = text.getString(R.string.removed, book.title)
+        _messages.value = Notice(text.getString(R.string.removed, book.title))
+    }
+
+    fun deleteAll() {
+        books.value.forEach { app.store.removeBook(it) }
     }
 
     fun syncNow() {

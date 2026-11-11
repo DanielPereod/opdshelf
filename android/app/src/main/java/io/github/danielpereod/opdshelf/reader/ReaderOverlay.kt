@@ -6,6 +6,17 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material.icons.outlined.SkipNext
+import androidx.compose.material.icons.outlined.SkipPrevious
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.stateDescription
+import io.github.danielpereod.opdshelf.ui.readerPalette
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectable
@@ -180,10 +191,23 @@ private fun TopBar(ui: ReaderUi, actions: ReaderActions) {
 private fun BottomBar(ui: ReaderUi, actions: ReaderActions) {
     var dragging by remember { mutableStateOf<Float?>(null) }
     val shown = dragging ?: ui.progression
+    val current = ui.toc.indexOfLast { it.href.substringBefore('#') == ui.currentHref?.substringBefore('#') }
+    val previous = ui.toc.getOrNull(current - 1)
+    val next = ui.toc.getOrNull(current + 1)
+    val progressLabel = stringResource(R.string.book_progress)
+    val progressValue = percent(shown.toDouble())
     Column(Modifier.fillMaxWidth().background(shelf.pane).navigationBarsPadding()) {
         HorizontalDivider(color = shelf.line)
-        Column(Modifier.padding(horizontal = Space.xl, vertical = Space.s)) {
+        Column(Modifier.padding(horizontal = Space.s, vertical = Space.s)) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { previous?.let(actions::goTo) }, enabled = previous != null) {
+                Icon(Icons.Outlined.SkipPrevious, stringResource(R.string.prev_chapter), tint = if (previous != null) shelf.fg else shelf.line)
+            }
             Slider(
+                modifier = Modifier.weight(1f).semantics {
+                    contentDescription = progressLabel
+                    stateDescription = progressValue
+                },
                 value = shown,
                 onValueChange = { dragging = it },
                 onValueChangeFinished = {
@@ -195,12 +219,16 @@ private fun BottomBar(ui: ReaderUi, actions: ReaderActions) {
                     activeTickColor = shelf.fg, inactiveTickColor = shelf.soft,
                 ),
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            IconButton(onClick = { next?.let(actions::goTo) }, enabled = next != null) {
+                Icon(Icons.Outlined.SkipNext, stringResource(R.string.next_chapter), tint = if (next != null) shelf.fg else shelf.line)
+            }
+          }
+            Row(Modifier.fillMaxWidth().padding(horizontal = Space.l), horizontalArrangement = Arrangement.SpaceBetween) {
                 val page = ui.page
                 val pages = ui.pages
+                // The chapter is already in the top bar: here, where in the book
                 Text(
-                    if (!ui.reflowable && page != null && pages != null) stringResource(R.string.page_of, page, pages)
-                    else ui.chapter.orEmpty(),
+                    if (page != null && pages != null) stringResource(R.string.page_of, page, pages) else "",
                     color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
@@ -244,13 +272,18 @@ internal fun TocSheet(ui: ReaderUi, onPick: (TocItem) -> Unit) {
                     Modifier.fillMaxWidth().heightIn(min = 48.dp)
                         .selectable(selected = selected, onClick = { onPick(item) })
                         .background(if (selected) shelf.soft else shelf.pane)
-                        .padding(start = (24 + item.depth * 16).dp, end = 24.dp, top = 12.dp, bottom = 12.dp),
+                        .height(androidx.compose.foundation.layout.IntrinsicSize.Min),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // The chapter being read: a bar at the edge besides the shade
+                    Box(Modifier.width(4.dp).fillMaxHeight().background(if (selected) shelf.fg else Color.Transparent))
+                    Spacer(Modifier.width((20 + item.depth * 16).dp))
                     Text(
                         item.title, color = shelf.fg, fontSize = TextSize.body, lineHeight = 22.sp,
                         fontWeight = if (selected || item.depth == 0) FontWeight.SemiBold else FontWeight.Normal,
+                        modifier = Modifier.weight(1f).padding(vertical = 12.dp),
                     )
+                    Spacer(Modifier.width(Space.xl))
                 }
             }
         }
@@ -260,6 +293,10 @@ internal fun TocSheet(ui: ReaderUi, onPick: (TocItem) -> Unit) {
 @Composable
 internal fun TextSheet(prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit) {
     Column(Modifier.padding(start = Space.xl, end = Space.xl, bottom = Space.xxl)) {
+        Text(
+            stringResource(R.string.text_title), color = shelf.fg, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(vertical = Space.s).semantics { heading() },
+        )
         SectionTitle(stringResource(R.string.text_size))
         Row(verticalAlignment = Alignment.CenterVertically) {
             SizeButton("A−", stringResource(R.string.text_smaller)) { onChange(prefs.copy(fontSize = (prefs.fontSize - 0.1).coerceAtLeast(0.6))) }
@@ -271,16 +308,23 @@ internal fun TextSheet(prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit) {
         }
         Spacer(Modifier.height(Space.s))
         SectionTitle(stringResource(R.string.theme))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Swatches of the page itself, so the choice is seen, not read
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
             listOf(R.string.theme_light, R.string.theme_sepia, R.string.theme_dark).forEachIndexed { i, label ->
-                Pill(stringResource(label), prefs.theme == i) { onChange(prefs.copy(theme = i)) }
+                ThemeSwatch(stringResource(label), readerPalette(i), prefs.theme == i) { onChange(prefs.copy(theme = i)) }
             }
         }
         Spacer(Modifier.height(Space.s))
         SectionTitle(stringResource(R.string.font))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(R.string.font_book, R.string.font_serif, R.string.font_sans).forEachIndexed { i, label ->
-                Pill(stringResource(label), prefs.font == i) { onChange(prefs.copy(font = i)) }
+                // Each written in its own letter
+                val family = when (i) {
+                    1 -> androidx.compose.ui.text.font.FontFamily.Serif
+                    2 -> androidx.compose.ui.text.font.FontFamily.SansSerif
+                    else -> null
+                }
+                Pill(stringResource(label), prefs.font == i, fontFamily = family) { onChange(prefs.copy(font = i)) }
             }
         }
         Spacer(Modifier.height(Space.s))
@@ -319,8 +363,36 @@ internal fun TextSheet(prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit) {
 private fun SizeButton(label: String, description: String, onClick: () -> Unit) {
     Box(
         Modifier.size(width = 72.dp, height = 48.dp).clip(RoundedCornerShape(8.dp)).background(shelf.soft)
-            .clickable(onClickLabel = description, onClick = onClick),
+            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .clearAndSetSemantics {
+                contentDescription = description
+                role = androidx.compose.ui.semantics.Role.Button
+                onClick { onClick(); true }
+            },
         contentAlignment = Alignment.Center,
     ) { Text(label, color = shelf.fg, fontSize = 16.sp, fontWeight = FontWeight.Bold) }
 }
 
+
+@Composable
+private fun ThemeSwatch(label: String, colors: io.github.danielpereod.opdshelf.ui.ShelfColors, selected: Boolean, onClick: () -> Unit) {
+    Column(
+        Modifier.clip(RoundedCornerShape(8.dp))
+            .selectable(selected = selected, role = androidx.compose.ui.semantics.Role.RadioButton, onClick = onClick)
+            .padding(Space.xs),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier.size(width = 72.dp, height = 48.dp).clip(RoundedCornerShape(8.dp)).background(colors.bg)
+                .border(if (selected) 2.dp else 1.dp, if (selected) shelf.fg else shelf.lineStrong, RoundedCornerShape(8.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(stringResource(R.string.theme_sample), color = colors.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(Space.xs))
+        Text(
+            label, color = shelf.fg, fontSize = TextSize.caption, lineHeight = 16.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+        )
+    }
+}

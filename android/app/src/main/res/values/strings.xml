@@ -62,7 +62,7 @@
     <string name="show_password">Show password</string>
     <string name="home_empty_title">No books on this device yet</string>
     <string name="home_empty_text">Download books from your library to read them here, also offline.</string>
-    <string name="home_hint">Tap a book to read it. Touch and hold it for details.</string>
+    <string name="home_hint">Tap a book to read it. Tap ⋮ or touch and hold it for more options.</string>
     <string name="koreader_hint">In KOReader, use %1$s as the Progress sync server, with the same username and password.</string>
     <string name="left_on">Left on %1$s</string>
     <string name="marked_on">Point marked on %1$s</string>
@@ -144,4 +144,36 @@
         <item quantity="one">%d book</item>
         <item quantity="other">%d books</item>
     </plurals>
+    <string name="more_options">More options for %1$s</string>
+    <string name="cancel_download">Cancel download</string>
+    <string name="download_cancelled">Download cancelled</string>
+    <string name="downloaded_short">Downloaded</string>
+    <string name="read_title">Read %1$s</string>
+    <string name="app_theme">Appearance</string>
+    <string name="theme_system">System</string>
+    <string name="copy">Copy</string>
+    <string name="copied">Copied</string>
+    <string name="koreader_url">KOReader sync server</string>
+    <string name="koreader_short">In KOReader, use it as Progress sync server with the same user and password.</string>
+    <string name="sync_short">Your place in each book is saved here and sent to the server whenever there is a connection.</string>
+    <string name="remove_all">Remove all downloads</string>
+    <string name="remove_all_title">Remove every book from this device?</string>
+    <string name="remove_all_text">The downloaded books are deleted from this device. Reading positions stay on the server.</string>
+    <string name="project_link">Project and bug reports</string>
+    <string name="empty_authors">No authors yet</string>
+    <string name="empty_authors_text">Authors come from the books\' metadata.</string>
+    <string name="empty_series">This server has no series</string>
+    <string name="empty_series_text">Series come from the books\' metadata, such as Calibre\'s series field.</string>
+    <string name="empty_folders">No folders</string>
+    <string name="empty_folders_text">All books are directly in the library folder.</string>
+    <string name="empty_library">The library is empty</string>
+    <string name="empty_library_text">Add books to the server\'s folder and they will show up here.</string>
+    <string name="prev_chapter">Previous chapter</string>
+    <string name="next_chapter">Next chapter</string>
+    <string name="book_progress">Book progress</string>
+    <string name="text_title">Text</string>
+    <string name="theme_sample">Aa</string>
+    <string name="open">Open</string>
+    <string name="disconnect_short">Disconnect</string>
+    <string name="logo">OPDShelf</string>
 </resources>

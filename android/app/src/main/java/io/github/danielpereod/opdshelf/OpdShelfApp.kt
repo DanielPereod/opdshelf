@@ -22,6 +22,7 @@ class OpdShelfApp : Application() {
     override fun onCreate() {
         super.onCreate()
         settings = Settings(this)
+        io.github.danielpereod.opdshelf.ui.AppearanceState.mode = settings.appearance
         api = Api(settings)
         store = LocalStore(filesDir)
         sync = ReadingSync(this, settings, api, store)

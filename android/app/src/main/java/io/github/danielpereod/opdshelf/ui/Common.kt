@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.DownloadDone
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -124,6 +125,7 @@ fun BookTile(
     downloaded: Boolean = false,
     downloading: Float? = null,
     onLongClick: (() -> Unit)? = null,
+    menu: List<MenuAction> = emptyList(),
 ) {
     Column(
         Modifier.clip(RoundedCornerShape(6.dp))
@@ -142,6 +144,9 @@ fun BookTile(
                     if (downloading != null) Spinner(size = 14.dp, onDark = true)
                     else Icon(Icons.Outlined.DownloadDone, null, tint = shelf.inverse, modifier = Modifier.size(14.dp))
                 }
+            }
+            if (menu.isNotEmpty()) {
+                MoreMenu(stringResource(R.string.more_options, title), menu, Modifier.align(Alignment.TopEnd), onImage = true)
             }
         }
         when {
@@ -172,14 +177,28 @@ fun SyncLine(status: SyncStatus, onSync: () -> Unit, modifier: Modifier = Modifi
     }
     Row(
         modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(8.dp)).background(shelf.soft)
-            .clickable(onClickLabel = stringResource(R.string.sync_now), onClick = onSync).padding(horizontal = Space.l, vertical = Space.s),
+            .padding(start = Space.l, end = Space.xs, top = Space.xs, bottom = Space.xs),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.m),
     ) {
         Icon(icon, null, tint = shelf.fg, modifier = Modifier.size(20.dp))
         Text(text, color = shelf.fg, fontSize = TextSize.label, lineHeight = 18.sp, modifier = Modifier.weight(1f))
-        if (status.syncing) Spinner(size = 20.dp)
-        else Text(stringResource(R.string.sync_now), color = shelf.fg, fontSize = TextSize.label, fontWeight = FontWeight.SemiBold)
+        SyncButton(status, onSync)
+    }
+}
+
+/** Sync now, as an icon: a spinner while sending. Fits the header and grows with no text. */
+@Composable
+fun SyncButton(status: SyncStatus, onSync: () -> Unit) {
+    if (status.syncing) {
+        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { Spinner(size = 20.dp) }
+    } else {
+        androidx.compose.material3.IconButton(onClick = onSync) {
+            Icon(
+                if (status.pending > 0 && status.failing) Icons.Outlined.CloudOff else Icons.Outlined.Sync,
+                stringResource(R.string.sync_now), tint = shelf.fg,
+            )
+        }
     }
 }
 

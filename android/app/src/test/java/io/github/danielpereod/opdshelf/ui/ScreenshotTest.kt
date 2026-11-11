@@ -199,6 +199,14 @@ class ScreenshotTest {
         shot("02-conectar-letra-grande")
     }
 
+    /** The app with the system font at 200 %, the largest Android offers. */
+    @Test
+    @Config(qualifiers = "es-rES-w360dp-h780dp-xxhdpi")
+    fun appHugeFont() {
+        org.robolectric.RuntimeEnvironment.setFontScale(2f)
+        screens("-letra-200")
+    }
+
     @Test
     @Config(qualifiers = "es-rES-w800dp-h1280dp-xhdpi")
     fun welcomeTablet() {
@@ -289,5 +297,26 @@ class ScreenshotTest {
             screen = i
             shot(name)
         }
+    }
+
+    /** Reading in sepia on a phone set to light: the bars are sepia too. */
+    @Test
+    fun readerSepia() {
+        compose.setContent {
+            AppTheme(readerPalette(1)) {
+                Box(Modifier.fillMaxSize().background(readerPalette(1).bg)) {
+                    Column(Modifier.padding(horizontal = 28.dp, vertical = 48.dp)) {
+                        repeat(7) {
+                            Text(
+                                "Este es un párrafo del capítulo segundo. La lectura avanza tranquila mientras el texto llena la pantalla con frases de ejemplo.",
+                                fontSize = 17.sp, lineHeight = 26.sp, color = Color(0xFF121212), modifier = Modifier.padding(top = 14.dp),
+                            )
+                        }
+                    }
+                    ReaderOverlay(remember { readerUi().apply { visible = true; prefs = ReaderPrefs(theme = 1) } }, noActions)
+                }
+            }
+        }
+        shot("09-lector-controles-sepia")
     }
 }

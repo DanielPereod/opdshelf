@@ -63,7 +63,7 @@ fun WelcomeScreen(onStart: () -> Unit, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.Center,
     ) {
       Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = Space.xl, vertical = Space.xxl + Space.s)) {
-        Image(painterResource(R.drawable.logo), null, Modifier.size(56.dp))
+        Logo(56.dp)
         Spacer(Modifier.height(Space.xl))
         Text(
             stringResource(R.string.welcome_title), color = shelf.fg, fontSize = TextSize.display, fontWeight = FontWeight.Bold, lineHeight = 36.sp,
@@ -117,18 +117,55 @@ fun ConnectForm(onConnected: () -> Unit, buttonText: String, modifier: Modifier 
     var showPassword by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    // Which field the error is about, to mark it
+    var badLogin by remember { mutableStateOf(false) }
+    var badServer by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val submit = {
+        if (!checking && server.isNotBlank()) {
+            focus.clearFocus()
+            settings.serverUrl = server
+            settings.username = username
+            settings.password = password
+            server = settings.serverUrl
+            checking = true
+            error = null
+            badLogin = false
+            badServer = false
+            scope.launch {
+                try {
+                    context.app.api.check()
+                    context.app.sync.schedule()
+                    onConnected()
+                } catch (e: Exception) {
+                    error = context.getString(R.string.cannot_connect, context.describe(e))
+                    badLogin = e is io.github.danielpereod.opdshelf.data.HttpError && e.code == 401
+                    badServer = !badLogin
+                } finally {
+                    checking = false
+                }
+            }
+        }
+    }
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(Space.l)) {
         LabeledField(
-            stringResource(R.string.server), server, { server = it; error = null },
+            stringResource(R.string.server), server, { server = it; error = null; badServer = false },
             placeholder = "192.168.1.10:3000", keyboardType = KeyboardType.Uri,
             help = stringResource(R.string.server_help),
+            imeAction = androidx.compose.ui.text.input.ImeAction.Next, isError = badServer, autoCorrect = false,
         )
-        LabeledField(stringResource(R.string.username), username, { username = it; error = null })
         LabeledField(
-            stringResource(R.string.password), password, { password = it; error = null },
+            stringResource(R.string.username), username, { username = it; error = null; badLogin = false },
+            imeAction = androidx.compose.ui.text.input.ImeAction.Next, isError = badLogin,
+            autofill = androidx.compose.ui.autofill.ContentType.Username, autoCorrect = false,
+        )
+        LabeledField(
+            stringResource(R.string.password), password, { password = it; error = null; badLogin = false },
             keyboardType = KeyboardType.Password,
+            imeAction = androidx.compose.ui.text.input.ImeAction.Done, onImeAction = submit, isError = badLogin,
+            autofill = androidx.compose.ui.autofill.ContentType.Password, autoCorrect = false,
             visualTransformation = if (showPassword) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
             trailing = {
                 PasswordToggle(showPassword) { showPassword = !showPassword }
@@ -137,10 +174,10 @@ fun ConnectForm(onConnected: () -> Unit, buttonText: String, modifier: Modifier 
         error?.let {
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(shelf.soft)
-                    .border(1.dp, shelf.lineStrong, RoundedCornerShape(8.dp)).padding(Space.m)
+                    .border(1.dp, shelf.danger, RoundedCornerShape(8.dp)).padding(Space.m)
                     .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
             ) {
-                Icon(Icons.Outlined.ErrorOutline, null, tint = shelf.fg, modifier = Modifier.size(20.dp))
+                Icon(Icons.Outlined.ErrorOutline, null, tint = shelf.danger, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(Space.m))
                 Text(it, color = shelf.fg, fontSize = TextSize.label, lineHeight = 20.sp, modifier = Modifier.weight(1f))
             }
@@ -150,25 +187,7 @@ fun ConnectForm(onConnected: () -> Unit, buttonText: String, modifier: Modifier 
             enabled = !checking && server.isNotBlank(),
             height = 48.dp,
             modifier = Modifier.fillMaxWidth(),
-            onClick = {
-                settings.serverUrl = server
-                settings.username = username
-                settings.password = password
-                server = settings.serverUrl
-                checking = true
-                error = null
-                scope.launch {
-                    try {
-                        context.app.api.check()
-                        context.app.sync.schedule()
-                        onConnected()
-                    } catch (e: Exception) {
-                        error = context.getString(R.string.cannot_connect, context.describe(e))
-                    } finally {
-                        checking = false
-                    }
-                }
-            },
+            onClick = submit,
         )
     }
 }

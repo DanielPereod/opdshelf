@@ -27,6 +27,7 @@ import io.github.danielpereod.opdshelf.data.Position
 import io.github.danielpereod.opdshelf.data.PositionContext
 import io.github.danielpereod.opdshelf.data.json
 import io.github.danielpereod.opdshelf.ui.AppTheme
+import io.github.danielpereod.opdshelf.ui.readerPalette
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
@@ -112,7 +113,8 @@ class ReaderActivity : AppCompatActivity() {
         container = FragmentContainerView(this).apply { id = View.generateViewId() }
         val overlay = ComposeView(this).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
-            setContent { AppTheme { ReaderOverlay(ui, actions) } }
+            // The bars take the page's colors (light, sepia or dark), not the system's
+            setContent { AppTheme(readerPalette(ui.prefs.theme)) { ReaderOverlay(ui, actions) } }
         }
         root = FrameLayout(this).apply {
             addView(container, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -187,7 +189,7 @@ class ReaderActivity : AppCompatActivity() {
         showBars(false)
         ui.reflowable = kind == Kind.EPUB
         ui.toc = flatten(pub.tableOfContents)
-        if (kind != Kind.EPUB) ui.pages = pub.positions().size.takeIf { it > 0 }
+        ui.pages = pub.positions().size.takeIf { it > 0 }
         ui.showHint = kind == Kind.EPUB && !app.settings.markHintShown
         lifecycleScope.launch {
             nav.currentLocator.collect { locator ->
@@ -418,6 +420,7 @@ class ReaderActivity : AppCompatActivity() {
             ui.prefs = prefs
             this@ReaderActivity.prefs.edit().putString("prefs", json.encodeToString(prefs)).apply()
             (navigator as? EpubNavigatorFragment)?.submitPreferences(epubPreferences(prefs))
+            showBars(ui.visible)
         }
 
         override fun dismissHint() = this@ReaderActivity.dismissHint()
@@ -439,8 +442,7 @@ class ReaderActivity : AppCompatActivity() {
         if (!show) ui.sheet = null
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        val night = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
-            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val night = ui.prefs.theme == 2
         controller.isAppearanceLightStatusBars = !night
         controller.isAppearanceLightNavigationBars = !night
         if (show) controller.show(WindowInsetsCompat.Type.systemBars())

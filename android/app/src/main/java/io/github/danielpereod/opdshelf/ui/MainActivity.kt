@@ -80,6 +80,17 @@ private enum class Setup { Welcome, Connect }
 @Composable
 fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
     val context = LocalContext.current
+    // Status and navigation bar icons follow the app's appearance, which can differ from the system's
+    val view = androidx.compose.ui.platform.LocalView.current
+    val dark = shelf.isDark
+    if (!view.isInEditMode) androidx.compose.runtime.SideEffect {
+        (view.context as? android.app.Activity)?.window?.let { window ->
+            androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = !dark
+                isAppearanceLightNavigationBars = !dark
+            }
+        }
+    }
     var configured by remember { mutableStateOf(context.app.settings.isConfigured) }
     var setup by rememberSaveable { mutableStateOf(Setup.Welcome) }
 
@@ -107,10 +118,15 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
     val message by library.messages.collectAsState()
     val detail by library.detail.collectAsState()
     val stack by library.stack.collectAsState()
+    val actionLabel = message?.action?.let { stringResource(it) }
     LaunchedEffect(message) {
         message?.let {
-            snackbar.showSnackbar(it)
+            val result = snackbar.showSnackbar(it.text, actionLabel, withDismissAction = false, duration = androidx.compose.material3.SnackbarDuration.Long.takeIf { _ -> actionLabel != null } ?: androidx.compose.material3.SnackbarDuration.Short)
             library.messageShown()
+            if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                it.book?.let(openBook)
+                it.retry?.let { entry -> library.download(entry) }
+            }
         }
     }
     LaunchedEffect(Unit) { library.openRoot() }
@@ -132,7 +148,12 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
     Scaffold(
         containerColor = shelf.bg,
         snackbarHost = {
-            SnackbarHost(snackbar) { Snackbar(it, containerColor = shelf.fg, contentColor = shelf.inverse, shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)) }
+            SnackbarHost(snackbar) {
+                Snackbar(
+                    it, containerColor = shelf.fg, contentColor = shelf.inverse, actionColor = shelf.inverse,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                )
+            }
         },
         bottomBar = {
             // Phones: a bar at the bottom. Wide screens get a rail at the side instead.
@@ -160,7 +181,7 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
         if (wide) {
             NavigationRail(
                 containerColor = shelf.pane,
-                header = { Image(painterResource(R.drawable.logo), null, Modifier.padding(vertical = 12.dp).size(32.dp)) },
+                header = { Logo(32.dp, Modifier.padding(vertical = 12.dp)) },
             ) {
                 val colors = NavigationRailItemDefaults.colors(
                     selectedIconColor = shelf.fg, selectedTextColor = shelf.fg, indicatorColor = shelf.soft,

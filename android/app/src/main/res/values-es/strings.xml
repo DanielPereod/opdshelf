@@ -61,7 +61,7 @@
     <string name="show_password">Mostrar contraseña</string>
     <string name="home_empty_title">Aún no hay libros en este dispositivo</string>
     <string name="home_empty_text">Descarga libros de tu biblioteca para leerlos aquí, también sin conexión.</string>
-    <string name="home_hint">Toca un libro para leerlo. Mantenlo pulsado para ver sus detalles.</string>
+    <string name="home_hint">Toca un libro para leerlo. Pulsa ⋮ o mantenlo pulsado para ver más opciones.</string>
     <string name="koreader_hint">En KOReader, usa %1$s como servidor de Progress sync, con el mismo usuario y contraseña.</string>
     <string name="left_on">Lo dejaste en %1$s</string>
     <string name="marked_on">Punto marcado en %1$s</string>
@@ -143,4 +143,36 @@
         <item quantity="one">%d libro</item>
         <item quantity="other">%d libros</item>
     </plurals>
+    <string name="more_options">Más opciones de %1$s</string>
+    <string name="cancel_download">Cancelar descarga</string>
+    <string name="download_cancelled">Descarga cancelada</string>
+    <string name="downloaded_short">Descargado</string>
+    <string name="read_title">Leer %1$s</string>
+    <string name="app_theme">Apariencia</string>
+    <string name="theme_system">Sistema</string>
+    <string name="copy">Copiar</string>
+    <string name="copied">Copiado</string>
+    <string name="koreader_url">Servidor para KOReader</string>
+    <string name="koreader_short">En KOReader, úsalo como servidor de Progress sync con el mismo usuario y contraseña.</string>
+    <string name="sync_short">Por dónde vas se guarda aquí y se envía al servidor cuando hay conexión.</string>
+    <string name="remove_all">Quitar todos los descargados</string>
+    <string name="remove_all_title">¿Quitar todos los libros de este dispositivo?</string>
+    <string name="remove_all_text">Se borran los libros descargados de este dispositivo. Las posiciones de lectura se conservan en el servidor.</string>
+    <string name="project_link">Proyecto y avisos de fallos</string>
+    <string name="empty_authors">Todavía no hay autores</string>
+    <string name="empty_authors_text">Los autores salen de los metadatos de los libros.</string>
+    <string name="empty_series">Este servidor no tiene series</string>
+    <string name="empty_series_text">Las series salen de los metadatos de los libros, como el campo serie de Calibre.</string>
+    <string name="empty_folders">No hay carpetas</string>
+    <string name="empty_folders_text">Todos los libros están directamente en la carpeta de la biblioteca.</string>
+    <string name="empty_library">La biblioteca está vacía</string>
+    <string name="empty_library_text">Añade libros a la carpeta del servidor y aparecerán aquí.</string>
+    <string name="prev_chapter">Capítulo anterior</string>
+    <string name="next_chapter">Capítulo siguiente</string>
+    <string name="book_progress">Progreso del libro</string>
+    <string name="text_title">Texto</string>
+    <string name="theme_sample">Aa</string>
+    <string name="open">Abrir</string>
+    <string name="disconnect_short">Desconectar</string>
+    <string name="logo">OPDShelf</string>
 </resources>

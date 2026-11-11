@@ -14,9 +14,11 @@
   <span id="progress"></span>
 </footer>
 
-<script data-key="{{book.path}}">
-  (function () {
-    const positionKey = 'opdshelf:text:' + document.currentScript.dataset.key;
+<script data-key="{{book.path}}" data-document="{{document}}">
+  (async function () {
+    const { key, document: documentId } = document.currentScript.dataset;
+    const legacyKey = 'opdshelf:text:' + key;
+    const sync = ReaderSync.create(documentId);
     const scroller = document.getElementById('scroller');
     const text = document.getElementById('text');
     let size = parseInt(storeGet('opdshelf:textsize') || '18', 10);
@@ -30,8 +32,22 @@
       document.getElementById('progress').textContent = pct + '%';
       document.getElementById('progressBar').style.width = pct + '%';
     }
-    scroller.scrollTop = Number(storeGet(positionKey) || 0);
+    // Plain text is synced by how far down it is
+    const fraction = () => {
+      const max = scroller.scrollHeight - scroller.clientHeight;
+      return max > 0 ? scroller.scrollTop / max : 1;
+    };
+    const { record, from } = await sync.load();
+    if (record) scroller.scrollTop = record.percentage * (scroller.scrollHeight - scroller.clientHeight);
+    else scroller.scrollTop = Number(storeGet(legacyKey) || 0);
     showProgress();
-    scroller.addEventListener('scroll', () => { storeSet(positionKey, scroller.scrollTop); showProgress(); }, { passive: true });
+    if (from) ReaderSync.toast(`Continuing from ${from} (${Math.round(record.percentage * 100)}%)`);
+    let saved = fraction();
+    scroller.addEventListener('scroll', () => {
+      showProgress();
+      if (Math.abs(fraction() - saved) < 0.002) return;
+      saved = fraction();
+      sync.save({ progress: saved.toFixed(4), percentage: saved });
+    }, { passive: true });
   })();
 </script>

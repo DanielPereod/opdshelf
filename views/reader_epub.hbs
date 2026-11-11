@@ -13,6 +13,7 @@
   <div id="viewer" class="epub-viewer"></div>
   <button type="button" id="prev" class="page-turn prev" title="Previous page"><i class="fas fa-chevron-left"></i></button>
   <button type="button" id="next" class="page-turn next" title="Next page"><i class="fas fa-chevron-right"></i></button>
+  <button type="button" id="markBtn" class="mark-point" hidden><i class="fas fa-location-dot"></i> Set as last position</button>
   <div id="status" class="loading"><span><i class="fas fa-spinner fa-spin"></i> Loading…</span></div>
 </main>
 
@@ -24,16 +25,19 @@
 
 <script src="/static/vendor/epubjs/jszip.min.js"></script>
 <script src="/static/vendor/epubjs/epub.min.js"></script>
-<script data-url="/download/{{urlPath book.path}}?inline=1" data-key="{{book.path}}">
+<script src="/static/reader/xpointer.js"></script>
+<script data-url="/download/{{urlPath book.path}}?inline=1" data-key="{{book.path}}" data-document="{{document}}">
   (function () {
-    const { url, key } = document.currentScript.dataset;
-    const positionKey = 'opdshelf:epub:' + key;
+    const { url, key, document: documentId } = document.currentScript.dataset;
+    const legacyKey = 'opdshelf:epub:' + key;
+    const sync = ReaderSync.create(documentId);
     const status = document.getElementById('status');
     const progress = document.getElementById('progress');
     const progressBar = document.getElementById('progressBar');
     const chapter = document.getElementById('chapter');
     const toc = document.getElementById('toc');
     const tocList = document.getElementById('tocList');
+    const markBtn = document.getElementById('markBtn');
 
     const book = ePub(url, { openAs: 'epub' });
     const rendition = book.renderTo('viewer', { width: '100%', height: '100%', spread: 'auto' });
@@ -67,13 +71,11 @@
     showToc(wide.matches && storeGet('opdshelf:toc') !== '0');
     document.getElementById('tocBtn').onclick = () => showToc(toc.hidden);
 
-    rendition.display(storeGet(positionKey) || undefined)
-      .catch(() => rendition.display())
-      .then(() => status.remove())
-      .catch((err) => { status.textContent = 'Cannot open this book: ' + err; });
-
-    const prev = () => rendition.prev();
-    const next = () => rendition.next();
+    // Positions are only saved once the reader moves, so opening a book does
+    // not replace a point set on another device with the start of its page
+    let moved = false;
+    const prev = () => { moved = true; rendition.prev(); };
+    const next = () => { moved = true; rendition.next(); };
     document.getElementById('prev').onclick = prev;
     document.getElementById('next').onclick = next;
     const onKey = (e) => {
@@ -103,6 +105,7 @@
         button.style.setProperty('--depth', depth);
         button.dataset.href = item.href;
         button.onclick = () => {
+          moved = true;
           rendition.display(item.href);
           if (!wide.matches) showToc(false);
         };
@@ -128,21 +131,135 @@
     }
 
     let locationsReady = false;
-    book.ready.then(() => book.locations.generate(1600)).then(() => {
+    const located = book.ready.then(() => book.locations.generate(1600)).then(() => {
       locationsReady = true;
       const current = rendition.currentLocation();
       if (current && current.start) showProgress(current.start.cfi);
     });
+    function percentage(cfi, index) {
+      if (locationsReady) return book.locations.percentageFromCfi(cfi);
+      return index / Math.max(1, book.spine.length);
+    }
     function showProgress(cfi) {
       if (!locationsReady) return;
       const pct = Math.round(book.locations.percentageFromCfi(cfi) * 100);
       progress.textContent = pct + '%';
       progressBar.style.width = pct + '%';
     }
+
+    // A position as saved: KOReader's xpointer, the CFI and the text around it
+    function position(contents, range) {
+      const point = range.cloneRange();
+      point.collapse(true);
+      const cfi = contents.cfiFromRange(point);
+      return {
+        progress: XPointer.fromNode(point.startContainer, point.startOffset, contents.sectionIndex) || '',
+        cfi,
+        percentage: percentage(cfi, contents.sectionIndex),
+        context: XPointer.contextAt(contents.document, point.startContainer, point.startOffset),
+      };
+    }
+
     rendition.on('relocated', (location) => {
-      storeSet(positionKey, location.start.cfi);
       showProgress(location.start.cfi);
       markChapter(location.start.href);
+      markBtn.hidden = true;
+      if (!moved) return;
+      const contents = rendition.getContents().find((c) => c.sectionIndex === location.start.index);
+      if (!contents) return;
+      try {
+        sync.save(position(contents, contents.range(location.start.cfi)));
+      } catch {
+        sync.save({ progress: '', cfi: location.start.cfi, percentage: percentage(location.start.cfi, location.start.index) });
+      }
     });
+
+    // Select some text to make it the last position, exactly, on every device
+    let selection = null;
+    rendition.on('selected', (cfiRange, contents) => {
+      selection = { cfiRange, contents };
+      markBtn.hidden = false;
+    });
+    rendition.on('click', () => { if (selection) setTimeout(() => { selection = null; markBtn.hidden = true; }, 300); });
+    markBtn.onclick = () => {
+      if (!selection) return;
+      const { cfiRange, contents } = selection;
+      const range = contents.range(cfiRange);
+      const pos = position(contents, range);
+      pos.context.selected = range.toString().replace(/\s+/g, ' ').trim().slice(0, 200);
+      pos.manual = true;
+      contents.window.getSelection().removeAllRanges();
+      selection = null;
+      markBtn.hidden = true;
+      sync.save(pos).then(() => ReaderSync.toast('Last position set. Other devices will open the book here.'));
+    };
+
+    // Turns a saved position into a CFI the reader can open, and the range to highlight
+    async function target(record) {
+      let section = null;
+      let point = null;
+      // A CFI saved by a web reader is exact; otherwise follow KOReader's xpointer
+      if (record.cfi) {
+        try {
+          const cfi = new ePub.CFI(record.cfi);
+          section = book.spine.get(cfi.spinePos);
+          await section.load(book.load.bind(book));
+          const range = cfi.toRange(section.document);
+          if (range) point = { node: range.startContainer, offset: range.startOffset };
+        } catch {
+          point = null;
+        }
+      }
+      if (!point) {
+        section = book.spine.get(XPointer.spineIndex(record.progress));
+        if (!section || XPointer.spineIndex(record.progress) < 0) return null;
+        await section.load(book.load.bind(book));
+        point = XPointer.resolve(record.progress, section.document);
+        if (!point || !XPointer.matches(section.document, point, record.context)) {
+          point = XPointer.find(section.document, record.context, point) || point;
+        }
+        if (!point) return { cfi: section.href };
+      }
+      const doc = section.document;
+      const range = doc.createRange();
+      range.setStart(point.node, point.offset);
+      range.collapse(true);
+      const result = { cfi: section.cfiFromRange(range) };
+      const selected = record.context && record.context.selected;
+      if (record.manual && selected && point.node.nodeType === 3) {
+        const mark = doc.createRange();
+        mark.setStart(point.node, point.offset);
+        mark.setEnd(point.node, Math.min(point.node.length, point.offset + selected.length));
+        if (!mark.collapsed) result.highlight = section.cfiFromRange(mark);
+      }
+      return result;
+    }
+
+    async function open() {
+      const { record, from } = await sync.load();
+      let start = null;
+      if (record) {
+        start = await target(record).catch(() => null);
+        if (!start && record.percentage) {
+          await located;
+          start = { cfi: book.locations.cfiFromPercentage(record.percentage) };
+        }
+      } else if (storeGet(legacyKey)) {
+        start = { cfi: storeGet(legacyKey) };
+      }
+      await rendition.display(start ? start.cfi : undefined).catch(() => rendition.display());
+      status.remove();
+      if (start && start.highlight) {
+        rendition.annotations.highlight(start.highlight, {}, null, 'sync-mark');
+        setTimeout(() => rendition.annotations.remove(start.highlight, 'highlight'), 6000);
+      }
+      if (from) {
+        const pct = Math.round((record.percentage || 0) * 100);
+        ReaderSync.toast(record.manual
+          ? `Opened at the point set on ${from}`
+          : `Continuing from ${from} (${pct}%)`);
+      }
+    }
+    book.ready.then(open).catch((err) => { status.textContent = 'Cannot open this book: ' + err; });
   })();
 </script>

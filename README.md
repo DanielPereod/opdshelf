@@ -54,6 +54,8 @@
 
 📖 **Read in the browser**
 - EPUB reader with table of contents, font size, dark mode and position memory
+- Reading position synced between browsers, devices and KOReader, also after reading offline
+- Select a sentence and set it as the last position, so every device opens the book exactly there
 - PDF, comic (CBZ, CBR, CB7, CBT, with right-to-left mode) and TXT readers
 - Keyboard, touch swipe and mobile friendly
 
@@ -200,6 +202,39 @@ When authentication is enabled, readers log in with HTTP Basic auth using the sa
 | `/read/<path>` | Read a book in the browser |
 | `/download/<path>` | Download the original file |
 | `/healthz` | Health check (used by the Docker image) |
+
+---
+
+## Reading progress sync
+
+The web reader saves where you are on the server, so a book opens at the same place in any browser. While offline it keeps reading from a local copy and sends the position when the connection is back. Positions are stored in `DATA_DIR/progress.json`.
+
+A page number means a different place on every screen size, so EPUB positions point to a place in the text instead. To pin the exact sentence you stopped at, select it in the EPUB reader and choose **Set as last position**; other devices open the book on that sentence and highlight it.
+
+Which position wins:
+- The most recent one, by when it was read (not when it reached the server), so a position saved offline earlier does not replace newer reading done elsewhere.
+- A device that sends again the position it already had (readers do this when they close or sleep) has not moved, so it does not undo reading done meanwhile on another device.
+- The last 30 positions of each book are kept.
+
+### KOReader
+
+OPDShelf is also a KOReader sync server. In KOReader open a book, then **Tools → Progress sync**:
+
+1. **Custom sync server**: `https://your-server/kosync`
+2. **Register / Login**: choose **Login** with OPDShelf's `ADMIN_USERNAME` and `ADMIN_PASSWORD` (there is a single account)
+3. Keep **Document matching method** on **Binary** (the default). **Filename** also works while the file keeps its name.
+
+Books are matched by KOReader's partial MD5 of the file, so a position follows a book that is renamed or moved. KOReader's EPUB positions (xpointers) and the web reader's are translated in the browser, with the surrounding text saved alongside to find the place again if the two disagree.
+
+### Progress API
+
+| Method | URL | Content |
+|--------|-----|---------|
+| `GET` | `/api/progress/<document>` | `current` position and `history` of a book |
+| `PUT` | `/api/progress/<document>` | Save a position: `progress`, `percentage` (0–1), `device`, `device_id`, and optionally `cfi`, `context` (`before`, `after`, `selected`), `manual` and `timestamp` (Unix seconds, when it was read) |
+| `*` | `/kosync/...` | KOReader sync protocol (`users/auth`, `syncs/progress`) |
+
+`<document>` is KOReader's partial MD5 of the file. `progress` is an xpointer for reflowable books and the page number (from 1) for PDFs and comics.
 
 ---
 

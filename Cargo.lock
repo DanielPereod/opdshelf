@@ -1215,6 +1215,7 @@ dependencies = [
  "chrono",
  "encoding_rs",
  "form_urlencoded",
+ "futures-util",
  "handlebars",
  "hmac",
  "http-body-util",

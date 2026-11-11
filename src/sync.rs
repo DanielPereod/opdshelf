@@ -1,10 +1,17 @@
-//! HTTP side of reading progress: OPDShelf's own API (`/api/progress`) and a
-//! KOReader sync server (`/kosync`), both over the same saved positions.
+//! HTTP side of reading progress: OPDShelf's own API (`/api/progress`), its
+//! live feed of changes (`/api/progress/events`) and a KOReader sync server
+//! (`/kosync`), all over the same saved positions.
 
-use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::{Path, Query, State};
+use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json, Response};
+use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashSet;
+use std::convert::Infallible;
+use std::time::Duration;
+use tokio::sync::broadcast::error::RecvError;
 
 use crate::progress::{self, Update};
 use crate::web::AppState;
@@ -37,6 +44,7 @@ pub async fn get_progress(State(state): State<AppState>, Path(document): Path<St
         "document": document,
         "current": state.progress.current(&document),
         "history": state.progress.history(&document),
+        "server_time": now(),
     }))
     .into_response()
 }
@@ -56,10 +64,76 @@ pub async fn put_progress(
         )
             .into_response();
     }
-    match state.progress.update(&document, update, now()) {
-        Ok(current) => Json(json!({ "document": document, "current": current })).into_response(),
+    match state.progress.apply(&document, update, now()) {
+        Ok(saved) => Json(json!({
+            "document": document,
+            "current": saved.current,
+            "accepted": saved.accepted,
+            "server_time": now(),
+        }))
+        .into_response(),
         Err(err) => save_failed(err),
     }
+}
+
+#[derive(Deserialize)]
+pub struct EventsQuery {
+    /// Comma separated document ids to hear about. Every book when missing.
+    #[serde(default)]
+    documents: Option<String>,
+}
+
+/// Server-sent events with every change of a book's current position, so a
+/// device that has the book open can follow reading done elsewhere at once.
+///
+/// Sends `hello` with the server's time when connecting, then a `progress`
+/// event (`{document, current}`) per change, and `resync` when changes were
+/// missed and the client should fetch its books' positions again.
+pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQuery>) -> Response {
+    let wanted: Option<HashSet<String>> = query.documents.map(|list| {
+        list.split(',')
+            .map(str::trim)
+            .filter(|d| progress::valid_document(d))
+            .map(str::to_string)
+            .collect()
+    });
+    let hello = Event::default()
+        .event("hello")
+        .data(json!({ "server_time": now() }).to_string());
+    let changes = state.progress.subscribe();
+    let stream = futures_util::stream::unfold(
+        (Some(hello), changes, wanted),
+        |(first, mut changes, wanted)| async move {
+            if let Some(event) = first {
+                return Some((Ok::<_, Infallible>(event), (None, changes, wanted)));
+            }
+            loop {
+                let event = match changes.recv().await {
+                    Ok(change) => {
+                        if wanted.as_ref().is_some_and(|w| !w.contains(&change.document)) {
+                            continue;
+                        }
+                        Event::default()
+                            .event("progress")
+                            .data(serde_json::to_string(&change).unwrap_or_default())
+                    }
+                    Err(RecvError::Lagged(_)) => Event::default().event("resync").data("{}"),
+                    Err(RecvError::Closed) => return None,
+                };
+                return Some((Ok(event), (None, changes, wanted)));
+            }
+        },
+    );
+    let sse = Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(20)));
+    // Proxies such as nginx would otherwise hold events back
+    (
+        [
+            (header::CACHE_CONTROL, "no-cache"),
+            (header::HeaderName::from_static("x-accel-buffering"), "no"),
+        ],
+        sse,
+    )
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------

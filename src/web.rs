@@ -94,6 +94,7 @@ pub fn router(config: Config) -> Router {
         .route("/admin/lookup", get(edit::lookup))
         .route("/user/login", get(login_page).post(login))
         .route("/user/logout", post(logout))
+        .route("/api/progress/events", get(sync::events))
         .route(
             "/api/progress/{document}",
             get(sync::get_progress).put(sync::put_progress),

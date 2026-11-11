@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
+use tokio::sync::broadcast;
 
 /// Positions kept per book, newest first.
 const HISTORY: usize = 30;
@@ -75,12 +76,35 @@ pub struct Update {
     /// When the position was reached. Defaults to now and is never in the future.
     #[serde(default)]
     pub timestamp: Option<i64>,
+    /// The device's clock when it sent the update (Unix seconds). With it the
+    /// server corrects `timestamp` for a device whose clock is wrong, which is
+    /// common on e-readers, so positions from different devices compare fairly.
+    #[serde(default)]
+    pub sent_at: Option<i64>,
+}
+
+/// A change of a book's current position, sent to clients listening for them.
+#[derive(Clone, Debug, Serialize)]
+pub struct Change {
+    pub document: String,
+    pub current: Record,
+}
+
+/// What became of a saved position.
+#[derive(Clone, Debug)]
+pub struct Saved {
+    /// The book's position to continue from after saving.
+    pub current: Record,
+    /// Whether the position sent is now the current one. When it is not, a
+    /// newer position from another device won and the client should offer it.
+    pub accepted: bool,
 }
 
 #[derive(Clone)]
 pub struct Progress {
     file: PathBuf,
     books: Arc<Mutex<HashMap<String, Vec<Record>>>>,
+    changes: broadcast::Sender<Change>,
 }
 
 impl Progress {
@@ -96,11 +120,24 @@ impl Progress {
         Self {
             file,
             books: Arc::new(Mutex::new(books)),
+            changes: broadcast::channel(256).0,
         }
+    }
+
+    /// Changes of current positions, as they happen.
+    pub fn subscribe(&self) -> broadcast::Receiver<Change> {
+        self.changes.subscribe()
     }
 
     /// Saves a position and returns the one now current.
     pub fn update(&self, document: &str, update: Update, now: i64) -> std::io::Result<Record> {
+        self.apply(document, update, now).map(|saved| saved.current)
+    }
+
+    /// Saves a position, says whether it won and tells listeners when the current one changed.
+    pub fn apply(&self, document: &str, update: Update, now: i64) -> std::io::Result<Saved> {
+        // How far the device's clock is from the server's
+        let skew = update.sent_at.map_or(0, |sent| now - sent);
         let record = Record {
             progress: clip(update.progress),
             percentage: if update.percentage.is_finite() {
@@ -120,16 +157,26 @@ impl Progress {
                 })
                 .filter(|c| !c.is_empty()),
             manual: update.manual,
-            timestamp: update.timestamp.map_or(now, |t| t.min(now)),
+            timestamp: update.timestamp.map_or(now, |t| t.saturating_add(skew).min(now)),
         };
-        let current = {
+        let (device_id, progress) = (record.device_id.clone(), record.progress.clone());
+        let (before, current) = {
             let mut books = self.books.lock().unwrap();
             let history = books.entry(document.to_string()).or_default();
+            let before = current(history).cloned();
             add(history, record);
-            current(history).cloned().expect("a position was just added")
+            (before, current(history).cloned().expect("a position was just added"))
         };
         self.save()?;
-        Ok(current)
+        let accepted = current.device_id == device_id && current.progress == progress;
+        if before.as_ref() != Some(&current) {
+            // Nobody listening is fine
+            let _ = self.changes.send(Change {
+                document: document.to_string(),
+                current: current.clone(),
+            });
+        }
+        Ok(Saved { current, accepted })
     }
 
     pub fn current(&self, document: &str) -> Option<Record> {
@@ -200,9 +247,12 @@ fn add(history: &mut Vec<Record>, record: Record) {
     history.truncate(HISTORY);
 }
 
-/// The position to continue from: the most recent one.
+/// The position to continue from: the most recent one. Of two read in the
+/// same second, the one that arrived last (first in the history).
 fn current(history: &[Record]) -> Option<&Record> {
-    history.iter().max_by_key(|r| r.timestamp)
+    history
+        .iter()
+        .reduce(|best, r| if r.timestamp > best.timestamp { r } else { best })
 }
 
 /// KOReader's document id: the MD5 of 1 KiB samples taken at 0, 1 KiB, 4 KiB,
@@ -310,6 +360,44 @@ mod tests {
         let current = p.update("doc", mark, 1000).unwrap();
         assert!(current.manual);
         assert_eq!(current.progress, "a");
+    }
+
+    #[test]
+    fn of_two_in_the_same_second_the_last_one_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = Progress::open(dir.path());
+        p.update("doc", update("kobo", "a", 100), 1000).unwrap();
+        assert_eq!(p.update("doc", update("phone", "b", 100), 1000).unwrap().progress, "b");
+    }
+
+    #[test]
+    fn a_wrong_clock_is_corrected() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = Progress::open(dir.path());
+        p.update("doc", update("web", "b", 1000), 1000).unwrap();
+        // A Kobo whose clock is an hour behind read this 10 s before sending it at 2000 server time
+        let mut late = update("kobo", "a", 2000 - 3600 - 10);
+        late.sent_at = Some(2000 - 3600);
+        let saved = p.apply("doc", late, 2000).unwrap();
+        assert!(saved.accepted);
+        assert_eq!(saved.current.timestamp, 1990);
+    }
+
+    #[test]
+    fn changes_are_announced() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = Progress::open(dir.path());
+        let mut changes = p.subscribe();
+        p.update("doc", update("kobo", "a", 100), 1000).unwrap();
+        let change = changes.try_recv().unwrap();
+        assert_eq!(
+            (change.document.as_str(), change.current.progress.as_str()),
+            ("doc", "a")
+        );
+        // An older position does not change the current one: nothing to announce, and it is not accepted
+        let saved = p.apply("doc", update("phone", "z", 50), 1000).unwrap();
+        assert!(!saved.accepted);
+        assert!(changes.try_recv().is_err());
     }
 
     #[test]

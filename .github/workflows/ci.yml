@@ -15,7 +15,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils libarchive-tools luajit lua-cjson
 
       - name: KOReader plugin
-        run: luajit koreader/test/plugin_test.lua koreader/opdshelf.koplugin
+        run: |
+          luajit koreader/test/plugin_test.lua koreader/opdshelf.koplugin
+          luajit koreader/test/library_test.lua koreader/opdshelf.koplugin
+          luajit koreader/test/browser_test.lua koreader/opdshelf.koplugin
 
       - uses: actions/setup-node@v4
         with:

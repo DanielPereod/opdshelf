@@ -16,11 +16,24 @@ android {
         versionName = "0.1.0"
     }
 
+    // One key shared by every build, here and in CI, so a newer APK installs over an older one
+    // without uninstalling it. It is for test builds only: anyone with the repository can sign with it.
+    signingConfigs {
+        create("test") {
+            storeFile = file("opdshelf-test.keystore")
+            storePassword = "opdshelf"
+            keyAlias = "opdshelf"
+            keyPassword = "opdshelf"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("test")
+        }
         release {
             isMinifyEnabled = false
-            // Signed with the debug key so the APK can be installed directly while testing
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("test")
         }
     }
 

@@ -1,12 +1,15 @@
 package io.github.danielpereod.opdshelf.ui
 
 import android.app.Application
+import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.danielpereod.opdshelf.R
 import io.github.danielpereod.opdshelf.app
 import io.github.danielpereod.opdshelf.data.Entry
 import io.github.danielpereod.opdshelf.data.Feed
 import io.github.danielpereod.opdshelf.data.LocalBook
+import io.github.danielpereod.opdshelf.data.Position
 import io.github.danielpereod.opdshelf.data.partialMd5
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,16 +23,33 @@ import java.security.MessageDigest
 
 data class FeedState(
     val url: String,
+    /** Shown instead of the feed's own title, e.g. for search results. */
+    val label: String? = null,
     val feed: Feed? = null,
     val loading: Boolean = true,
     val loadingMore: Boolean = false,
     val error: String? = null,
 )
 
+/** The ways into the catalog offered above it, as paths of OPDShelf's OPDS feeds. */
+enum class Section(@StringRes val label: Int, val path: String) {
+    Recent(R.string.section_recent, "/opds/books"),
+    Title(R.string.section_title, "/opds/books?sort=name-asc"),
+    Authors(R.string.section_authors, "/opds/authors"),
+    Series(R.string.section_series, "/opds/series"),
+    Folders(R.string.section_folders, "/opds/folders"),
+}
+
+/** The book whose details are open: from the catalog, or only on this device. */
+data class Detail(val entry: Entry?, val bookId: String)
+
 class LibraryViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application.app
 
-    /** The feeds opened, the last one on screen. */
+    private val _section = MutableStateFlow(Section.Recent)
+    val section: StateFlow<Section> = _section.asStateFlow()
+
+    /** The feeds opened inside the section, the last one on screen. */
     private val _stack = MutableStateFlow<List<FeedState>>(emptyList())
     val stack: StateFlow<List<FeedState>> = _stack.asStateFlow()
 
@@ -40,22 +60,37 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _messages = MutableStateFlow<String?>(null)
     val messages: StateFlow<String?> = _messages.asStateFlow()
 
-    val books = app.store.books
+    private val _detail = MutableStateFlow<Detail?>(null)
+    val detail: StateFlow<Detail?> = _detail.asStateFlow()
 
-    fun openRoot() {
+    /** The server's latest position of the book in the details, to say where it was left. */
+    private val _remote = MutableStateFlow<Position?>(null)
+    val remote: StateFlow<Position?> = _remote.asStateFlow()
+
+    val books = app.store.books
+    val syncStatus = app.sync.status
+
+    private val text get() = getApplication<Application>()
+
+    fun openRoot() = selectSection(_section.value)
+
+    fun selectSection(section: Section) {
         if (!app.settings.isConfigured) return
+        _section.value = section
         _stack.value = emptyList()
-        open(app.api.url("/"))
+        open(app.api.url(section.path))
     }
 
-    fun open(url: String) {
-        _stack.value = _stack.value + FeedState(url)
+    fun open(url: String, label: String? = null) {
+        _stack.value = _stack.value + FeedState(url, label)
         load(url)
     }
 
     fun search(query: String) {
-        val template = _stack.value.lastOrNull()?.feed?.searchUrl ?: app.api.url("/opds/search?q={searchTerms}")
-        open(template.replace("{searchTerms}", URLEncoder.encode(query, "UTF-8")))
+        val template = _stack.value.firstOrNull()?.feed?.searchUrl ?: app.api.url("/opds/search?q={searchTerms}")
+        // A new search replaces the previous results instead of piling up
+        if (_stack.value.lastOrNull()?.label != null && _stack.value.size > 1) _stack.value = _stack.value.dropLast(1)
+        open(template.replace("{searchTerms}", URLEncoder.encode(query, "UTF-8")), text.getString(R.string.results_for, query))
     }
 
     fun back(): Boolean {
@@ -75,7 +110,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 val feed = app.api.feed(url)
                 update(url) { it.copy(feed = feed, loading = false) }
             } catch (e: Exception) {
-                update(url) { it.copy(loading = false, error = getApplication<Application>().describe(e)) }
+                update(url) { it.copy(loading = false, error = text.describe(e)) }
             }
         }
     }
@@ -94,7 +129,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 }
             } catch (e: Exception) {
                 update(state.url) { it.copy(loadingMore = false) }
-                _messages.value = getApplication<Application>().describe(e)
+                _messages.value = text.describe(e)
             }
         }
     }
@@ -102,6 +137,25 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private fun update(url: String, change: (FeedState) -> FeedState) {
         _stack.value = _stack.value.map { if (it.url == url) change(it) else it }
     }
+
+    // -----------------------------------------------------------------------
+    // Book details
+
+    fun showDetail(entry: Entry?, bookId: String) {
+        _detail.value = Detail(entry, bookId)
+        _remote.value = null
+        val book = app.store.book(bookId) ?: return
+        viewModelScope.launch {
+            _remote.value = runCatching { app.api.getProgress(book.document) }.getOrNull()
+        }
+    }
+
+    fun closeDetail() {
+        _detail.value = null
+    }
+
+    // -----------------------------------------------------------------------
+    // Downloads
 
     fun download(entry: Entry, onDone: (LocalBook) -> Unit = {}) {
         val acquisition = entry.acquisition ?: return
@@ -113,7 +167,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 val ext = extension(acquisition.url, acquisition.type)
                 val file = File(app.store.booksDir, "$base.$ext")
                 app.api.download(acquisition.url, file) { p -> _downloads.value = _downloads.value + (entry.id to p) }
-                val cover = (entry.thumbnailUrl ?: entry.coverUrl)?.let { url ->
+                val cover = (entry.coverUrl ?: entry.thumbnailUrl)?.let { url ->
                     runCatching {
                         val coverFile = File(app.store.booksDir, "$base.cover")
                         app.api.download(url, coverFile) {}
@@ -129,20 +183,32 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                     mediaType = acquisition.type,
                     document = document,
                     coverFile = cover,
+                    summary = entry.summary,
+                    format = acquisition.format ?: ext.uppercase(),
+                    sizeBytes = file.length(),
                 )
                 app.store.addBook(book)
-                // Show how far it was read elsewhere
+                // Where it was left on other devices
                 runCatching { app.sync.start(document) }
+                if (_detail.value?.bookId == book.id) showDetail(entry, book.id)
+                _messages.value = text.getString(R.string.downloaded, book.title)
                 onDone(book)
             } catch (e: Exception) {
-                _messages.value = getApplication<Application>().describe(e)
+                _messages.value = text.describe(e)
             } finally {
                 _downloads.value = _downloads.value - entry.id
             }
         }
     }
 
-    fun delete(book: LocalBook) = app.store.removeBook(book)
+    fun delete(book: LocalBook) {
+        app.store.removeBook(book)
+        _messages.value = text.getString(R.string.removed, book.title)
+    }
+
+    fun syncNow() {
+        viewModelScope.launch { app.sync.flush() }
+    }
 
     fun messageShown() {
         _messages.value = null

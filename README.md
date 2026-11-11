@@ -268,7 +268,30 @@ cd android
 ./gradlew testDebugUnitTest
 ```
 
-The release APK is signed with the debug key so it can be installed directly. CI builds it on every pull request; download it from the run's artifacts.
+Builds without a release key are signed with a test key kept in the repository (`android/app/opdshelf-test.keystore`), so a newer test APK installs over an older one. CI builds one on every pull request; download it from the run's artifacts. Since the test key is public, those APKs are for testing only.
+
+#### Publishing a release
+
+Pushing a tag like `android-v1.2.0` builds the APK, signs it with the private release key and publishes it in GitHub Releases as `opdshelf-1.2.0.apk`. The version code comes from the tag (1.2.0 → 10200), so each release installs over the previous one.
+
+The release key is set up once. Create it and keep a copy of the file and its password somewhere safe: without them, later versions can no longer update the installed app.
+
+```sh
+keytool -genkeypair -keystore opdshelf-release.keystore -alias opdshelf \
+  -keyalg RSA -keysize 4096 -validity 36500
+gh secret set ANDROID_KEYSTORE_BASE64 < <(base64 -w0 opdshelf-release.keystore)
+gh secret set ANDROID_KEYSTORE_PASSWORD   # the password chosen above
+gh secret set ANDROID_KEY_PASSWORD        # the same password, unless a different one was given for the key
+gh secret set ANDROID_KEY_ALIAS --body opdshelf
+```
+
+Then:
+
+```sh
+git tag android-v1.0.0 && git push origin android-v1.0.0
+```
+
+Without those secrets the release workflow stops instead of publishing an APK signed with the public test key.
 
 ### Progress API
 

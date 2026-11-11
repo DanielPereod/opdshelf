@@ -6,25 +6,12 @@
         <item name="colorOnPrimary">@color/inverse</item>
     </style>
 
-    <style name="Theme.OPDShelf.Reader" parent="Theme.Material3.DayNight">
+    <style name="Theme.OPDShelf.Reader" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="android:windowBackground">@color/bg</item>
         <item name="colorPrimary">@color/fg</item>
         <item name="colorOnPrimary">@color/inverse</item>
         <item name="colorSurface">@color/pane</item>
         <item name="colorOnSurface">@color/fg</item>
         <item name="colorSurfaceContainer">@color/pane</item>
-        <item name="actionBarStyle">@style/OPDShelf.ActionBar</item>
-        <item name="actionBarTheme">@style/ThemeOverlay.Material3.ActionBar</item>
-    </style>
-
-    <style name="OPDShelf.ActionBar" parent="Widget.Material3.ActionBar.Solid">
-        <item name="background">@color/pane</item>
-        <item name="elevation">0dp</item>
-        <item name="titleTextStyle">@style/OPDShelf.ActionBar.Title</item>
-    </style>
-
-    <style name="OPDShelf.ActionBar.Title" parent="TextAppearance.Material3.TitleMedium">
-        <item name="android:textColor">@color/fg</item>
-        <item name="android:textStyle">bold</item>
     </style>
 </resources>

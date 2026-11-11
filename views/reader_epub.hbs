@@ -1,20 +1,20 @@
 <div data-controls>
-  <button type="button" id="tocBtn" class="icon-btn" title="Contents"><i class="fas fa-list-ul"></i></button>
-  <button type="button" id="smaller" class="icon-btn" title="Smaller text"><i class="fas fa-minus"></i></button>
-  <button type="button" id="larger" class="icon-btn" title="Larger text"><i class="fas fa-plus"></i></button>
+  <button type="button" id="tocBtn" class="icon-btn" title="{{t "Contents"}}" aria-label="{{t "Contents"}}"><i class="fas fa-list-ul"></i></button>
+  <button type="button" id="smaller" class="icon-btn" title="{{t "Smaller text"}}" aria-label="{{t "Smaller text"}}"><i class="fas fa-minus"></i></button>
+  <button type="button" id="larger" class="icon-btn" title="{{t "Larger text"}}" aria-label="{{t "Larger text"}}"><i class="fas fa-plus"></i></button>
 </div>
 
-<nav class="toc" id="toc" aria-label="Contents" hidden>
-  <h2>Contents</h2>
+<nav class="toc" id="toc" aria-label="{{t "Contents"}}" hidden>
+  <h2>{{t "Contents"}}</h2>
   <div id="tocList"></div>
 </nav>
 
 <main class="stage">
   <div id="viewer" class="epub-viewer"></div>
-  <button type="button" id="prev" class="page-turn prev" title="Previous page"><i class="fas fa-chevron-left"></i></button>
-  <button type="button" id="next" class="page-turn next" title="Next page"><i class="fas fa-chevron-right"></i></button>
-  <button type="button" id="markBtn" class="mark-point" hidden><i class="fas fa-location-dot"></i> Set as last position</button>
-  <div id="status" class="loading"><span><i class="fas fa-spinner fa-spin"></i> Loading…</span></div>
+  <button type="button" id="prev" class="page-turn prev" title="{{t "Previous page"}}" aria-label="{{t "Previous page"}}"><i class="fas fa-chevron-left"></i></button>
+  <button type="button" id="next" class="page-turn next" title="{{t "Next page"}}" aria-label="{{t "Next page"}}"><i class="fas fa-chevron-right"></i></button>
+  <button type="button" id="markBtn" class="mark-point" hidden><i class="fas fa-location-dot"></i> {{t "Set as last position"}}</button>
+  <div id="status" class="loading"><span><i class="fas fa-spinner fa-spin"></i> {{t "Loading…"}}</span></div>
 </main>
 
 <footer class="reader-foot">
@@ -114,7 +114,7 @@
         if (item.subitems) add(item.subitems, depth + 1);
       });
       add(nav.toc, 0);
-      if (!tocButtons.length) tocList.textContent = 'This book has no table of contents.';
+      if (!tocButtons.length) tocList.textContent = t('This book has no table of contents.');
     });
     const baseHref = (href) => (href || '').split('#')[0].split('/').pop();
     function markChapter(href) {
@@ -191,7 +191,7 @@
       contents.window.getSelection().removeAllRanges();
       selection = null;
       markBtn.hidden = true;
-      sync.save(pos).then(() => ReaderSync.toast('Last position set. Other devices will open the book here.'));
+      sync.save(pos).then(() => ReaderSync.toast(t('Last position set. Other devices will open the book here.')));
     };
 
     // Turns a saved position into a CFI the reader can open, and the range to highlight
@@ -256,10 +256,21 @@
       if (from) {
         const pct = Math.round((record.percentage || 0) * 100);
         ReaderSync.toast(record.manual
-          ? `Opened at the point set on ${from}`
-          : `Continuing from ${from} (${pct}%)`);
+          ? t('Opened at the point set on {device}', { device: from })
+          : t('Continuing from {device} ({pct}%)', { device: from, pct }));
       }
+      // Reading done meanwhile on another device
+      sync.follow((remote) => ReaderSync.remoteToast(remote, async () => {
+        const goal = await target(remote).catch(() => null)
+          || (remote.percentage ? { cfi: book.locations.cfiFromPercentage(remote.percentage) } : null);
+        if (!goal) return;
+        await rendition.display(goal.cfi);
+        if (goal.highlight) {
+          rendition.annotations.highlight(goal.highlight, {}, null, 'sync-mark');
+          setTimeout(() => rendition.annotations.remove(goal.highlight, 'highlight'), 6000);
+        }
+      }));
     }
-    book.ready.then(open).catch((err) => { status.textContent = 'Cannot open this book: ' + err; });
+    book.ready.then(open).catch((err) => { status.textContent = t('Cannot open this book: {reason}', { reason: err }); });
   })();
 </script>

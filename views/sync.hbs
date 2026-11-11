@@ -1,0 +1,335 @@
+<section class="main sync-page" id="syncView" {{#unless syncView}}hidden{{/unless}}>
+  <header class="toolbar">
+    <button type="button" class="icon-btn menu-btn" data-menu title="{{t "Shelves"}}" aria-label="{{t "Shelves"}}"><i
+        class="fas fa-bars"></i></button>
+    <h1>{{t "Sync"}}</h1>
+    <span class="live-pill" data-live-state="off" id="livePill">
+      <span class="live-dot"></span><span class="on">{{t "Live"}}</span><span class="off">{{t "Connecting…"}}</span>
+    </span>
+    <span class="spacer"></span>
+    <button type="button" class="icon-btn" id="syncRefresh" title="{{t "Refresh"}}" aria-label="{{t "Refresh"}}"><i
+        class="fas fa-arrows-rotate"></i></button>
+  </header>
+
+  <div class="sync-scroll">
+    <div class="sync-wrap">
+      <div class="stats" id="syncStats">
+        <div class="stat">
+          <span>{{t "Server"}}</span>
+          <strong data-live-state="off" class="live-text"><span class="on">{{t "Online"}}</span><span
+              class="off">{{t "Reconnecting…"}}</span></strong>
+          <small id="statClock">—</small>
+        </div>
+        <div class="stat">
+          <span>{{t "Devices"}}</span>
+          <strong id="statDevices">—</strong>
+          <small id="statLive">—</small>
+        </div>
+        <div class="stat">
+          <span>{{t "Books with progress"}}</span>
+          <strong id="statBooks">—</strong>
+          <small id="statReading">—</small>
+        </div>
+        <div class="stat">
+          <span>{{t "Last activity"}}</span>
+          <strong id="statLast">—</strong>
+          <small id="statLastWhere">—</small>
+        </div>
+      </div>
+
+      <section class="panel-section" aria-labelledby="devicesTitle">
+        <div class="section-head">
+          <h2 id="devicesTitle">{{t "Devices"}}</h2>
+          <small class="muted">{{t "Every app or browser that saved a reading position"}}</small>
+        </div>
+        <div class="devices" id="devices">
+          <div class="skeleton"></div>
+          <div class="skeleton"></div>
+        </div>
+      </section>
+
+      <div class="sync-columns">
+        <section class="panel-section" aria-labelledby="activityTitle">
+          <div class="section-head">
+            <h2 id="activityTitle">{{t "Recent activity"}}</h2>
+            <small class="muted">{{t "Updates live"}}</small>
+          </div>
+          <ol class="activity" id="activity"></ol>
+        </section>
+
+        <section class="panel-section" aria-labelledby="connectTitle">
+          <div class="section-head">
+            <h2 id="connectTitle">{{t "Connect your apps"}}</h2>
+          </div>
+          <div class="connect">
+            <div class="connect-item">
+              <h3><i class="fas fa-book-atlas"></i>{{t "Reading apps (OPDS)"}}</h3>
+              <p>{{t "Add this catalog in KOReader, Moon+ Reader, Thorium, Panels or any OPDS app."}}</p>
+              <div class="copy-row"><code class="mono" id="connectOpds">{{baseUrl}}/</code>
+                <button type="button" class="icon-btn" data-copy="connectOpds" title="{{t "Copy address"}}"
+                  aria-label="{{t "Copy address"}}"><i class="far fa-copy"></i></button></div>
+            </div>
+            <div class="connect-item">
+              <h3><i class="fas fa-tablet-screen-button"></i>{{t "OPDShelf for KOReader"}}</h3>
+              <p>{{t "Live position sync and your library with covers, inside KOReader."}}</p>
+              <a class="btn btn-primary btn-small" href="/apps/opdshelf.koplugin.zip" download><i
+                  class="fas fa-download"></i>{{t "Download the plugin"}}</a>
+              <ol class="steps">
+                <li>{{{t "Unzip it into KOReader's {folder} folder (on a Kobo, {path})." folder="<code>plugins</code>" path="<code>.adds/koreader/plugins</code>"}}}</li>
+                <li>{{t "Restart KOReader and open Tools › OPDShelf."}}</li>
+                <li>{{t "Enter this server's address and your OPDShelf user:"}}</li>
+              </ol>
+              <div class="copy-row"><code class="mono" id="connectKoreader">{{baseUrl}}</code>
+                <button type="button" class="icon-btn" data-copy="connectKoreader" title="{{t "Copy address"}}"
+                  aria-label="{{t "Copy address"}}"><i class="far fa-copy"></i></button></div>
+              {{#if username}}<p class="muted">{{t "User: {name}" name=username}}</p>{{/if}}
+            </div>
+            <div class="connect-item">
+              <h3><i class="fab fa-android"></i>{{t "OPDShelf for Android"}}</h3>
+              <p>{{t "Reads offline and syncs your position with every other device."}}</p>
+              <a class="btn btn-primary btn-small" href="/apps/opdshelf.apk" download><i
+                  class="fas fa-download"></i>{{t "Download the app"}}</a>
+              <p class="muted">{{t "Open the APK on the phone and allow installing apps from the browser if Android asks."}}</p>
+              <p>{{t "Use this server address when the app asks for it:"}}</p>
+              <div class="copy-row"><code class="mono" id="connectServer">{{baseUrl}}</code>
+                <button type="button" class="icon-btn" data-copy="connectServer" title="{{t "Copy address"}}"
+                  aria-label="{{t "Copy address"}}"><i class="far fa-copy"></i></button></div>
+            </div>
+            <p class="connect-note muted">{{#if apkLocal}}{{t "The app is downloaded from this server."}}{{else}}{{t "The app and the plugin are downloaded from the latest release on GitHub, so they stay up to date without updating the server."}}{{/if}}{{#if appsBeta}} {{t "This server is on the beta channel, so it offers the beta builds."}}{{/if}}</p>
+            <div class="connect-item">
+              <h3><i class="fas fa-globe"></i>{{t "This browser"}}</h3>
+              <p id="thisBrowser">{{t "Books read here sync with your other devices."}}</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  (function () {
+    const $ = (id) => document.getElementById(id);
+    const csrf = $('app').dataset.csrf;
+    const me = storeGet('opdshelf:device-id');
+    const ACTIVE = 5 * 60;
+    let devices = [];
+    let books = [];
+    let live = false;
+    let pending = null;
+
+    const pct = (value) => Math.round((value || 0) * 100);
+    const now = () => Date.now() / 1000 + (window.serverOffset || 0);
+
+    function bookLink(entry) {
+      if (entry.path) {
+        const a = document.createElement('a');
+        a.href = '/info/' + encodePath(entry.path);
+        a.dataset.panel = '';
+        a.textContent = entry.title || entry.path;
+        return a;
+      }
+      const span = document.createElement('span');
+      span.className = 'muted';
+      span.textContent = t('A book that is not in the library');
+      return span;
+    }
+
+    function cover(entry) {
+      const box = document.createElement('span');
+      box.className = 'thumb';
+      const row = entry.path && document.querySelector(`.book[data-path="${CSS.escape(entry.path)}"]`);
+      if (row && row.dataset.cover) {
+        const img = document.createElement('img');
+        img.src = row.dataset.cover; img.alt = ''; img.loading = 'lazy';
+        img.onerror = () => img.remove();
+        box.append(img);
+      } else {
+        box.classList.add('none');
+      }
+      return box;
+    }
+
+    function statusOf(device) {
+      if (device.live) return { key: 'live', text: t('Connected now') };
+      if (device.last_seen && now() - device.last_seen < ACTIVE) return { key: 'active', text: t('Active now') };
+      if (!device.last_seen) return { key: 'idle', text: t('Never synced') };
+      return { key: 'idle', text: t('Last seen {when}', { when: timeAgo(device.last_seen) }) };
+    }
+
+    function renderDevices() {
+      const box = $('devices');
+      if (!devices.length) {
+        box.innerHTML = '';
+        const empty = document.createElement('div');
+        empty.className = 'empty small';
+        empty.innerHTML = '<i class="fas fa-tablet-screen-button"></i>';
+        const strong = document.createElement('strong');
+        strong.textContent = t('No devices yet');
+        const text = document.createElement('span');
+        text.textContent = t('Open a book here, in KOReader or in the Android app and it will show up.');
+        empty.append(strong, text);
+        box.append(empty);
+        return;
+      }
+      box.replaceChildren(...devices.map((device) => {
+        const card = document.createElement('article');
+        card.className = 'device';
+        const status = statusOf(device);
+        card.dataset.status = status.key;
+
+        const head = document.createElement('div');
+        head.className = 'device-head';
+        const icon = document.createElement('span');
+        icon.className = 'device-icon';
+        icon.innerHTML = `<i class="${deviceIcon(device.device)}"></i>`;
+        const name = document.createElement('div');
+        name.className = 'device-name';
+        const title = document.createElement('strong');
+        title.textContent = device.device || t('Unknown device');
+        if (device.device_id === me) {
+          const tag = document.createElement('span');
+          tag.className = 'tag';
+          tag.textContent = t('this browser');
+          title.append(' ', tag);
+        }
+        const line = document.createElement('small');
+        line.innerHTML = '<span class="status-dot"></span>';
+        line.append(status.text);
+        name.append(title, line);
+        const forget = document.createElement('button');
+        forget.type = 'button';
+        forget.className = 'icon-btn';
+        forget.title = t('Forget this device');
+        forget.setAttribute('aria-label', t('Forget this device'));
+        forget.innerHTML = '<i class="far fa-trash-can"></i>';
+        forget.onclick = () => forgetDevice(device);
+        head.append(icon, name, forget);
+
+        const facts = document.createElement('div');
+        facts.className = 'device-facts';
+        facts.textContent = [
+          device.books === 1 ? t('1 book') : t('{n} books', { n: device.books }),
+          device.positions === 1 ? t('1 position') : t('{n} positions', { n: device.positions }),
+          device.connections > 1 ? t('{n} connections', { n: device.connections }) : null,
+        ].filter(Boolean).join(' · ');
+
+        const recent = document.createElement('ul');
+        recent.className = 'device-books';
+        device.recent.forEach((entry) => {
+          const li = document.createElement('li');
+          const text = document.createElement('div');
+          const bar = document.createElement('span');
+          bar.className = 'track';
+          bar.innerHTML = '<b></b>';
+          bar.firstChild.style.width = pct(entry.percentage) + '%';
+          const meta = document.createElement('small');
+          meta.textContent = pct(entry.percentage) + '% · ' + timeAgo(entry.timestamp)
+            + (entry.manual ? ' · ' + t('set by hand') : '');
+          text.append(bookLink(entry), bar, meta);
+          li.append(cover(entry), text);
+          recent.append(li);
+        });
+        card.append(head, facts);
+        if (device.recent.length) card.append(recent);
+        return card;
+      }));
+    }
+
+    function activityItem(entry, isNew) {
+      const li = document.createElement('li');
+      if (isNew) li.className = 'fresh';
+      const icon = document.createElement('i');
+      icon.className = deviceIcon(entry.current.device);
+      const text = document.createElement('div');
+      const line = document.createElement('span');
+      const who = document.createElement('strong');
+      who.textContent = entry.current.device || t('Unknown device');
+      line.append(who, ' ' + (entry.current.manual ? t('set a point in') : t('read')) + ' ');
+      line.append(bookLink(entry));
+      const meta = document.createElement('small');
+      meta.textContent = t('to {pct}%', { pct: pct(entry.current.percentage) }) + ' · ' + timeAgo(entry.current.timestamp);
+      text.append(line, meta);
+      li.append(icon, text);
+      return li;
+    }
+
+    function renderActivity(fresh) {
+      const box = $('activity');
+      if (!books.length) {
+        box.innerHTML = '';
+        const li = document.createElement('li');
+        li.className = 'muted';
+        li.textContent = t('Nothing read yet.');
+        box.append(li);
+        return;
+      }
+      box.replaceChildren(...books.slice(0, 12).map((b) => activityItem(b, fresh && b.document === fresh)));
+    }
+
+    function renderStats() {
+      const liveCount = devices.filter((d) => d.live).length;
+      const active = devices.filter((d) => d.live || (d.last_seen && now() - d.last_seen < ACTIVE)).length;
+      $('statDevices').textContent = devices.length;
+      $('statLive').textContent = liveCount
+        ? (liveCount === 1 ? t('1 connected now') : t('{n} connected now', { n: liveCount }))
+        : active === 1 ? t('1 active in the last minutes')
+          : active ? t('{n} active in the last minutes', { n: active }) : t('None connected now');
+      $('statBooks').textContent = books.length;
+      const reading = books.filter((b) => b.current.percentage > 0 && b.current.percentage < 0.98).length;
+      $('statReading').textContent = t('{n} in progress', { n: reading });
+      const last = books[0];
+      $('statLast').textContent = last ? timeAgo(last.current.timestamp) : '—';
+      $('statLastWhere').textContent = last ? (last.current.device || '') + (last.title ? ' · ' + last.title : '') : t('No activity yet');
+      const offset = window.serverOffset || 0;
+      $('statClock').textContent = Math.abs(offset) > 120
+        ? t("This device's clock is {n} min off", { n: Math.round(Math.abs(offset) / 60) })
+        : t('Clocks agree');
+      $('deviceCount').textContent = liveCount || '';
+    }
+
+    async function load(fresh) {
+      try {
+        const [d, p] = await Promise.all([
+          fetch('/api/devices', { headers: { Accept: 'application/json' } }).then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
+          fetch('/api/progress', { headers: { Accept: 'application/json' } }).then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
+        ]);
+        devices = d.devices;
+        books = p.books;
+        if (window.serverOffset === undefined) window.serverOffset = d.server_time - Date.now() / 1000;
+        renderDevices();
+        renderActivity(fresh);
+        renderStats();
+      } catch {
+        $('devices').textContent = t('Cannot load the devices.');
+      }
+    }
+
+    async function forgetDevice(device) {
+      const ok = await confirmAction(
+        t('Forget {device}?', { device: device.device || t('Unknown device') }),
+        t('Its saved positions are removed. Other devices keep theirs, and it shows up again if it syncs later.'),
+        t('Forget'));
+      if (!ok) return;
+      const response = await fetch('/api/devices/' + encodeURIComponent(device.device_id), {
+        method: 'DELETE',
+        headers: { 'X-CSRF-Token': csrf, Accept: 'application/json' },
+      });
+      if (response.ok) showToast(t('{device} forgotten', { device: device.device || t('Unknown device') }));
+      else showToast(t('Cannot forget the device: {reason}', { reason: response.statusText }));
+      load();
+    }
+
+    const visible = () => !$('syncView').hidden;
+    document.addEventListener('remoteprogress', (e) => {
+      clearTimeout(pending);
+      pending = setTimeout(() => load(e.detail.document), 400);
+    });
+    document.addEventListener('pagechange', (e) => { if (e.detail.page === 'sync') load(); });
+    document.addEventListener('livechange', (e) => { live = e.detail.live === 'on'; if (visible()) renderStats(); });
+    $('syncRefresh').addEventListener('click', () => load());
+    // Who is connected changes without any event, so look again from time to time
+    setInterval(() => { if (visible() && !document.hidden) load(); }, 20000);
+    load();
+  })();
+</script>

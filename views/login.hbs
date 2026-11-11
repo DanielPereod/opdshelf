@@ -1,24 +1,54 @@
 <main class="login">
-  <form action="/user/login" method="POST" class="login-card">
+  <form action="/user/login" method="POST" class="login-card" id="loginForm">
     <div class="brand"><img src="/static/icon.png" alt="">OPDShelf</div>
     <div>
-      <h1>Sign in</h1>
-      <p>Your library and reading apps are waiting.</p>
+      <h1>{{t "Sign in"}}</h1>
+      <p>{{t "Your library, your reading positions and your devices, in one place."}}</p>
     </div>
 
     {{#if error}}
-    <div class="notice error"><i class="fas fa-circle-exclamation"></i>{{error}}</div>
+    <div class="notice error" role="alert"><i class="fas fa-circle-exclamation"></i>{{error}}</div>
     {{/if}}
 
     <label class="field" for="username">
-      <span>Username</span>
-      <input type="text" id="username" name="username" autocomplete="username" required class="input" autofocus>
+      <span>{{t "Username"}}</span>
+      <input type="text" id="username" name="username" autocomplete="username" autocapitalize="none"
+        spellcheck="false" required class="input" value="{{typedUsername}}" {{#unless typedUsername}}autofocus{{/unless}}>
     </label>
     <label class="field" for="password">
-      <span>Password</span>
-      <input type="password" id="password" name="password" autocomplete="current-password" required class="input">
+      <span>{{t "Password"}}</span>
+      <span class="password-row">
+        <input type="password" id="password" name="password" autocomplete="current-password" required class="input">
+        <button type="button" class="icon-btn" id="showPassword" aria-pressed="false" title="{{t "Show password"}}"
+          aria-label="{{t "Show password"}}"><i class="far fa-eye"></i></button>
+      </span>
     </label>
+    <p class="caps" id="capsLock" hidden><i class="fas fa-arrow-up"></i>{{t "Caps Lock is on"}}</p>
 
-    <button type="submit" class="btn btn-primary btn-wide">Sign in</button>
+    <button type="submit" class="btn btn-primary btn-wide" id="loginBtn">{{t "Sign in"}}</button>
+    <p class="login-foot">{{t "Reading apps such as KOReader sign in with the same user and password."}}</p>
   </form>
 </main>
+<script>
+  (function () {
+    const password = document.getElementById('password');
+    const toggle = document.getElementById('showPassword');
+    toggle.addEventListener('click', () => {
+      const show = password.type === 'password';
+      password.type = show ? 'text' : 'password';
+      toggle.setAttribute('aria-pressed', show);
+      toggle.querySelector('i').className = show ? 'far fa-eye-slash' : 'far fa-eye';
+      password.focus();
+    });
+    password.addEventListener('keyup', (e) => {
+      if (e.getModifierState) document.getElementById('capsLock').hidden = !e.getModifierState('CapsLock');
+    });
+    document.getElementById('loginForm').addEventListener('submit', () => {
+      const button = document.getElementById('loginBtn');
+      button.disabled = true;
+      button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+      button.append(' ' + t('Signing in…'));
+    });
+    if (document.getElementById('username').value) password.focus();
+  })();
+</script>

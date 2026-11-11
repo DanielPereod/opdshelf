@@ -1,8 +1,11 @@
+pub mod apps;
 pub mod archive;
 pub mod auth;
 pub mod config;
 pub mod covers;
+pub mod documents;
 pub mod edit;
+pub mod i18n;
 pub mod library;
 pub mod lookup;
 pub mod metadata;

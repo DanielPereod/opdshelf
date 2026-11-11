@@ -16,12 +16,14 @@ use tower_http::services::ServeFile;
 
 use crate::auth::Auth;
 use crate::config::Config;
+use crate::documents::DocumentIds;
+use crate::i18n::Lang;
 use crate::library::{format_size, Book, Library, SortMode};
 use crate::lookup::Lookup;
 use crate::progress::Progress;
 use crate::store::Store;
 use crate::templates::{self, Static};
-use crate::{covers, edit, opds, paths, reader, sync};
+use crate::{apps, covers, edit, opds, paths, reader, sync};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -31,6 +33,8 @@ pub struct AppState {
     pub templates: Arc<Handlebars<'static>>,
     pub lookup: Lookup,
     pub progress: Progress,
+    pub documents: DocumentIds,
+    pub presence: sync::Presence,
 }
 
 pub fn router(config: Config) -> Router {
@@ -44,6 +48,8 @@ pub fn router(config: Config) -> Router {
         templates: Arc::new(templates::registry()),
         lookup: Lookup::new(&config.openlibrary_url, &config.google_books_url),
         progress: Progress::open(&config.data_dir),
+        documents: DocumentIds::open(&config.data_dir),
+        presence: sync::Presence::default(),
         config: Arc::new(config),
     };
     let upload_limit = state.config.max_upload_bytes;
@@ -51,6 +57,7 @@ pub fn router(config: Config) -> Router {
     // Read every book's metadata in the background so the first feed request is fast
     if let Ok(runtime) = tokio::runtime::Handle::try_current() {
         let library = state.library.clone();
+        let documents = state.documents.clone();
         let watch = state.config.watch;
         let interval = std::time::Duration::from_secs(state.config.scan_interval_secs);
         runtime.spawn(async move {
@@ -59,6 +66,9 @@ pub fn router(config: Config) -> Router {
             }
             let books = library.snapshot().await.books.len();
             tracing::info!("library ready: {books} books");
+            // Work out which book each synced position belongs to ahead of time
+            let known = documents.index(&library).await.len();
+            tracing::debug!("document ids of {known} books ready");
         });
     }
 
@@ -81,6 +91,9 @@ pub fn router(config: Config) -> Router {
         .route("/pages/{*path}", get(reader::pages))
         .route("/page/{*path}", get(reader::page))
         .route("/admin", get(admin))
+        .route("/admin/sync", get(admin_sync))
+        .route("/apps/opdshelf.koplugin.zip", get(apps::koreader_plugin))
+        .route("/apps/opdshelf.apk", get(apps::android_app))
         .route("/admin/upload", post(upload).layer(DefaultBodyLimit::max(upload_limit)))
         .route("/admin/delete", post(delete))
         .route("/admin/rename", post(rename))
@@ -94,7 +107,10 @@ pub fn router(config: Config) -> Router {
         .route("/admin/lookup", get(edit::lookup))
         .route("/user/login", get(login_page).post(login))
         .route("/user/logout", post(logout))
+        .route("/api/progress", get(sync::list_progress))
         .route("/api/progress/events", get(sync::events))
+        .route("/api/devices", get(sync::devices))
+        .route("/api/devices/{device}", axum::routing::delete(sync::forget_device))
         .route(
             "/api/progress/{document}",
             get(sync::get_progress).put(sync::put_progress),
@@ -169,8 +185,18 @@ pub fn page_with_layout(
     data: serde_json::Value,
 ) -> Response {
     let mut data = data;
+    let lang = Lang::from_headers(headers);
     let map = data.as_object_mut().expect("page data is an object");
-    map.insert("title".into(), json!(title));
+    for key in ["notice", "error"] {
+        if let Some(text) = map.get(key).and_then(|v| v.as_str()).map(|t| lang.message(t)) {
+            map.insert(key.into(), json!(text));
+        }
+    }
+    map.insert("title".into(), json!(lang.message(title)));
+    map.insert("lang".into(), json!(lang.code()));
+    map.insert("v".into(), json!(templates::asset_version()));
+    map.insert("i18n".into(), json!(lang.table().to_string()));
+    map.insert("username".into(), json!(state.config.admin_username));
     map.insert("csrf".into(), json!(state.auth.csrf_token()));
     map.insert("authEnabled".into(), json!(state.auth.enabled()));
     map.insert("baseUrl".into(), json!(base_url(state, headers)));
@@ -187,10 +213,11 @@ pub fn page_with_layout(
 }
 
 /// Renders `view` on its own, for the parts of the panel that are swapped in with fetch.
-pub fn fragment(state: &AppState, view: &str, data: serde_json::Value) -> Response {
+pub fn fragment(state: &AppState, headers: &HeaderMap, view: &str, data: serde_json::Value) -> Response {
     let mut data = data;
     let map = data.as_object_mut().expect("fragment data is an object");
     map.insert("csrf".into(), json!(state.auth.csrf_token()));
+    map.insert("lang".into(), json!(Lang::from_headers(headers).code()));
     let html = state.templates.render(view, &data).unwrap_or_else(|err| {
         tracing::error!("template {view}: {err}");
         String::from("Template error")
@@ -317,6 +344,9 @@ pub async fn library_data(state: &AppState, query: &AdminQuery) -> serde_json::V
         "formats": extensions.iter().map(|e| e.trim_start_matches('.').to_uppercase()).collect::<Vec<_>>().join(", "),
         "notice": query.notice,
         "error": query.error,
+        "apkLocal": apps::is_local(state, &apps::ANDROID),
+        "pluginLocal": apps::is_local(state, &apps::KOREADER),
+        "appsBeta": state.config.apps_channel == "beta",
     })
 }
 
@@ -331,6 +361,13 @@ pub fn with_selection(mut data: serde_json::Value, selection: serde_json::Value)
 async fn admin(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<AdminQuery>) -> Response {
     let data = library_data(&state, &query).await;
     page(&state, &headers, "admin", "OPDShelf", data)
+}
+
+/// The library page opened on reading sync: devices, live activity and how to connect apps.
+async fn admin_sync(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<AdminQuery>) -> Response {
+    let mut data = library_data(&state, &query).await;
+    data["syncView"] = json!(true);
+    page(&state, &headers, "admin", "Sync - OPDShelf", data)
 }
 
 fn unique_destination(dir: &std::path::Path, name: &str) -> PathBuf {
@@ -705,15 +742,17 @@ async fn info(
     let Some(book) = state.library.book(&path).await else {
         return StatusCode::NOT_FOUND.into_response();
     };
+    let document = state.documents.id(&state.library, &book).await;
     let selection = json!({
         "book": book_json(&book),
+        "document": document,
         "meta": book.meta,
         "mime": book.mime,
         "tab": "info",
         "infoTab": true,
     });
     if query.wants_panel() {
-        return fragment(&state, "inspector", selection);
+        return fragment(&state, &headers, "inspector", selection);
     }
     let data = with_selection(library_data(&state, &query).await, selection);
     page(&state, &headers, "admin", &format!("{} - OPDShelf", book.title), data)
@@ -722,7 +761,13 @@ async fn info(
 // ---------------------------------------------------------------------------
 // Login
 
-async fn login_page(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<AdminQuery>) -> Response {
+#[derive(Deserialize, Default)]
+struct LoginQuery {
+    error: Option<String>,
+    username: Option<String>,
+}
+
+async fn login_page(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<LoginQuery>) -> Response {
     if state.auth.is_authorized(&headers) {
         return Redirect::to("/admin").into_response();
     }
@@ -731,7 +776,7 @@ async fn login_page(State(state): State<AppState>, headers: HeaderMap, Query(que
         &headers,
         "login",
         "Sign in - OPDShelf",
-        json!({ "error": query.error }),
+        json!({ "error": query.error, "typedUsername": query.username }),
     )
 }
 
@@ -745,7 +790,12 @@ async fn login(State(state): State<AppState>, headers: HeaderMap, Form(form): Fo
     if !state.auth.check_credentials(&form.username, &form.password) {
         // Slow down password guessing
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        return Redirect::to("/user/login?error=Invalid%20username%20or%20password").into_response();
+        // Keep what was typed as the username so only the password has to be typed again
+        return Redirect::to(&format!(
+            "/user/login?error=Invalid%20username%20or%20password&username={}",
+            paths::url_encode(form.username.chars().take(100).collect::<String>().as_str())
+        ))
+        .into_response();
     }
     let cookie = state.auth.session_cookie(is_https(&state, &headers));
     ([(header::SET_COOKIE, cookie)], Redirect::to("/admin")).into_response()

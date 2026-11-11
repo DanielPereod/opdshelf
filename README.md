@@ -58,6 +58,16 @@
 - KOReader plugin: live sync with conflict handling, the library with covers and downloads, and a home screen that can be KOReader's start screen
 - Select a sentence and set it as the last position, so every device opens the book exactly there (in KOReader too, with the included plugin)
 - PDF, comic (CBZ, CBR, CB7, CBT, with right-to-left mode) and TXT readers
+- While a book is open, reading done on another device shows up at once with a button to jump there
+
+🔄 **Devices and sync page**
+- Every device that syncs (browsers, KOReader, the Android app) with its last activity, the books it is on and how far, and whether it is connected right now
+- Live feed of reading activity, and the addresses to set up OPDS apps, KOReader and the Android app
+- Download the KOReader plugin and the Android app from the panel. They come from the latest GitHub releases (`android-latest`, `koreader-latest`, or the `-beta` ones on beta servers), so they update without updating the server; a file copied to `DATA_DIR/apps/` (`opdshelf.apk`, `opdshelf.koplugin.zip`) takes their place
+- Reading progress in the library: **Reading** and **Finished** shelves, a **Continue reading** row, progress bars in the list and on the covers, and per-device positions in each book's panel
+
+🌍 **English and Spanish**
+- The web panel follows the browser's language, and can be switched from the sidebar
 - Keyboard, touch swipe and mobile friendly
 
 🖥️ **Web admin panel**
@@ -80,6 +90,8 @@
 ## Installation
 
 The Docker image `koalilla/opds-server` is published for **linux/amd64** and **linux/arm64**, so it runs on a PC, a NAS or a Raspberry Pi.
+
+Two channels are published: `latest`, built from `main`, and `beta`, built from the `beta` branch, where new features are tried before they reach `main`. Use `koalilla/opds-server:beta` to run the beta; its panel offers the beta builds of the Android app and the KOReader plugin.
 
 ### Docker Compose (recommended)
 
@@ -167,6 +179,8 @@ All settings are environment variables.
 | `EXCLUDE_EXTENSIONS` | none | Extensions removed from the allowed list, e.g. `zip,txt` |
 | `PAGE_SIZE` | `50` | Books per page in OPDS feeds |
 | `MAX_UPLOAD_MB` | `1024` | Maximum size of one upload request |
+| `APPS_URL` | `https://github.com/DanielPereod/opdshelf/releases/download` | Where the panel's Android app and KOReader plugin downloads come from |
+| `APPS_CHANNEL` | `latest` (`beta` in the `:beta` image) | Which releases those downloads use: `latest` (from `main`) or `beta` |
 | `DATA_DIR` | `BOOKS_DIR/.opdshelf` | Where edited metadata, custom covers and the thumbnail cache are stored |
 | `WATCH` | `true` | Watch the books folder for changes. Set to `false` on network shares that do not report changes; the library is then rescanned on each request |
 | `SCAN_INTERVAL` | `600` | Seconds between full rescans while watching, as a safety net for missed events |
@@ -274,6 +288,8 @@ Builds without a release key are signed with a test key kept in the repository (
 
 Pushing a tag like `android-v1.2.0` builds the APK, signs it with the private release key and publishes it in GitHub Releases as `opdshelf-1.2.0.apk`. The version code comes from the tag (1.2.0 → 10200), so each release installs over the previous one.
 
+Besides those versioned releases, every push to `main` or `beta` that touches the app publishes a build to the `android-latest` or `android-beta` release, which is what the web panel offers. Its version code comes from the commit date, so each build installs over the previous one, and it is signed with the release key when the repository has one (with the test key otherwise).
+
 The release key is set up once. Create it and keep a copy of the file and its password somewhere safe: without them, later versions can no longer update the installed app.
 
 ```sh
@@ -299,7 +315,10 @@ Without those secrets the release workflow stops instead of publishing an APK si
 |--------|-----|---------|
 | `GET` | `/api/progress/<document>` | `current` position and `history` of a book |
 | `PUT` | `/api/progress/<document>` | Save a position: `progress`, `percentage` (0–1), `device`, `device_id`, and optionally `cfi`, `context` (`before`, `after`, `selected`), `manual`, `timestamp` (Unix seconds, when it was read) and `sent_at` (the device's clock when sending, to correct a wrong clock). Answers the `current` position, whether yours was `accepted` (false when a newer one from another device won) and `server_time` |
-| `GET` | `/api/progress/events` | Server-sent events: `hello` (`server_time`), then `progress` (`document`, `current`) on every change of a book's current position, and `resync` if some were missed. `?documents=<id>,<id>` limits it to those books |
+| `GET` | `/api/progress` | The `current` position of every book that has one, newest first, with the `path` and `title` of the book (`null` when the file is not in the library) |
+| `GET` | `/api/progress/events` | Server-sent events: `hello` (`server_time`), then `progress` (`document`, `current`) on every change of a book's current position, and `resync` if some were missed. `?documents=<id>,<id>` limits it to those books. Adding `&device_id=<id>&device=<name>` shows the device as connected in the web panel while the stream is open |
+| `GET` | `/api/devices` | Every device that saved a position or is listening: `device_id`, `device`, `last_seen`, `live`, `connections`, number of `books` and `positions`, and its `recent` books with their percentage |
+| `DELETE` | `/api/devices/<device_id>` | Forget a device: removes its positions. Needs the panel's `X-CSRF-Token` header |
 | `*` | `/kosync/...` | KOReader sync protocol (`users/auth`, `syncs/progress`) |
 
 `<document>` is KOReader's partial MD5 of the file. `progress` is an xpointer for reflowable books and the page number (from 1) for PDFs and comics.

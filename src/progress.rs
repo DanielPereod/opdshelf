@@ -192,6 +192,52 @@ impl Progress {
         self.books.lock().unwrap().get(document).cloned().unwrap_or_default()
     }
 
+    /// The current position of every book that has one.
+    pub fn all_current(&self) -> Vec<(String, Record)> {
+        self.books
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(doc, h)| current(h).map(|r| (doc.clone(), r.clone())))
+            .collect()
+    }
+
+    /// Every saved position of every book, for summaries such as the device list.
+    pub fn all_history(&self) -> HashMap<String, Vec<Record>> {
+        self.books.lock().unwrap().clone()
+    }
+
+    /// Removes every position a device saved. Returns how many were removed.
+    pub fn forget_device(&self, device_id: &str) -> std::io::Result<usize> {
+        let mut removed = 0;
+        let mut changes = Vec::new();
+        {
+            let mut books = self.books.lock().unwrap();
+            for (doc, history) in books.iter_mut() {
+                let before = current(history).cloned();
+                let len = history.len();
+                history.retain(|r| r.device_id != device_id);
+                removed += len - history.len();
+                if let Some(now) = current(history) {
+                    if before.as_ref() != Some(now) {
+                        changes.push(Change {
+                            document: doc.clone(),
+                            current: now.clone(),
+                        });
+                    }
+                }
+            }
+            books.retain(|_, h| !h.is_empty());
+        }
+        if removed > 0 {
+            self.save()?;
+            for change in changes {
+                let _ = self.changes.send(change);
+            }
+        }
+        Ok(removed)
+    }
+
     fn save(&self) -> std::io::Result<()> {
         let json = serde_json::to_vec(&*self.books.lock().unwrap()).map_err(std::io::Error::other)?;
         if let Some(dir) = self.file.parent() {
@@ -398,6 +444,22 @@ mod tests {
         let saved = p.apply("doc", update("phone", "z", 50), 1000).unwrap();
         assert!(!saved.accepted);
         assert!(changes.try_recv().is_err());
+    }
+
+    #[test]
+    fn forgetting_a_device_removes_its_positions() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = Progress::open(dir.path());
+        p.update("doc", update("kobo", "a", 100), 1000).unwrap();
+        p.update("doc", update("web", "b", 200), 1000).unwrap();
+        p.update("other", update("web", "c", 300), 1000).unwrap();
+        let mut changes = p.subscribe();
+        assert_eq!(p.forget_device("web").unwrap(), 2);
+        assert_eq!(p.current("doc").unwrap().progress, "a");
+        assert_eq!(p.current("other"), None);
+        assert_eq!(changes.try_recv().unwrap().current.progress, "a");
+        assert_eq!(p.all_current().len(), 1);
+        assert_eq!(p.forget_device("web").unwrap(), 0);
     }
 
     #[test]

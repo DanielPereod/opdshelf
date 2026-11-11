@@ -1,0 +1,88 @@
+name: Release apps
+
+# Publishes the Android app and the KOReader plugin as GitHub releases with
+# fixed tags: android-latest and koreader-latest from main, android-beta and
+# koreader-beta (pre-releases) from the beta branch. The web panel's download
+# buttons point to the releases of their server's channel, so the apps update
+# without updating the server.
+on:
+  push:
+    branches: [main, beta]
+    paths:
+      - "android/**"
+      - "koreader/opdshelf.koplugin/**"
+      - ".github/workflows/release-apps.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CHANNEL: ${{ github.ref_name == 'beta' && 'beta' || 'latest' }}
+
+concurrency:
+  group: release-apps-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  koreader:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Zip the plugin
+        working-directory: koreader
+        run: zip -r ../opdshelf.koplugin.zip opdshelf.koplugin
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/publish-release.sh "koreader-$CHANNEL" "OPDShelf for KOReader" opdshelf.koplugin.zip
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platforms;android-37.0
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Each build gets a higher version code than the last, from the commit
+      # date, so Android installs it over the previous one, from either
+      # channel. Tagged releases (android-v1.2.3 → 10200) stay below it.
+      - name: Version
+        run: |
+          stamp=$(git log -1 --format=%ct)
+          echo "APP_VERSION_CODE=$(( (stamp - 1700000000) / 60 ))" >> "$GITHUB_ENV"
+          echo "APP_VERSION_NAME=$(date -u -d "@$stamp" +%Y.%m.%d)-$CHANNEL.${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
+
+      # Signed with the release key when the repository has it (see the
+      # README), else with the test key kept in android/app. Either way every
+      # build uses the same key, so updates install without uninstalling.
+      - name: Release key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        if: env.KEYSTORE_BASE64 != ''
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "ANDROID_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Build the APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk ../opdshelf.apk
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/publish-release.sh "android-$CHANNEL" "OPDShelf for Android" opdshelf.apk

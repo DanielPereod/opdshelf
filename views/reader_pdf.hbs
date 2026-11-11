@@ -1,12 +1,12 @@
 <div data-controls>
-  <button type="button" id="zoomOut" class="icon-btn" title="Zoom out"><i class="fas fa-magnifying-glass-minus"></i></button>
-  <button type="button" id="zoomIn" class="icon-btn" title="Zoom in"><i class="fas fa-magnifying-glass-plus"></i></button>
-  <a href="/download/{{urlPath book.path}}" class="icon-btn" title="Download"><i class="fas fa-download"></i></a>
+  <button type="button" id="zoomOut" class="icon-btn" title="{{t "Zoom out"}}" aria-label="{{t "Zoom out"}}"><i class="fas fa-magnifying-glass-minus"></i></button>
+  <button type="button" id="zoomIn" class="icon-btn" title="{{t "Zoom in"}}" aria-label="{{t "Zoom in"}}"><i class="fas fa-magnifying-glass-plus"></i></button>
+  <a href="/download/{{urlPath book.path}}" class="icon-btn" title="{{t "Download"}}" aria-label="{{t "Download"}}"><i class="fas fa-download"></i></a>
 </div>
 
 <main class="stage">
   <div id="pages" class="scroll-stage pdf-pages">
-    <div id="status" class="loading"><span><i class="fas fa-spinner fa-spin"></i> Loading…</span></div>
+    <div id="status" class="loading"><span><i class="fas fa-spinner fa-spin"></i> {{t "Loading…"}}</span></div>
   </div>
 </main>
 
@@ -34,7 +34,7 @@
   try {
     pdf = await pdfjsLib.getDocument({ url, isEvalSupported: false }).promise;
   } catch (err) {
-    document.getElementById('status').textContent = 'Cannot open this PDF: ' + err.message;
+    document.getElementById('status').textContent = t('Cannot open this PDF: {reason}', { reason: err.message });
     throw err;
   }
 
@@ -121,5 +121,10 @@
   build(startPage);
   showPage(currentPage());
   savedPage = startPage;
-  if (from) ReaderSync.toast(`Continuing from ${from} (page ${startPage})`);
+  if (from) ReaderSync.toast(t('Continuing from {device} (page {page})', { device: from, page: startPage }));
+  sync.follow((remote) => ReaderSync.remoteToast(remote, () => {
+    const page = Math.min(pdf.numPages, Math.max(1, Math.round(Number(remote.progress) || remote.percentage * pdf.numPages) || 1));
+    savedPage = page;
+    goTo(page);
+  }));
 </script>

@@ -19,6 +19,10 @@ pub struct Config {
     pub allowed_extensions: HashSet<String>,
     pub page_size: usize,
     pub max_upload_bytes: usize,
+    /// Where the Android app and KOReader plugin releases are downloaded from.
+    pub apps_url: String,
+    /// Which releases the panel offers: `latest` (main) or `beta`.
+    pub apps_channel: String,
     /// Where edited metadata, uploaded covers and the thumbnail cache are stored.
     pub data_dir: PathBuf,
     /// Watch BOOKS_DIR for changes instead of rescanning it on every request.
@@ -88,6 +92,12 @@ impl Config {
                 .and_then(|p| p.parse::<usize>().ok())
                 .unwrap_or(1024)
                 .saturating_mul(1024 * 1024),
+            apps_url: get("APPS_URL")
+                .map(|url| url.trim_end_matches('/').to_string())
+                .unwrap_or_else(|| crate::apps::DEFAULT_APPS_URL.to_string()),
+            apps_channel: get("APPS_CHANNEL")
+                .filter(|c| c.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+                .unwrap_or_else(|| "latest".to_string()),
         }
     }
 

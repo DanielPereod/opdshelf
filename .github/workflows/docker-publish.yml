@@ -2,7 +2,7 @@ name: Build and Push Docker image
 
 on:
   push:
-    branches: [main] # o la rama que prefieras
+    branches: [main, beta]
   workflow_dispatch:
 
 jobs:
@@ -24,10 +24,17 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # main publishes :latest and beta publishes :beta, each pointing its
+      # panel at the releases of the same channel
+      - name: Pick the channel
+        id: channel
+        run: echo "name=${{ github.ref_name == 'beta' && 'beta' || 'latest' }}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: koalilla/opds-server:latest
+          build-args: CHANNEL=${{ steps.channel.outputs.name }}
+          tags: koalilla/opds-server:${{ steps.channel.outputs.name }}

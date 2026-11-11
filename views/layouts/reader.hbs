@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{lang}}">
 
 <head>
   <meta charset="UTF-8" />
@@ -7,7 +7,8 @@
   <title>{{title}}</title>
   <link rel="icon" href="/static/icon.png" type="image/png">
   <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css" />
-  <link rel="stylesheet" href="/static/styles/app.css">
+  <link rel="stylesheet" href="/static/styles/app.css?v={{v}}">
+  <script src="/static/app/common.js?v={{v}}" data-i18n="{{i18n}}"></script>
   <script>
     function storeGet(key) {
       try { return localStorage.getItem(key); } catch { return null; }
@@ -32,19 +33,20 @@
       return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
     }
   </script>
-  <script src="/static/reader/sync.js"></script>
+  <script src="/static/reader/sync.js?v={{v}}"></script>
 </head>
 
 <body>
   <div class="reader" id="reader">
     <header class="reader-bar">
-      <a href="/info/{{urlPath book.path}}" class="icon-btn" title="Back to the library"><i class="fas fa-arrow-left"></i></a>
+      <a href="/info/{{urlPath book.path}}" class="icon-btn" title="{{t "Back to the library"}}" aria-label="{{t "Back to the library"}}"><i class="fas fa-arrow-left"></i></a>
       <div class="title" title="{{book.title}}">{{book.title}}{{#if book.authors}} <span>· {{book.authors}}</span>{{/if}}</div>
       <div id="controls"></div>
-      <div class="segmented" role="group" aria-label="Page colour">
-        <button type="button" class="icon-btn" data-paper="light" title="Light page"><i class="far fa-sun"></i></button>
-        <button type="button" class="icon-btn" data-paper="gray" title="Gray page"><i class="fas fa-circle-half-stroke"></i></button>
-        <button type="button" class="icon-btn" data-paper="dark" title="Dark page"><i class="far fa-moon"></i></button>
+      <span class="sync-state" id="syncState" data-state="saved" role="img"><i class="fas fa-cloud"></i></span>
+      <div class="segmented" role="group" aria-label="{{t "Page colour"}}">
+        <button type="button" class="icon-btn" data-paper="light" title="{{t "Light page"}}" aria-label="{{t "Light page"}}"><i class="far fa-sun"></i></button>
+        <button type="button" class="icon-btn" data-paper="gray" title="{{t "Gray page"}}" aria-label="{{t "Gray page"}}"><i class="fas fa-circle-half-stroke"></i></button>
+        <button type="button" class="icon-btn" data-paper="dark" title="{{t "Dark page"}}" aria-label="{{t "Dark page"}}"><i class="far fa-moon"></i></button>
       </div>
     </header>
 

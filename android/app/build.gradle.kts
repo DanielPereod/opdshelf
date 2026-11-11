@@ -39,6 +39,10 @@ android {
     // The xpointer conversion is shared with the web reader
     sourceSets.getByName("main").assets.directories.add("build/generated/sharedAssets")
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     packaging {
         resources.excludes += setOf("META-INF/LICENSE*", "META-INF/NOTICE*", "META-INF/*.kotlin_module")
     }
@@ -86,4 +90,23 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    // Screenshots of the screens, rendered on the JVM
+    testImplementation(platform("androidx.compose:compose-bom:2025.10.00"))
+    testImplementation("org.robolectric:robolectric:4.16")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("androidx.test:core:1.7.0")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+tasks.withType<Test>().configureEach {
+    // Robolectric's Android runtime from a local folder instead of downloading it, when given
+    System.getenv("ROBOLECTRIC_DEPS")?.let {
+        systemProperty("robolectric.offline", "true")
+        systemProperty("robolectric.dependency.dir", it)
+    }
+    // Screenshots run only when asked for: they need Robolectric's 200 MB Android runtime
+    val screenshots = System.getenv("SCREENSHOT_DIR")
+    if (screenshots == null) filter { excludeTestsMatching("*ScreenshotTest") }
+    screenshots?.let { environment("SCREENSHOT_DIR", it) }
+    System.getenv("SCREENSHOT_SERVER")?.let { environment("SCREENSHOT_SERVER", it) }
 }

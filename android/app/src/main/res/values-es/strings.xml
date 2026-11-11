@@ -33,4 +33,6 @@
     <string name="error_refused">Nadie responde en esa dirección y puerto. Comprueba que el servidor está en marcha.</string>
     <string name="error_timeout">El servidor tarda demasiado en responder.</string>
     <string name="error_login">Usuario o contraseña incorrectos.</string>
+    <string name="view_list">Lista</string>
+    <string name="view_grid">Cuadrícula</string>
 </resources>

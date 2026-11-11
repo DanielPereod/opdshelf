@@ -34,4 +34,6 @@
     <string name="error_refused">Nothing answers at that address and port. Check that the server is running.</string>
     <string name="error_timeout">The server takes too long to answer.</string>
     <string name="error_login">Wrong username or password.</string>
+    <string name="view_list">List</string>
+    <string name="view_grid">Grid</string>
 </resources>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#0B0B0B</color>
+    <color name="pane">#0B0B0B</color>
+    <color name="line">#222222</color>
+    <color name="fg">#ECECEC</color>
+    <color name="muted">#8B8B8B</color>
+    <color name="inverse">#0B0B0B</color>
+</resources>

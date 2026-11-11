@@ -20,6 +20,20 @@ class Settings(context: Context) {
         get() = prefs.getString("password", "") ?: ""
         set(value) = prefs.edit().putString("password", value).apply()
 
+    /** When positions were last all sent, in milliseconds, 0 if never. */
+    var lastSync: Long
+        get() = prefs.getLong("last_sync", 0)
+        set(value) = prefs.edit().putLong("last_sync", value).apply()
+
+    /** Whether the reader already explained how to set an exact last position. */
+    var markHintShown: Boolean
+        get() = prefs.getBoolean("mark_hint_shown", false)
+        set(value) = prefs.edit().putBoolean("mark_hint_shown", value).apply()
+
+    fun forgetServer() {
+        prefs.edit().remove("server").remove("username").remove("password").apply()
+    }
+
     val isConfigured: Boolean get() = serverUrl.isNotEmpty()
 
     val deviceId: String

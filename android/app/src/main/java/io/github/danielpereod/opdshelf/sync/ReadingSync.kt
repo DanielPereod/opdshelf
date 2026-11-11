@@ -18,18 +18,34 @@ import io.github.danielpereod.opdshelf.data.Position
 import io.github.danielpereod.opdshelf.data.Settings
 import io.github.danielpereod.opdshelf.data.StartPosition
 import io.github.danielpereod.opdshelf.data.chooseStart
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.util.concurrent.TimeUnit
 
 /**
  * Reading positions: saved on the device first, then sent to the server by a
  * background job that waits for a connection, so reading offline just works.
  */
+/** What the user sees of syncing: positions not sent yet and when it last worked. */
+data class SyncStatus(
+    val pending: Int = 0,
+    val lastSync: Long = 0,
+    val syncing: Boolean = false,
+    /** The last attempt could not reach the server. */
+    val failing: Boolean = false,
+)
+
 class ReadingSync(
     private val context: Context,
     private val settings: Settings,
     private val api: Api,
     private val store: LocalStore,
 ) {
+    private val _status = MutableStateFlow(SyncStatus(pending = store.pending().size, lastSync = settings.lastSync))
+    val status: StateFlow<SyncStatus> = _status.asStateFlow()
+
     /** Where to open a book: the newest of this device's position and the server's. */
     suspend fun start(document: String): StartPosition {
         val local = store.position(document)
@@ -54,11 +70,13 @@ class ReadingSync(
         )
         store.savePosition(document, LocalPosition(stamped, pending = true, locator = locator))
         store.setPercentage(document, stamped.percentage)
+        _status.update { it.copy(pending = store.pending().size) }
         schedule(if (now) 0 else 2)
     }
 
     /** Sends every pending position now. Returns false if some could not be sent. */
     suspend fun flush(): Boolean {
+        _status.update { it.copy(syncing = true) }
         var ok = true
         for ((document, position) in store.pending()) {
             try {
@@ -75,6 +93,8 @@ class ReadingSync(
                 ok = false
             }
         }
+        if (ok) settings.lastSync = System.currentTimeMillis()
+        _status.value = SyncStatus(store.pending().size, settings.lastSync, syncing = false, failing = !ok)
         return ok
     }
 

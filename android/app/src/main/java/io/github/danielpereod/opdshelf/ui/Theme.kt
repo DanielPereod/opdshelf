@@ -33,6 +33,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.ui.res.stringResource
+import io.github.danielpereod.opdshelf.R
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -151,7 +153,7 @@ fun Header(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (onBack != null) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = shelf.fg) }
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back), tint = shelf.fg) }
             }
             leading?.let {
                 it()
@@ -197,10 +199,9 @@ fun SearchBox(value: String, onChange: (String) -> Unit, placeholder: String, on
                     field()
                 }
                 if (value.isNotEmpty()) {
-                    Icon(
-                        Icons.Default.Close, null, tint = shelf.muted,
-                        modifier = Modifier.size(18.dp).clickable { onChange("") },
-                    )
+                    IconButton(onClick = { onChange("") }, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Default.Close, stringResource(R.string.clear_search), tint = shelf.muted, modifier = Modifier.size(18.dp))
+                    }
                 }
             }
         },
@@ -249,6 +250,7 @@ fun LabeledField(
     help: String? = null,
     keyboardType: KeyboardType = KeyboardType.Text,
     visualTransformation: VisualTransformation = VisualTransformation.None,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(label, color = shelf.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -257,6 +259,7 @@ fun LabeledField(
             placeholder = placeholder?.let { { Text(it, color = shelf.muted) } },
             shape = RoundedCornerShape(4.dp),
             visualTransformation = visualTransformation,
+            trailingIcon = trailing,
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = shelf.fg, unfocusedBorderColor = shelf.lineStrong,
@@ -265,7 +268,7 @@ fun LabeledField(
             ),
             modifier = Modifier.fillMaxWidth(),
         )
-        if (help != null) Text(help, color = shelf.muted, fontSize = 12.sp)
+        if (help != null) Text(help, color = shelf.muted, fontSize = 12.sp, lineHeight = 17.sp)
     }
 }
 
@@ -278,22 +281,57 @@ fun ReadBar(fraction: Float, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun Spinner(modifier: Modifier = Modifier, size: Dp = 22.dp) {
-    CircularProgressIndicator(color = shelf.fg, trackColor = shelf.soft, strokeWidth = 2.dp, modifier = modifier.size(size))
+fun Spinner(modifier: Modifier = Modifier, size: Dp = 22.dp, onDark: Boolean = false) {
+    CircularProgressIndicator(
+        color = if (onDark) shelf.inverse else shelf.fg,
+        trackColor = if (onDark) shelf.fg else shelf.soft,
+        strokeWidth = 2.dp, modifier = modifier.size(size),
+    )
 }
 
-/** Centered muted text with an optional action, for empty and error states. */
+/** A choice among a few, like the web sidebar's sections: filled when selected. */
 @Composable
-fun EmptyState(text: String, action: String? = null, onAction: () -> Unit = {}) {
+fun Pill(text: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.height(34.dp).clip(RoundedCornerShape(17.dp))
+            .background(if (selected) shelf.fg else shelf.pane)
+            .border(1.dp, if (selected) shelf.fg else shelf.lineStrong, RoundedCornerShape(17.dp))
+            .clickable(role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick)
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = if (selected) shelf.inverse else shelf.fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** Empty and error states: an icon in a soft circle, a title, a line of help and what to do next. */
+@Composable
+fun EmptyState(
+    text: String,
+    action: String? = null,
+    onAction: () -> Unit = {},
+    title: String? = null,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+) {
     Column(
         Modifier.fillMaxSize().padding(32.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(text, color = shelf.muted, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-        if (action != null) {
+        if (icon != null) {
+            Box(Modifier.size(56.dp).clip(RoundedCornerShape(28.dp)).background(shelf.soft), contentAlignment = Alignment.Center) {
+                Icon(icon, null, tint = shelf.fg, modifier = Modifier.size(26.dp))
+            }
             Spacer(Modifier.height(16.dp))
-            SecondaryButton(action, onAction)
+        }
+        if (title != null) {
+            Text(title, color = shelf.fg, fontSize = 17.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Spacer(Modifier.height(6.dp))
+        }
+        Text(text, color = shelf.muted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        if (action != null) {
+            Spacer(Modifier.height(20.dp))
+            PrimaryButton(action, onAction)
         }
     }
 }

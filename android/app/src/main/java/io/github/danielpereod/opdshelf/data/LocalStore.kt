@@ -24,6 +24,12 @@ data class LocalBook(
     val addedAt: Long = System.currentTimeMillis(),
     /** From 0 to 1, as last read on any device. */
     val percentage: Double = 0.0,
+    val summary: String? = null,
+    /** As the catalog names it, e.g. EPUB. */
+    val format: String? = null,
+    val sizeBytes: Long = 0,
+    /** When it was last opened on this device, 0 if never. */
+    val lastOpenedAt: Long = 0,
 )
 
 /** Downloaded books and reading positions, kept as JSON files in the app's storage. */
@@ -60,6 +66,15 @@ class LocalStore(private val dir: File) {
         _books.value = _books.value.map { if (it.document == document) it.copy(percentage = percentage) else it }
         write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
     }
+
+    @Synchronized
+    fun markOpened(id: String) {
+        _books.value = _books.value.map { if (it.id == id) it.copy(lastOpenedAt = System.currentTimeMillis()) else it }
+        write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
+    }
+
+    /** Space the downloaded books take, in bytes. */
+    fun usedBytes(): Long = _books.value.sumOf { file(it).length() }
 
     @Synchronized
     fun position(document: String): LocalPosition? = positions[document]

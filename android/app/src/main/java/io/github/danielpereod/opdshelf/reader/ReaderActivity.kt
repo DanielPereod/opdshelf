@@ -7,7 +7,11 @@ import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.Toast
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -22,6 +26,7 @@ import io.github.danielpereod.opdshelf.data.LocalBook
 import io.github.danielpereod.opdshelf.data.Position
 import io.github.danielpereod.opdshelf.data.PositionContext
 import io.github.danielpereod.opdshelf.data.json
+import io.github.danielpereod.opdshelf.ui.AppTheme
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
@@ -42,8 +47,10 @@ import org.readium.r2.navigator.input.InputListener
 import org.readium.r2.navigator.input.TapEvent
 import org.readium.r2.navigator.pdf.PdfNavigatorFactory
 import org.readium.r2.navigator.pdf.PdfNavigatorFragment
+import org.readium.r2.navigator.preferences.FontFamily
 import org.readium.r2.navigator.preferences.Theme
 import org.readium.r2.navigator.util.DirectionalNavigationAdapter
+import org.readium.r2.shared.publication.Link
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.publication.indexOfFirstWithHref
@@ -85,6 +92,8 @@ class ReaderActivity : AppCompatActivity() {
     private var baseline: Locator? = null
 
     private val prefs by lazy { getSharedPreferences("reader", MODE_PRIVATE) }
+    private val ui = ReaderUi()
+    private lateinit var root: FrameLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // The navigator needs the opened publication, so it is not restored by the system
@@ -96,8 +105,29 @@ class ReaderActivity : AppCompatActivity() {
         }
         book = found
         title = book.title
+        app.store.markOpened(book.id)
+        ui.title = book.title
+        ui.prefs = loadPrefs()
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         container = FragmentContainerView(this).apply { id = View.generateViewId() }
-        setContentView(container)
+        val overlay = ComposeView(this).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent { AppTheme { ReaderOverlay(ui, actions) } }
+        }
+        root = FrameLayout(this).apply {
+            addView(container, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(overlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+        setContentView(root)
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                when {
+                    ui.sheet != null -> ui.sheet = null
+                    ui.visible -> showBars(false)
+                    else -> finish()
+                }
+            }
+        })
         lifecycleScope.launch { open() }
     }
 
@@ -155,10 +185,22 @@ class ReaderActivity : AppCompatActivity() {
             }
         })
         showBars(false)
+        ui.reflowable = kind == Kind.EPUB
+        ui.toc = flatten(pub.tableOfContents)
+        if (kind != Kind.EPUB) ui.pages = pub.positions().size.takeIf { it > 0 }
+        ui.showHint = kind == Kind.EPUB && !app.settings.markHintShown
+        lifecycleScope.launch {
+            nav.currentLocator.collect { locator ->
+                ui.chapter = locator.title ?: chapterOf(locator.href.toString())
+                ui.progression = (locator.locations.totalProgression ?: 0.0).toFloat().coerceIn(0f, 1f)
+                ui.page = locator.locations.position
+                ui.currentHref = locator.href.toString()
+            }
+        }
 
         if (xpointerStart != null) goToXPointer(pub, xpointerStart, highlight = xpointerStart.manual && start.fromDevice != null)
         start.fromDevice?.let {
-            Snackbar.make(container, getString(R.string.continuing_from, it), Snackbar.LENGTH_LONG).show()
+            Snackbar.make(root, getString(R.string.continuing_from, it), Snackbar.LENGTH_LONG).show()
         }
         delay(800)
         baseline = nav.currentLocator.value
@@ -286,7 +328,8 @@ class ReaderActivity : AppCompatActivity() {
         app.sync.save(book.document, position, locator.toJSON().toString(), now = true)
         // Kept until reading moves on, like KOReader does
         baseline = epub.currentLocator.value
-        Snackbar.make(container, R.string.last_position_set, Snackbar.LENGTH_LONG).show()
+        dismissHint()
+        Snackbar.make(root, R.string.last_position_set, Snackbar.LENGTH_LONG).show()
     }
 
     private suspend fun copySelection() {
@@ -318,55 +361,90 @@ class ReaderActivity : AppCompatActivity() {
     // -----------------------------------------------------------------------
     // Reading settings and bars
 
-    private val scroll get() = prefs.getBoolean("scroll", false)
+    private val scroll get() = ui.prefs.scroll
 
-    private fun epubPreferences() = EpubPreferences(
-        fontSize = prefs.getFloat("fontSize", 1f).toDouble(),
-        scroll = scroll,
-        theme = Theme.entries.getOrNull(prefs.getInt("theme", 0)) ?: Theme.LIGHT,
-    )
+    private fun loadPrefs(): ReaderPrefs =
+        prefs.getString("prefs", null)?.let { runCatching { json.decodeFromString<ReaderPrefs>(it) }.getOrNull() }
+            ?: ReaderPrefs(
+                fontSize = prefs.getFloat("fontSize", 1f).toDouble(),
+                theme = prefs.getInt("theme", 0).coerceIn(0, 2),
+                scroll = prefs.getBoolean("scroll", false),
+            )
 
-    private fun applyPreferences() {
-        (navigator as? EpubNavigatorFragment)?.submitPreferences(epubPreferences())
-        invalidateOptionsMenu()
+    private fun epubPreferences(p: ReaderPrefs = ui.prefs): EpubPreferences {
+        val custom = p.font != 0 || p.spacing != 1
+        return EpubPreferences(
+            fontSize = p.fontSize,
+            scroll = p.scroll,
+            theme = when (p.theme) {
+                1 -> Theme.SEPIA
+                2 -> Theme.DARK
+                else -> Theme.LIGHT
+            },
+            fontFamily = when (p.font) {
+                1 -> FontFamily.SERIF
+                2 -> FontFamily.SANS_SERIF
+                else -> null
+            },
+            lineHeight = when (p.spacing) {
+                0 -> 1.25
+                2 -> 1.8
+                else -> null
+            },
+            publisherStyles = if (custom) false else null,
+        )
     }
 
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        if (kind != Kind.EPUB) return false
-        menu.add(Menu.NONE, 10, 0, R.string.text_smaller)
-        menu.add(Menu.NONE, 11, 1, R.string.text_larger)
-        menu.add(Menu.NONE, 12, 2, R.string.theme)
-        menu.add(Menu.NONE, 13, 3, R.string.scroll_mode).isCheckable = true
-        menu.findItem(13).isChecked = scroll
-        return true
+    private fun dismissHint() {
+        app.settings.markHintShown = true
+        ui.showHint = false
     }
 
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        val size = prefs.getFloat("fontSize", 1f)
-        when (item.itemId) {
-            10 -> prefs.edit().putFloat("fontSize", (size - 0.1f).coerceAtLeast(0.5f)).apply()
-            11 -> prefs.edit().putFloat("fontSize", (size + 0.1f).coerceAtMost(3f)).apply()
-            12 -> prefs.edit().putInt("theme", (prefs.getInt("theme", 0) + 1) % Theme.entries.size).apply()
-            13 -> prefs.edit().putBoolean("scroll", !scroll).apply()
-            else -> return super.onOptionsItemSelected(item)
+    private val actions = object : ReaderActions {
+        override fun close() = finish()
+
+        override fun goToProgression(progression: Double) {
+            val pub = publication ?: return
+            val nav = navigator ?: return
+            lifecycleScope.launch { pub.locateProgression(progression)?.let { nav.go(it) } }
         }
-        applyPreferences()
-        return true
+
+        override fun goTo(item: TocItem) {
+            val nav = navigator ?: return
+            lifecycleScope.launch { nav.go(item.link) }
+        }
+
+        override fun changePrefs(prefs: ReaderPrefs) {
+            ui.prefs = prefs
+            this@ReaderActivity.prefs.edit().putString("prefs", json.encodeToString(prefs)).apply()
+            (navigator as? EpubNavigatorFragment)?.submitPreferences(epubPreferences(prefs))
+        }
+
+        override fun dismissHint() = this@ReaderActivity.dismissHint()
     }
 
-    private fun toggleBars() = showBars(supportActionBar?.isShowing != true)
+    private fun flatten(links: List<Link>, depth: Int = 0): List<TocItem> = links.flatMap { link ->
+        listOf(TocItem(link.title?.trim().orEmpty().ifEmpty { "—" }, depth, link.href.toString(), link)) +
+            flatten(link.children, depth + 1)
+    }
+
+    /** The table of contents' name for a chapter, when the locator has none. */
+    private fun chapterOf(href: String): String? =
+        ui.toc.lastOrNull { it.href.substringBefore('#') == href.substringBefore('#') }?.title
+
+    private fun toggleBars() = showBars(!ui.visible)
 
     private fun showBars(show: Boolean) {
+        ui.visible = show
+        if (!show) ui.sheet = null
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        WindowCompat.setDecorFitsSystemWindows(window, true)
-        if (show) {
-            supportActionBar?.show()
-            controller.show(WindowInsetsCompat.Type.systemBars())
-        } else {
-            supportActionBar?.hide()
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-        }
+        val night = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        controller.isAppearanceLightStatusBars = !night
+        controller.isAppearanceLightNavigationBars = !night
+        if (show) controller.show(WindowInsetsCompat.Type.systemBars())
+        else controller.hide(WindowInsetsCompat.Type.systemBars())
     }
 }
 

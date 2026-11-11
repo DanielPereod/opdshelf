@@ -88,6 +88,7 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var book: LocalBook
     private lateinit var container: FragmentContainerView
     private var publication: Publication? = null
+    private var positionCount = 0
     private var kind = Kind.EPUB
     private var navigator: VisualNavigator? = null
     private var scripts: String? = null
@@ -198,6 +199,7 @@ class ReaderActivity : AppCompatActivity() {
         ui.toc = flatten(pub.tableOfContents)
         ui.searchable = pub.isSearchable
         val positions = pub.positions()
+        positionCount = positions.size
         ui.pages = positions.size.takeIf { it > 0 }
         ui.showHint = kind == Kind.EPUB && !app.settings.markHintShown
         lifecycleScope.launch {
@@ -287,8 +289,26 @@ class ReaderActivity : AppCompatActivity() {
         b != null && a.href == b.href && a.locations.progression == b.locations.progression &&
             a.locations.position == b.locations.position
 
+    /**
+     * Whether the last page of the book is on screen. Readium's totalProgression is where the
+     * page starts, so the last page never reaches 100 %: a finished book would stay at 95-99 %.
+     */
+    private suspend fun atEnd(locator: Locator): Boolean {
+        val pub = publication ?: return false
+        val position = locator.locations.position
+        if (kind != Kind.EPUB) return position != null && positionCount > 0 && position >= positionCount
+        if (pub.readingOrder.indexOfFirstWithHref(locator.href) != pub.readingOrder.lastIndex) return false
+        // In the last chapter: ask the page whether its end is visible
+        val end = js(
+            "(function(){var e=document.scrollingElement;" +
+                "return Math.abs(e.scrollLeft)+window.innerWidth>=e.scrollWidth-2&&e.scrollTop+window.innerHeight>=e.scrollHeight-2})()"
+        )
+        return end == "true"
+    }
+
     private suspend fun save(locator: Locator) {
-        val percentage = (locator.locations.totalProgression ?: 0.0).coerceIn(0.0, 1.0)
+        val percentage = if (atEnd(locator)) 1.0 else (locator.locations.totalProgression ?: 0.0).coerceIn(0.0, 1.0)
+        if (percentage == 1.0) ui.progression = 1f
         val position = when (kind) {
             Kind.EPUB -> {
                 val index = publication?.readingOrder?.indexOfFirstWithHref(locator.href) ?: return

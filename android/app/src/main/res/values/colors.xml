@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Same palette as the web interface (static/styles/index.css) -->
+<resources>
+    <color name="ic_launcher_background">#DCE3EE</color>
+    <color name="bg">#FAFAFA</color>
+    <color name="pane">#FFFFFF</color>
+    <color name="line">#EBEBEB</color>
+    <color name="fg">#111111</color>
+    <color name="muted">#767676</color>
+    <color name="inverse">#FFFFFF</color>
+</resources>

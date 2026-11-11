@@ -54,8 +54,9 @@
 
 📖 **Read in the browser**
 - EPUB reader with table of contents, font size, dark mode and position memory
-- Reading position synced between browsers, devices and KOReader, also after reading offline
-- Select a sentence and set it as the last position, so every device opens the book exactly there
+- Reading position synced live between browsers, devices and KOReader, also after reading offline
+- KOReader plugin: live sync with conflict handling, and the library with covers and downloads inside KOReader
+- Select a sentence and set it as the last position, so every device opens the book exactly there (in KOReader too, with the included plugin)
 - PDF, comic (CBZ, CBR, CB7, CBT, with right-to-left mode) and TXT readers
 - Keyboard, touch swipe and mobile friendly
 
@@ -218,20 +219,60 @@ Which position wins:
 
 ### KOReader
 
-OPDShelf is also a KOReader sync server. In KOReader open a book, then **Tools → Progress sync**:
+Install the OPDShelf plugin from [`koreader/opdshelf.koplugin`](koreader/opdshelf.koplugin): copy the `opdshelf.koplugin` folder into KOReader's `plugins` folder (`.adds/koreader/plugins` on Kobo, `koreader/plugins` on Kindle and in Android's storage) and restart KOReader. Then in **Tools → OPDShelf → Server** enter the server address and OPDShelf's username and password. If Progress sync already pointed to `…/kosync`, the address and username are filled in.
 
-1. **Custom sync server**: `https://your-server/kosync`
-2. **Register / Login**: choose **Login** with OPDShelf's `ADMIN_USERNAME` and `ADMIN_PASSWORD` (there is a single account)
-3. Keep **Document matching method** on **Binary** (the default). **Filename** also works while the file keeps its name.
+**Live sync.** The plugin syncs with its own protocol, not KOReader's Progress sync (which it offers to turn off):
+
+- The position is sent a few seconds after each page turn, when the book is closed and when the device goes to sleep. Without a connection it is kept and sent, with the time it was read, once back online.
+- While a book is open the plugin keeps a connection to the server (`/api/progress/events`), so reading done on the phone or in the browser reaches the Kobo at once, and the other way round.
+- Positions sent while offline carry the device's clock at sending time, so the server can correct e-readers whose clock is wrong before comparing them.
+
+**Conflicts.** When the server has a position from another device:
+
+| Situation | What happens |
+|-----------|--------------|
+| The other device is further ahead | KOReader goes there and says from where (**When another device is further ahead** can ask instead, or stay) |
+| The other device is behind | It asks before going back |
+| You are turning pages right now | It never moves the page under you: it asks |
+| Both devices read since they last synced (for example one offline) | It shows both positions and lets you choose; the one you keep becomes the latest everywhere |
+| A sentence was set as last position on another device | It offers to go there and highlights it |
+
+**Set as last position**: select some text and choose it in the selection menu. Other devices open the book on that sentence. **Go to where another device left it** lists the latest position of each device, to jump back to any of them.
+
+**Library.** **Tools → OPDShelf → Library** (also a gesture action) browses the server's catalog with covers, as a list or a grid, by recent books, folders, authors and series, with search. Tap a book for its cover, series, subjects and description, and to download it or download and read it; a long press downloads it straight away. Downloaded books are marked, with how far they were read. Books go to the download folder chosen in the menu.
 
 Books are matched by KOReader's partial MD5 of the file, so a position follows a book that is renamed or moved. KOReader's EPUB positions (xpointers) and the web reader's are translated in the browser, with the surrounding text saved alongside to find the place again if the two disagree.
+
+KOReader's own **Progress sync** also works without the plugin: set its custom server to `https://your-server/kosync` and log in with OPDShelf's username and password (keep **Document matching method** on **Binary**). It only syncs when opening and closing books, and sends the top of the page.
+
+### Android app
+
+[`android/`](android) is an app for reading the library on Android, also offline:
+
+- Browse and search the catalog, and download books to the phone (EPUB, PDF, CBZ).
+- Read them with [Readium](https://readium.org). The position is saved on the phone and sent to the server when there is a connection, so it is shared with KOReader and the web reader.
+- When a book was read further on another device, it opens there and says so. Select text and choose **Set as last position** to pin a sentence, as in KOReader.
+- EPUB positions are KOReader xpointers, worked out with the same script as the web reader.
+
+In the app's **Settings**, enter the server address (`192.168.1.10:3000` or `https://books.example.com`), OPDShelf's username and password, and a name for the device.
+
+To build it you need JDK 17 or newer and the Android SDK (platform 37):
+
+```sh
+cd android
+./gradlew assembleRelease   # app/build/outputs/apk/release/app-release.apk
+./gradlew testDebugUnitTest
+```
+
+The release APK is signed with the debug key so it can be installed directly. CI builds it on every pull request; download it from the run's artifacts.
 
 ### Progress API
 
 | Method | URL | Content |
 |--------|-----|---------|
 | `GET` | `/api/progress/<document>` | `current` position and `history` of a book |
-| `PUT` | `/api/progress/<document>` | Save a position: `progress`, `percentage` (0–1), `device`, `device_id`, and optionally `cfi`, `context` (`before`, `after`, `selected`), `manual` and `timestamp` (Unix seconds, when it was read) |
+| `PUT` | `/api/progress/<document>` | Save a position: `progress`, `percentage` (0–1), `device`, `device_id`, and optionally `cfi`, `context` (`before`, `after`, `selected`), `manual`, `timestamp` (Unix seconds, when it was read) and `sent_at` (the device's clock when sending, to correct a wrong clock). Answers the `current` position, whether yours was `accepted` (false when a newer one from another device won) and `server_time` |
+| `GET` | `/api/progress/events` | Server-sent events: `hello` (`server_time`), then `progress` (`document`, `current`) on every change of a book's current position, and `resync` if some were missed. `?documents=<id>,<id>` limits it to those books |
 | `*` | `/kosync/...` | KOReader sync protocol (`users/auth`, `syncs/progress`) |
 
 `<document>` is KOReader's partial MD5 of the file. `progress` is an xpointer for reflowable books and the page number (from 1) for PDFs and comics.
@@ -257,6 +298,9 @@ Version 2 is a rewrite in Rust of the original Bun server. The Docker image name
 npm ci && npm run build   # or: npm run watch:css
 cargo run                 # debug builds read views/ and static/ from disk
 cargo test                # unit and HTTP integration tests
+luajit koreader/test/plugin_test.lua koreader/opdshelf.koplugin   # KOReader plugin (needs lua-cjson)
+luajit koreader/test/library_test.lua koreader/opdshelf.koplugin
+luajit koreader/test/browser_test.lua koreader/opdshelf.koplugin
 cargo fmt && cargo clippy --all-targets
 ```
 

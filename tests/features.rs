@@ -484,6 +484,7 @@ async fn series_from_edits_in_volume_order() {
         .collect();
     assert!(order.windows(2).all(|w| w[0] < w[1]), "volume order");
     assert!(!feed.contains("Suelto"));
+    assert!(feed.contains("<calibre:series>La saga</calibre:series><calibre:series_index>10</calibre:series_index>"));
     assert_eq!(t.get("/opds/series/Nada").await.0, StatusCode::NOT_FOUND);
 
     let info = t.text("/info/Ultimo.txt").await;

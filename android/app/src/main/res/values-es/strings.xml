@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tab_library">Biblioteca</string>
+    <string name="tab_device">En el dispositivo</string>
+    <string name="tab_settings">Ajustes</string>
+    <string name="search">Buscar</string>
+    <string name="cannot_load">No se puede cargar el catálogo: %1$s</string>
+    <string name="retry">Reintentar</string>
+    <string name="empty_feed">Aquí no hay nada todavía</string>
+    <string name="read">Leer</string>
+    <string name="download">Descargar</string>
+    <string name="no_books_on_device">Aún no hay libros descargados. Descárgalos desde la Biblioteca para leer sin conexión.</string>
+    <string name="remove_from_device">Quitar del dispositivo</string>
+    <string name="settings_intro">Tu servidor OPDShelf y su cuenta. A través de él se sincroniza por dónde vas con KOReader y el lector web.</string>
+    <string name="server">Dirección del servidor</string>
+    <string name="username">Usuario</string>
+    <string name="password">Contraseña</string>
+    <string name="device_name">Nombre del dispositivo</string>
+    <string name="device_name_help">Se muestra en otros dispositivos cuando continúan desde aquí</string>
+    <string name="cannot_connect">No se puede conectar: %1$s</string>
+    <string name="checking">Comprobando…</string>
+    <string name="save">Guardar</string>
+    <string name="cannot_open_book">No se puede abrir este libro</string>
+    <string name="continuing_from">Continuando desde %1$s</string>
+    <string name="set_last_position">Marcar como último punto</string>
+    <string name="last_position_set">Último punto marcado. Los otros dispositivos abrirán el libro aquí.</string>
+    <string name="text_smaller">Texto más pequeño</string>
+    <string name="text_larger">Texto más grande</string>
+    <string name="theme">Cambiar tema</string>
+    <string name="scroll_mode">Desplazamiento continuo</string>
+    <string name="error_tls">Ha fallado la conexión segura (https). Si el servidor está en tu red sin https, escribe su dirección empezando por http://. Si no, comprueba que su certificado está configurado para ese nombre.</string>
+    <string name="error_host">No se encuentra ese nombre de servidor. Revisa la dirección y la conexión.</string>
+    <string name="error_refused">Nadie responde en esa dirección y puerto. Comprueba que el servidor está en marcha.</string>
+    <string name="error_timeout">El servidor tarda demasiado en responder.</string>
+    <string name="error_login">Usuario o contraseña incorrectos.</string>
+    <string name="view_list">Lista</string>
+    <string name="view_grid">Cuadrícula</string>
+</resources>

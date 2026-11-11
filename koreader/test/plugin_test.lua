@@ -302,9 +302,51 @@ state():saveSetting("live", true)
 p = open()
 respond(200, { current = remote("KOBO-ID", 50) })
 runScheduled()
-check(p.stream ~= nil and p.stream.url == "https://books.example/api/progress/events?documents=DOCHASH", "opens the live connection for this book")
+check(p.stream ~= nil and p.stream.url:match("^https://books.example/api/progress/events%?documents=DOCHASH&device_id=KOBO%-ID&device=.+") ~= nil, "opens the live connection for this book, saying which device listens")
 check(p.stream.headers.Authorization == "Basic B64(admin:secret)", "with the login")
 p:onSuspend()
 check(p.stream == nil, "closes it when the device sleeps")
 p:onCloseDocument()
+
+-- 10. The home screen as KOReader's start screen
+local start_with = { sub_item_table = { { text = "file browser" } }, text_func = function() return "Start with: file browser" end }
+local menu_items = { start_with = start_with }
+p:addToMainMenu(menu_items)
+p:addToMainMenu(menu_items)
+check(#start_with.sub_item_table == 2 and start_with.sub_item_table[2].text == "OPDShelf home", "adds the home screen to Start with, once")
+check(start_with.text_func() == "Start with: file browser", "keeps KOReader's text for its own choices")
+start_with.sub_item_table[2].callback()
+check(global_settings:readSetting("start_with") == "opdshelf" and start_with.sub_item_table[2].checked_func(), "can be chosen")
+check(start_with.text_func() == "Start with: OPDShelf home", "and says so")
+check(menu_items.opdshelf.sub_item_table_func()[1].text == "Home", "the plugin's menu opens it")
+start_with.sub_item_table[1].callback = function() global_settings:saveSetting("start_with", "filemanager") end
+start_with.opdshelf = nil
+p:addStartWith(menu_items)
+start_with.sub_item_table[1].callback()
+check(not p:launcherEnabled(), "choosing another start screen turns it off")
+state():saveSetting("launcher", nil)
+check(p:launcherEnabled(), "it is on by default")
+global_settings:saveSetting("start_with", "last")
+check(not p:launcherEnabled(), "unless KOReader starts with something else")
+p:setLauncher(true)
+check(p:launcherEnabled() and global_settings:readSetting("start_with") == "opdshelf", "and can be turned on")
+-- The file browser's home button and Start with menu
+local FakeFM = { onHome = function() return "home folder" end }
+local FakeMenu = { getStartWithMenuTable = function() return { sub_item_table = { { text = "file browser", callback = function() end } } } end }
+package.loaded["apps/filemanager/filemanager"] = FakeFM
+package.loaded["apps/filemanager/filemanagermenu"] = FakeMenu
+p:patchFileManager()
+p:patchFileManager()
+local home_shown = 0
+local fm_plugin = { launcherEnabled = function() return true end, showHome = function() home_shown = home_shown + 1 end }
+check(FakeFM.onHome({ opdshelf = fm_plugin }) == true and home_shown == 1, "the home button opens the home screen")
+fm_plugin.launcherEnabled = function() return false end
+check(FakeFM.onHome({ opdshelf = fm_plugin }) == "home folder", "or the home folder when it is off")
+local menu = FakeMenu.getStartWithMenuTable()
+check(#menu.sub_item_table == 2 and menu.sub_item_table[2].text == "OPDShelf home", "Start with lists it however its menu is built")
+global_settings:saveSetting("language", "es")
+local _es = dofile(plugin_dir .. "/opdshelf_i18n.lua")
+check(_es("Home") == "Inicio" and _es("Not in the catalog") == "Not in the catalog", "speaks Spanish, and English for the rest")
+global_settings:saveSetting("language", "en")
+check(_es("Home") == "Home", "and English otherwise")
 print("all good")

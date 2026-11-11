@@ -55,7 +55,7 @@
 📖 **Read in the browser**
 - EPUB reader with table of contents, font size, dark mode and position memory
 - Reading position synced live between browsers, devices and KOReader, also after reading offline
-- KOReader plugin: live sync with conflict handling, and the library with covers and downloads inside KOReader
+- KOReader plugin: live sync with conflict handling, the library with covers and downloads, and a home screen that can be KOReader's start screen
 - Select a sentence and set it as the last position, so every device opens the book exactly there (in KOReader too, with the included plugin)
 - PDF, comic (CBZ, CBR, CB7, CBT, with right-to-left mode) and TXT readers
 - While a book is open, reading done on another device shows up at once with a button to jump there
@@ -255,6 +255,10 @@ Install the OPDShelf plugin from [`koreader/opdshelf.koplugin`](koreader/opdshel
 
 **Library.** **Tools → OPDShelf → Library** (also a gesture action) browses the server's catalog with covers, as a list or a grid, by recent books, folders, authors and series, with search. Tap a book for its cover, series, subjects and description, and to download it or download and read it; a long press downloads it straight away. Downloaded books are marked, with how far they were read. Books go to the download folder chosen in the menu.
 
+**Home screen.** Once installed, OPDShelf works as KOReader's launcher: its home screen opens when KOReader starts and after closing a book, and the file browser's home button goes back to it. At the top there is a status bar with the time, date, Wi-Fi and battery. Below it you find the book to continue, with its cover, progress and, when another device read further, where that one is; then the newest books on the server; then the last books read on the device, with their progress. A tab bar at the bottom leads to Home, Library, Search, Files and Settings. Pull down to refresh. Without a connection it shows what it last saw from the server. Turn it off with **Tools → OPDShelf → Show the home screen at start**, or choose another screen in **File browser → Settings → Start with**. It can also be opened from **Tools → OPDShelf → Home** or with a gesture action.
+
+The plugin's texts follow KOReader's language; it includes Spanish.
+
 Books are matched by KOReader's partial MD5 of the file, so a position follows a book that is renamed or moved. KOReader's EPUB positions (xpointers) and the web reader's are translated in the browser, with the surrounding text saved alongside to find the place again if the two disagree.
 
 KOReader's own **Progress sync** also works without the plugin: set its custom server to `https://your-server/kosync` and log in with OPDShelf's username and password (keep **Document matching method** on **Binary**). It only syncs when opening and closing books, and sends the top of the page.
@@ -278,7 +282,30 @@ cd android
 ./gradlew testDebugUnitTest
 ```
 
-The release APK is signed with the debug key so it can be installed directly. CI builds it on every pull request; download it from the run's artifacts.
+Builds without a release key are signed with a test key kept in the repository (`android/app/opdshelf-test.keystore`), so a newer test APK installs over an older one. CI builds one on every pull request; download it from the run's artifacts. Since the test key is public, those APKs are for testing only.
+
+#### Publishing a release
+
+Pushing a tag like `android-v1.2.0` builds the APK, signs it with the private release key and publishes it in GitHub Releases as `opdshelf-1.2.0.apk`. The version code comes from the tag (1.2.0 → 10200), so each release installs over the previous one.
+
+The release key is set up once. Create it and keep a copy of the file and its password somewhere safe: without them, later versions can no longer update the installed app.
+
+```sh
+keytool -genkeypair -keystore opdshelf-release.keystore -alias opdshelf \
+  -keyalg RSA -keysize 4096 -validity 36500
+gh secret set ANDROID_KEYSTORE_BASE64 < <(base64 -w0 opdshelf-release.keystore)
+gh secret set ANDROID_KEYSTORE_PASSWORD   # the password chosen above
+gh secret set ANDROID_KEY_PASSWORD        # the same password, unless a different one was given for the key
+gh secret set ANDROID_KEY_ALIAS --body opdshelf
+```
+
+Then:
+
+```sh
+git tag android-v1.0.0 && git push origin android-v1.0.0
+```
+
+Without those secrets the release workflow stops instead of publishing an APK signed with the public test key.
 
 ### Progress API
 

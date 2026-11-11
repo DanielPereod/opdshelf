@@ -509,5 +509,52 @@ async fn the_panel_speaks_the_browsers_language() {
     assert!(spanish.contains("Todos los libros") && spanish.contains("Conecta tus apps"));
     let english = get("en-US").await;
     assert!(english.contains(r#"<html lang="en">"#) && english.contains("All books"));
-    assert!(english.contains("/kosync"), "the KOReader sync address is shown");
+    assert!(
+        english.contains("Download the plugin"),
+        "the KOReader plugin can be downloaded"
+    );
+}
+
+#[tokio::test]
+async fn reading_apps_download_from_the_panel() {
+    let app = app();
+    let get = |uri: &'static str| {
+        let app = app.app.clone();
+        async move {
+            let response = app
+                .oneshot(
+                    Request::get(uri)
+                        .header(header::AUTHORIZATION, basic())
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let status = response.status();
+            let headers = response.headers().clone();
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            (status, headers, body)
+        }
+    };
+    let (status, headers, body) = get("/apps/opdshelf.koplugin.zip").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "application/zip");
+    assert!(body.starts_with(b"PK"));
+
+    // The APK is only there once it is copied to DATA_DIR/apps
+    assert_eq!(get("/apps/opdshelf.apk").await.0, StatusCode::NOT_FOUND);
+    let sync = String::from_utf8(get("/admin/sync").await.2.to_vec()).unwrap();
+    assert!(sync.contains("/apps/opdshelf.koplugin.zip") && !sync.contains(r#"href="/apps/opdshelf.apk""#));
+    let apps = app.dir.path().join("books/.opdshelf/apps");
+    std::fs::create_dir_all(&apps).unwrap();
+    std::fs::write(apps.join("opdshelf.apk"), b"PK apk").unwrap();
+    let (status, headers, body) = get("/apps/opdshelf.apk").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(headers[header::CONTENT_DISPOSITION]
+        .to_str()
+        .unwrap()
+        .contains("opdshelf.apk"));
+    assert_eq!(&body[..], b"PK apk");
+    let sync = String::from_utf8(get("/admin/sync").await.2.to_vec()).unwrap();
+    assert!(sync.contains(r#"href="/apps/opdshelf.apk""#));
 }

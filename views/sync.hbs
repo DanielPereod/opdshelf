@@ -70,16 +70,30 @@
                   aria-label="{{t "Copy address"}}"><i class="far fa-copy"></i></button></div>
             </div>
             <div class="connect-item">
-              <h3><i class="fas fa-tablet-screen-button"></i>{{t "KOReader progress sync"}}</h3>
-              <p>{{t "In KOReader: Tools › Progress sync › Custom sync server. Log in with your OPDShelf user."}}</p>
-              <div class="copy-row"><code class="mono" id="connectKosync">{{baseUrl}}/kosync</code>
-                <button type="button" class="icon-btn" data-copy="connectKosync" title="{{t "Copy address"}}"
+              <h3><i class="fas fa-tablet-screen-button"></i>{{t "OPDShelf for KOReader"}}</h3>
+              <p>{{t "Live position sync and your library with covers, inside KOReader."}}</p>
+              <a class="btn btn-primary btn-small" href="/apps/opdshelf.koplugin.zip" download><i
+                  class="fas fa-download"></i>{{t "Download the plugin"}} <span class="btn-note">{{pluginSize}}</span></a>
+              <ol class="steps">
+                <li>{{{t "Unzip it into KOReader's {folder} folder (on a Kobo, {path})." folder="<code>plugins</code>" path="<code>.adds/koreader/plugins</code>"}}}</li>
+                <li>{{t "Restart KOReader and open Tools › OPDShelf."}}</li>
+                <li>{{t "Enter this server's address and your OPDShelf user:"}}</li>
+              </ol>
+              <div class="copy-row"><code class="mono" id="connectKoreader">{{baseUrl}}</code>
+                <button type="button" class="icon-btn" data-copy="connectKoreader" title="{{t "Copy address"}}"
                   aria-label="{{t "Copy address"}}"><i class="far fa-copy"></i></button></div>
               {{#if username}}<p class="muted">{{t "User: {name}" name=username}}</p>{{/if}}
-              <p class="muted">{{t "The OPDShelf plugin for KOReader also syncs live and opens the library on the device."}}</p>
             </div>
             <div class="connect-item">
               <h3><i class="fab fa-android"></i>{{t "OPDShelf for Android"}}</h3>
+              <p>{{t "Reads offline and syncs your position with every other device."}}</p>
+              {{#if apkSize}}
+              <a class="btn btn-primary btn-small" href="/apps/opdshelf.apk" download><i
+                  class="fas fa-download"></i>{{t "Download the app"}} <span class="btn-note">{{apkSize}}</span></a>
+              <p class="muted">{{t "Open the APK on the phone and allow installing apps from the browser if Android asks."}}</p>
+              {{else}}
+              <p class="muted">{{{t "To download it from here, copy the APK to {path} on the server." path="<code>DATA_DIR/apps/opdshelf.apk</code>"}}}</p>
+              {{/if}}
               <p>{{t "Use this server address when the app asks for it:"}}</p>
               <div class="copy-row"><code class="mono" id="connectServer">{{baseUrl}}</code>
                 <button type="button" class="icon-btn" data-copy="connectServer" title="{{t "Copy address"}}"

@@ -1,3 +1,4 @@
+pub mod apps;
 pub mod archive;
 pub mod auth;
 pub mod config;

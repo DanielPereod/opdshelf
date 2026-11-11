@@ -14,6 +14,7 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY views ./views
+COPY koreader/opdshelf.koplugin ./koreader/opdshelf.koplugin
 COPY --from=assets /app/static ./static
 RUN cargo build --release --locked
 

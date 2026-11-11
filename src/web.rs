@@ -23,7 +23,7 @@ use crate::lookup::Lookup;
 use crate::progress::Progress;
 use crate::store::Store;
 use crate::templates::{self, Static};
-use crate::{covers, edit, opds, paths, reader, sync};
+use crate::{apps, covers, edit, opds, paths, reader, sync};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -92,6 +92,8 @@ pub fn router(config: Config) -> Router {
         .route("/page/{*path}", get(reader::page))
         .route("/admin", get(admin))
         .route("/admin/sync", get(admin_sync))
+        .route("/apps/opdshelf.koplugin.zip", get(apps::koreader_plugin))
+        .route("/apps/opdshelf.apk", get(apps::android_app))
         .route("/admin/upload", post(upload).layer(DefaultBodyLimit::max(upload_limit)))
         .route("/admin/delete", post(delete))
         .route("/admin/rename", post(rename))
@@ -342,6 +344,8 @@ pub async fn library_data(state: &AppState, query: &AdminQuery) -> serde_json::V
         "formats": extensions.iter().map(|e| e.trim_start_matches('.').to_uppercase()).collect::<Vec<_>>().join(", "),
         "notice": query.notice,
         "error": query.error,
+        "apkSize": apps::apk_size(state).map(format_size),
+        "pluginSize": format_size(apps::plugin_zip().len() as u64),
     })
 }
 

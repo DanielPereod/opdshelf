@@ -9,6 +9,18 @@ shows the English text.
 local gettext = require("gettext")
 
 local es = {
+    ["All books by title"] = "Todos los libros por título",
+    ["All books"] = "Todos los libros",
+    ["Folders"] = "Carpetas",
+    ["Authors"] = "Autores",
+    ["Series"] = "Series",
+    ["Books"] = "Libros",
+    ["%1 books, newest first"] = "%1 libros, los últimos primero",
+    ["%1 books, A-Z"] = "%1 libros, de la A a la Z",
+    ["%1 folders"] = "%1 carpetas",
+    ["%1 authors"] = "%1 autores",
+    ["%1 series"] = "%1 series",
+    ["%1 books"] = "%1 libros",
     ["%1 · %2 %3"] = "%1 · %2 de %3",
     ["Settings"] = "Ajustes",
     ["Open at start and after a book"] = "Abrir al empezar y al cerrar un libro",

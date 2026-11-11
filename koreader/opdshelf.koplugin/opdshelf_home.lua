@@ -570,11 +570,21 @@ function Home:refresh()
     local status_bar = self:statusBar()
     local actions = self:tabBar()
     local actions_h = actions:getSize().h
-    local header_h = Screen:scaleBySize(30)
+    local recent_header = self:sectionHeader(_("Recently added to the library"), self.plugin:ready() and _("See all") or nil, function()
+        self:openLibrary(false, self.recent_url or (self.plugin.client.server .. "/opds/books"), _("Recently added"))
+    end)
+    local device_header = self:sectionHeader(_("On this device"), _("History"), function() self:showHistory() end)
     local space = Size.padding.large * 2
-    local content_h = self.dimen.h - status_bar:getSize().h - title_bar:getHeight() - actions_h - 2 * header_h - 3 * space
-    local hero_h = math.floor(content_h * 0.38)
-    local shelf_h = math.floor((content_h - hero_h) / 2)
+    -- Everything between the title and the tabs is shared out, so nothing is left empty
+    local content_h = self.dimen.h - status_bar:getSize().h - title_bar:getHeight() - actions_h
+        - recent_header:getSize().h - device_header:getSize().h - 3 * space
+    -- Shelves as tall as their covers need; the card on top takes the rest
+    local gap = Size.padding.large
+    local cell_w = math.floor((self.dimen.w - 2 * self.margin - (self.shelf_count - 1) * gap) / self.shelf_count)
+    local caption = Font:getFace("cfont", 14).size
+    local shelf_natural = math.floor(cell_w * COVER_RATIO) + 2 * caption + Screen:scaleBySize(5) + 5 * Size.padding.small
+    local shelf_h = math.min(math.floor(content_h * 0.31), shelf_natural)
+    local hero_h = content_h - 2 * shelf_h
 
     local body = VerticalGroup:new{
         align = "center",
@@ -582,13 +592,11 @@ function Home:refresh()
         title_bar,
         self:hero(hero_h),
         VerticalSpan:new{ width = space },
-        self:sectionHeader(_("Recently added to the library"), self.plugin:ready() and _("See all") or nil, function()
-            self:openLibrary(false, self.recent_url or (self.plugin.client.server .. "/opds/books"), _("Recently added"))
-        end),
+        recent_header,
         self:shelf(self:serverItems(), shelf_h,
             self.plugin:ready() and _("The library's newest books will show here.") or _("Set up your OPDShelf server in the menu to see your library here.")),
         VerticalSpan:new{ width = space },
-        self:sectionHeader(_("On this device"), _("History"), function() self:showHistory() end),
+        device_header,
         self:shelf(self:deviceItems(), shelf_h, _("Other books you open will show here.")),
     }
     self[1] = FrameContainer:new{

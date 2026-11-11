@@ -249,6 +249,15 @@ function Browser:load(url)
     if not feed then
         return nil, T(_("This is not a library feed: %1"), err)
     end
+    -- The server names its sections in English: show them in KOReader's language
+    feed.title = _(feed.title)
+    for _i, entry in ipairs(feed.entries) do
+        if not entry.is_book then
+            entry.title = _(entry.title)
+            local count, rest = (entry.summary or ""):match("^(%d+) (.+)$")
+            if count then entry.summary = T(_("%1 " .. rest), count) end
+        end
+    end
     return feed
 end
 

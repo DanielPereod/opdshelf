@@ -73,7 +73,7 @@ package.preload["ui/size"] = function() return {
     border = { thin = 1, button = 1 }, padding = { small = 2, default = 5, large = 10 }, line = { thin = 1 }, radius = { window = 7 },
 } end
 package.preload["ui/uimanager"] = function() return {
-    show = function(_, w) shown[#shown + 1] = w end,
+    show = function(_, w, refresh) if type(w) == "table" then w.shown_refresh = refresh end shown[#shown + 1] = w end,
     close = function(_, w) closed[#closed + 1] = w end,
     -- What is due soon runs at once; the clock's minute ticks are kept to run by hand
     scheduleIn = function(_, s, f) if s < 1 then f() else ticks[#ticks + 1] = f end end,
@@ -222,6 +222,7 @@ check(b.view == "list" and settings.library_view == "list", "switches back to th
 b:select(level.entries[1])
 local details = shown[#shown]
 check(details[1] ~= nil, "shows a book's details")
+check(details.shown_refresh == "flashui", "and refreshes the screen for them (e-ink shows nothing otherwise)")
 local function findButtons(w, found)
     found = found or {}
     if type(w) ~= "table" then return found end

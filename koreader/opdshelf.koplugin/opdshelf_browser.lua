@@ -204,7 +204,7 @@ end
 
 -- Opens the catalog root, or `url` if given
 function Browser:start(url, title)
-    UIManager:show(self)
+    UIManager:show(self, "flashui")
     self:open(url or (self.plugin.client.server .. "/"), title or self.title)
 end
 
@@ -685,7 +685,7 @@ function Browser:resume(session)
     self.stack = session.stack
     self.root = session.root
     self.closed = false
-    UIManager:show(self)
+    UIManager:show(self, "flashui")
     self:refresh()
 end
 
@@ -981,7 +981,9 @@ function Browser:showDetails(entry)
             },
         },
     }
-    UIManager:show(details)
+    -- A refresh mode is needed: without one, e-ink screens (Kindle, Kobo) never
+    -- show the new screen, only the bits other widgets happen to refresh.
+    UIManager:show(details, "flashui")
 end
 
 -- Shared with the home screen

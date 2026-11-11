@@ -1564,6 +1564,14 @@ dialog::backdrop {
   background: var(--fg);
 }
 
+#pageInfo {
+  font-family: var(--sans);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
 .reader-foot input[type="range"] {
   flex: 1;
 }
@@ -2078,7 +2086,8 @@ a.nav-item {
 .continue-row {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(230px, 280px);
+  /* Four cards fill a wide row; the rest scroll */
+  grid-auto-columns: minmax(240px, calc((100% - 30px) / 4));
   gap: var(--sp-3);
   overflow-x: auto;
   scroll-snap-type: x mandatory;
@@ -2164,7 +2173,7 @@ a.nav-item {
 
 .reading-now strong {
   font-size: var(--fs-xl);
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .reading-now span {
@@ -2770,6 +2779,13 @@ a.nav-item {
 /* ---------------------------------------------------------------- responsive */
 
 /* Columns of the book list, by the width of the list itself */
+@container main (min-width: 1400px) {
+  .cols,
+  .book {
+    grid-template-columns: 36px minmax(0, 1fr) minmax(0, 320px) 80px 180px 96px 112px 48px;
+  }
+}
+
 @container main (max-width: 960px) {
   .cols,
   .book {
@@ -2795,7 +2811,7 @@ a.nav-item {
   }
 
   .toolbar h1 {
-    flex: 1;
+    flex: 1 1 auto;
     margin: 0;
     font-size: var(--fs-md);
   }
@@ -2822,25 +2838,51 @@ a.nav-item {
     max-width: none;
   }
 
+  /* The sort menu is just its icon; the options open as usual */
   .sort-select select {
-    max-width: 200px;
+    width: var(--control);
+    padding: 0;
+    color: transparent;
+    background-image: none;
   }
 
-  /* Selection bar: count and actions on top, the move field below */
+  .sort-select select option {
+    color: var(--fg);
+  }
+
+  .sort-select i {
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--fg);
+  }
+
+  /* Selection bar: the count and close on top, the actions as icons below */
   .bulk strong {
-    flex: 1;
+    flex: 1 0 calc(100% - var(--control) - var(--sp-2));
   }
 
-  .bulk #bulkDelete,
   .bulk #bulkClear {
-    order: 1;
     margin-left: 0;
+  }
+
+  .bulk .lbl {
+    display: none;
+  }
+
+  .bulk .btn {
+    width: var(--control);
+    padding: 0;
   }
 
   .bulk-move {
     order: 2;
-    flex-basis: 100%;
+    flex: 1 1 120px;
     min-width: 0;
+  }
+
+  .bulk [data-bulk-mark],
+  .bulk #bulkDelete {
+    order: 3;
   }
 
   .bulk-move .input {
@@ -3115,8 +3157,13 @@ a.nav-item {
 
 @media (max-width: 760px), (pointer: coarse) {
   .select-btn {
-    display: inline-grid;
+    display: inline-flex;
   }
+}
+
+.select-btn[aria-pressed="true"] {
+  background: var(--soft);
+  border-color: var(--line-strong);
 }
 
 /* Touch screens: targets of at least 40px and 16px text in fields, so

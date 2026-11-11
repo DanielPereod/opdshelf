@@ -34,7 +34,7 @@
   </div>
 
   <section class="reading" data-reading="{{document}}" aria-label="{{t "Reading"}}">
-    <h3>{{t "Reading"}}</h3>
+    <h3>{{t "Reading progress"}}</h3>
     <div data-reading-body><p class="muted">{{#if document}}{{t "Loading…"}}{{else}}{{t "Not started on any device yet."}}{{/if}}</p></div>
   </section>
 
@@ -127,18 +127,20 @@
       <label class="field full" for="f-title"><span>{{t "Title"}}</span>
         <input type="text" name="title" id="f-title" value="{{fields.title}}" class="input"></label>
       <label class="field full" for="f-authors"><span>{{t "Authors"}} <em>{{t "separate with ;"}}</em></span>
-        <input type="text" name="authors" id="f-authors" value="{{fields.authors}}" class="input"></label>
+        <input type="text" name="authors" id="f-authors" value="{{fields.authors}}" class="input" list="authorOptions" autocomplete="off"></label>
       <label class="field" for="f-series"><span>{{t "Series"}}</span>
-        <input type="text" name="series" id="f-series" value="{{fields.series}}" class="input"></label>
+        <input type="text" name="series" id="f-series" value="{{fields.series}}" class="input" list="seriesOptions" autocomplete="off"></label>
       <label class="field" for="f-series-index"><span>{{t "Number in series"}}</span>
         <input type="text" name="series_index" id="f-series-index" value="{{fields.seriesIndex}}" placeholder="1, 2, 2.5…"
           inputmode="decimal" class="input"></label>
       <label class="field" for="f-publisher"><span>{{t "Publisher"}}</span>
         <input type="text" name="publisher" id="f-publisher" value="{{fields.publisher}}" class="input"></label>
       <label class="field" for="f-date"><span>{{t "Date"}}</span>
-        <input type="text" name="date" id="f-date" value="{{fields.date}}" class="input"></label>
+        <input type="text" name="date" id="f-date" value="{{fields.date}}" class="input" placeholder="{{t "YYYY or YYYY-MM-DD"}}"
+          pattern="\d{4}(-\d{2}(-\d{2})?)?" inputmode="numeric" title="{{t "A year, or a date as YYYY-MM-DD"}}"></label>
       <label class="field" for="f-language"><span>{{t "Language"}}</span>
-        <input type="text" name="language" id="f-language" value="{{fields.language}}" placeholder="es, en…" class="input"></label>
+        <input type="text" name="language" id="f-language" value="{{fields.language}}" placeholder="es, en…" class="input"
+          list="languageOptions" autocomplete="off" pattern="[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*" title="{{t "A language code such as es or en-GB"}}"></label>
       <label class="field" for="f-identifier"><span>{{t "ISBN / identifier"}}</span>
         <input type="text" name="identifier" id="f-identifier" value="{{fields.identifier}}" class="input mono"></label>
       <label class="field full" for="f-subjects"><span>{{t "Subjects"}} <em>{{t "separate with ,"}}</em></span>

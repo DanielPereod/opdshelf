@@ -111,8 +111,8 @@
           <option value="format:asc">{{t "Format"}}</option>
         </select>
       </label>
-      <button type="button" class="icon-btn select-btn" id="selectBtn" aria-pressed="false" title="{{t "Select books"}}"
-        aria-label="{{t "Select books"}}"><i class="far fa-square-check"></i></button>
+      <button type="button" class="btn btn-quiet select-btn" id="selectBtn" aria-pressed="false" title="{{t "Select books"}}"><i
+          class="far fa-square-check"></i><span class="sel-label">{{t "Select"}}</span></button>
       {{/if}}
       <div class="segmented" role="group" aria-label="{{t "View"}}">
         <button type="button" class="icon-btn" data-view="list" title="{{t "List"}}" aria-label="{{t "List"}}"><i
@@ -142,13 +142,13 @@
       <input type="hidden" name="csrf" value="{{csrf}}">
       <strong id="bulkCount"></strong>
       <div class="bulk-move">
-        <input class="input" name="folder" id="bulkFolder" list="folderList" placeholder="{{t "Move to folder…"}}"
+        <input class="input" name="folder" id="bulkFolder" list="folderList" placeholder="{{t "Folder…"}}"
           aria-label="{{t "Destination folder"}}">
-        <button type="submit" class="btn" name="action" value="move"><i class="far fa-folder-open"></i>{{t "Move"}}</button>
+        <button type="submit" class="btn" name="action" value="move" title="{{t "Move"}}"><i class="far fa-folder-open"></i><span class="lbl">{{t "Move"}}</span></button>
       </div>
-      <button type="button" class="btn" data-bulk-mark="read"><i class="far fa-circle-check"></i>{{t "Mark as read"}}</button>
-      <button type="button" class="btn" data-bulk-mark="unread"><i class="far fa-circle"></i>{{t "Mark as unread"}}</button>
-      <button type="button" class="btn btn-danger" id="bulkDelete"><i class="far fa-trash-can"></i>{{t "Delete"}}</button>
+      <button type="button" class="btn" data-bulk-mark="read" title="{{t "Mark as read"}}"><i class="far fa-circle-check"></i><span class="lbl">{{t "Mark as read"}}</span></button>
+      <button type="button" class="btn" data-bulk-mark="unread" title="{{t "Mark as unread"}}"><i class="far fa-circle"></i><span class="lbl">{{t "Mark as unread"}}</span></button>
+      <button type="button" class="btn btn-danger" id="bulkDelete" title="{{t "Delete"}}"><i class="far fa-trash-can"></i><span class="lbl">{{t "Delete"}}</span></button>
       <button type="button" class="icon-btn" id="bulkClear" title="{{t "Clear selection"}}"
         aria-label="{{t "Clear selection"}}"><i class="fas fa-xmark"></i></button>
     </form>
@@ -235,6 +235,23 @@
   </aside>
 </div>
 
+<datalist id="authorOptions"></datalist>
+<datalist id="seriesOptions"></datalist>
+<datalist id="languageOptions">
+  <option value="es">Español</option>
+  <option value="en">English</option>
+  <option value="fr">Français</option>
+  <option value="de">Deutsch</option>
+  <option value="it">Italiano</option>
+  <option value="pt">Português</option>
+  <option value="ca">Català</option>
+  <option value="eu">Euskara</option>
+  <option value="gl">Galego</option>
+  <option value="nl">Nederlands</option>
+  <option value="ru">Русский</option>
+  <option value="ja">日本語</option>
+  <option value="zh">中文</option>
+</datalist>
 <datalist id="folderList">
   {{#each folders}}<option value="{{this}}"></option>{{/each}}
 </datalist>
@@ -390,6 +407,14 @@
       group.addEventListener('toggle', () => storeSet(key, group.open ? '1' : '0'));
     }
     buildShelves($('authorsGroup'), $('authorShelves'), 'author', rows.flatMap(authorsOf));
+    // Suggestions for the editor
+    const fillList = (id, names) => $(id).replaceChildren(...Array.from(new Set(names)).sort(collator.compare).map((n) => {
+      const o = document.createElement('option');
+      o.value = n;
+      return o;
+    }));
+    fillList('authorOptions', rows.flatMap(authorsOf));
+    fillList('seriesOptions', rows.map((r) => r.dataset.series).filter(Boolean));
     buildShelves($('seriesGroup'), $('seriesShelves'), 'series', rows.map((r) => r.dataset.series).filter(Boolean));
     $('dropTarget').textContent = libraryRoot;
     $('dropOverlayTarget').textContent = libraryRoot;

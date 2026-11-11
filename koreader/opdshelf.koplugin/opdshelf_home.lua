@@ -109,7 +109,7 @@ function Home:init()
 end
 
 function Home:show()
-    UIManager:show(self)
+    UIManager:show(self, "flashui")
     self:refresh()
     UIManager:scheduleIn(0.3, function() self:loadRemote() end)
     self:scheduleClock()

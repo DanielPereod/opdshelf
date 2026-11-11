@@ -1,12 +1,12 @@
 <div class="insp-head">
-  <nav class="tabs" aria-label="Book">
-    <a class="tab" href="/info/{{urlPath book.path}}" data-panel {{#if infoTab}}aria-current="page"{{/if}}>Details</a>
-    <a class="tab" href="/admin/edit/{{urlPath book.path}}" data-panel {{#if editTab}}aria-current="page"{{/if}}>Edit</a>
+  <nav class="tabs" aria-label="{{t "Book"}}">
+    <a class="tab" href="/info/{{urlPath book.path}}" data-panel {{#if infoTab}}aria-current="page"{{/if}}>{{t "Details"}}</a>
+    <a class="tab" href="/admin/edit/{{urlPath book.path}}" data-panel {{#if editTab}}aria-current="page"{{/if}}>{{t "Edit"}}</a>
   </nav>
-  <button type="button" class="icon-btn" data-delete="{{book.path}}" data-title="{{book.title}}" title="Delete book">
+  <button type="button" class="icon-btn" data-delete="{{book.path}}" data-title="{{book.title}}" title="{{t "Delete book"}}" aria-label="{{t "Delete book"}}">
     <i class="far fa-trash-can"></i>
   </button>
-  <a class="icon-btn" href="/admin{{#if book.folder}}?folder={{urlPath book.folder}}{{/if}}" data-close title="Close">
+  <a class="icon-btn" href="/admin{{#if book.folder}}?folder={{urlPath book.folder}}{{/if}}" data-close title="{{t "Close"}}" aria-label="{{t "Close"}}">
     <i class="fas fa-xmark"></i>
   </a>
 </div>
@@ -22,51 +22,56 @@
     {{/if}}
     <div>
       <h2>{{book.title}}</h2>
-      <p class="by">{{#if book.authors}}{{book.authors}}{{else}}Unknown author{{/if}}</p>
+      <p class="by">{{#if book.authors}}{{book.authors}}{{else}}{{t "Unknown author"}}{{/if}}</p>
       <div class="stack">
         {{#if book.readable}}
-        <a class="btn btn-primary" href="/read/{{urlPath book.path}}"><i class="fas fa-book-open"></i>Read</a>
+        <a class="btn btn-primary" href="/read/{{urlPath book.path}}"><i class="fas fa-book-open"></i>{{t "Read"}}</a>
         {{/if}}
-        <a class="btn" href="/download/{{urlPath book.path}}" download><i class="fas fa-download"></i>Download</a>
+        <a class="btn" href="/download/{{urlPath book.path}}" download><i class="fas fa-download"></i>{{t "Download"}}</a>
       </div>
     </div>
   </div>
 
+  <section class="reading" data-reading="{{document}}" aria-label="{{t "Reading"}}">
+    <h3>{{t "Reading"}}</h3>
+    <div data-reading-body><p class="muted">{{#if document}}{{t "Loading…"}}{{else}}{{t "Not started on any device yet."}}{{/if}}</p></div>
+  </section>
+
   {{#if meta.description}}
-  <p class="desc">{{meta.description}}</p>
+  <p class="desc" id="desc">{{meta.description}}</p>
   {{/if}}
 
   <dl class="kv">
     {{#if meta.series}}
-    <dt>Series</dt>
+    <dt>{{t "Series"}}</dt>
     <dd>{{meta.series}}{{#if meta.series_index}} #{{meta.series_index}}{{/if}}</dd>
     {{/if}}
-    <dt>Publisher</dt>
+    <dt>{{t "Publisher"}}</dt>
     <dd>{{#if meta.publisher}}{{meta.publisher}}{{else}}—{{/if}}</dd>
-    <dt>Date</dt>
+    <dt>{{t "Date"}}</dt>
     <dd>{{#if meta.date}}{{meta.date}}{{else}}—{{/if}}</dd>
-    <dt>Language</dt>
+    <dt>{{t "Language"}}</dt>
     <dd>{{#if meta.language}}{{meta.language}}{{else}}—{{/if}}</dd>
     <dt>ISBN</dt>
     <dd class="mono">{{#if meta.identifier}}{{meta.identifier}}{{else}}—{{/if}}</dd>
-    <dt>Subjects</dt>
+    <dt>{{t "Subjects"}}</dt>
     <dd>{{#if meta.subjects}}{{#each meta.subjects}}{{#if @index}}, {{/if}}{{this}}{{/each}}{{else}}—{{/if}}</dd>
   </dl>
   <div class="rule"></div>
   <dl class="kv">
-    <dt>File</dt>
+    <dt>{{t "File"}}</dt>
     <dd class="mono">{{book.path}}</dd>
-    <dt>Format</dt>
+    <dt>{{t "Format"}}</dt>
     <dd>{{book.format}} · {{book.size}}</dd>
-    <dt>Details</dt>
-    <dd>{{#if book.edited}}Edited in OPDShelf{{else}}From the file{{/if}}</dd>
+    <dt>{{t "Details"}}</dt>
+    <dd>{{#if book.edited}}{{t "Edited in OPDShelf"}}{{else}}{{t "From the file"}}{{/if}}</dd>
   </dl>
   <div class="rule"></div>
   <div class="link-row">
     <button type="button" class="btn" data-rename="{{book.path}}" data-name="{{book.fileName}}" data-folder="{{book.folder}}">
-      <i class="fas fa-i-cursor"></i>Rename or move
+      <i class="fas fa-i-cursor"></i>{{t "Rename or move"}}
     </button>
-    <a class="btn" href="/admin/edit/{{urlPath book.path}}" data-panel><i class="fas fa-pen"></i>Edit details</a>
+    <a class="btn" href="/admin/edit/{{urlPath book.path}}" data-panel><i class="fas fa-pen"></i>{{t "Edit details"}}</a>
   </div>
 </div>
 {{/if}}
@@ -79,10 +84,10 @@
 
   <div class="insp-body">
     <label class="field" for="isbn">
-      <span>ISBN <em>Open Library, Google Books</em></span>
+      <span>ISBN <em>{{t "Fills the form from Open Library or Google Books"}}</em></span>
       <div class="lookup-row">
         <input type="text" id="isbn" value="{{isbn}}" placeholder="978…" inputmode="numeric" class="input mono">
-        <button type="button" class="btn" id="lookupBtn"><i class="fas fa-magnifying-glass"></i>Look up</button>
+        <button type="button" class="btn" id="lookupBtn"><i class="fas fa-magnifying-glass"></i>{{t "Look up"}}</button>
       </div>
     </label>
     <div class="found" id="lookupResult" hidden>
@@ -92,8 +97,8 @@
         <strong id="lookupTitle"></strong>
         <small id="lookupExtra"></small>
         <div class="actions">
-          <button type="button" class="btn btn-primary" id="applyBtn">Fill in the form</button>
-          <label class="check" id="applyCoverLabel"><input type="checkbox" id="applyCover" checked> Use this cover</label>
+          <button type="button" class="btn btn-primary" id="applyBtn">{{t "Fill in the form"}}</button>
+          <label class="check" id="applyCoverLabel"><input type="checkbox" id="applyCover" checked> {{t "Use this cover"}}</label>
         </div>
       </div>
     </div>
@@ -107,52 +112,52 @@
       {{/if}}
       <div class="stack">
         <label class="btn">
-          <i class="fas fa-arrow-up-from-bracket"></i>Upload image
+          <i class="fas fa-arrow-up-from-bracket"></i>{{t "Upload image"}}
           <input type="file" name="cover" id="coverFile" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
         </label>
         {{#if book.hasCover}}
-        <label class="check"><input type="checkbox" name="remove_cover" value="1"> Use the file's cover</label>
+        <label class="check"><input type="checkbox" name="remove_cover" value="1"> {{t "Use the file's cover"}}</label>
         {{/if}}
       </div>
     </div>
 
     <div class="form-grid">
-      <label class="field full" for="f-title"><span>Title</span>
+      <label class="field full" for="f-title"><span>{{t "Title"}}</span>
         <input type="text" name="title" id="f-title" value="{{fields.title}}" class="input"></label>
-      <label class="field full" for="f-authors"><span>Authors <em>separate with ;</em></span>
+      <label class="field full" for="f-authors"><span>{{t "Authors"}} <em>{{t "separate with ;"}}</em></span>
         <input type="text" name="authors" id="f-authors" value="{{fields.authors}}" class="input"></label>
-      <label class="field" for="f-series"><span>Series</span>
+      <label class="field" for="f-series"><span>{{t "Series"}}</span>
         <input type="text" name="series" id="f-series" value="{{fields.series}}" class="input"></label>
-      <label class="field" for="f-series-index"><span>Number in series</span>
+      <label class="field" for="f-series-index"><span>{{t "Number in series"}}</span>
         <input type="text" name="series_index" id="f-series-index" value="{{fields.seriesIndex}}" placeholder="1, 2, 2.5…"
           inputmode="decimal" class="input"></label>
-      <label class="field" for="f-publisher"><span>Publisher</span>
+      <label class="field" for="f-publisher"><span>{{t "Publisher"}}</span>
         <input type="text" name="publisher" id="f-publisher" value="{{fields.publisher}}" class="input"></label>
-      <label class="field" for="f-date"><span>Date</span>
+      <label class="field" for="f-date"><span>{{t "Date"}}</span>
         <input type="text" name="date" id="f-date" value="{{fields.date}}" class="input"></label>
-      <label class="field" for="f-language"><span>Language</span>
+      <label class="field" for="f-language"><span>{{t "Language"}}</span>
         <input type="text" name="language" id="f-language" value="{{fields.language}}" placeholder="es, en…" class="input"></label>
-      <label class="field" for="f-identifier"><span>ISBN / identifier</span>
+      <label class="field" for="f-identifier"><span>{{t "ISBN / identifier"}}</span>
         <input type="text" name="identifier" id="f-identifier" value="{{fields.identifier}}" class="input mono"></label>
-      <label class="field full" for="f-subjects"><span>Subjects <em>separate with ,</em></span>
+      <label class="field full" for="f-subjects"><span>{{t "Subjects"}} <em>{{t "separate with ,"}}</em></span>
         <input type="text" name="subjects" id="f-subjects" value="{{fields.subjects}}" class="input"></label>
-      <label class="field full" for="f-description"><span>Description</span>
+      <label class="field full" for="f-description"><span>{{t "Description"}}</span>
         <textarea name="description" id="f-description" rows="6" class="input">{{fields.description}}</textarea></label>
     </div>
-    <p class="muted" style="font-size:12px">Saved by OPDShelf. The book file is not modified.</p>
+    <p class="muted small-note">{{t "Saved by OPDShelf. The book file is not modified."}}</p>
   </div>
 
   <div class="insp-foot">
+    <span class="edit-status" id="editStatus" hidden><i class="fas fa-circle"></i>{{t "Unsaved changes"}}</span>
     {{#if book.edited}}
-    <button type="submit" form="resetForm" class="btn btn-quiet left"><i class="fas fa-rotate-left"></i>Restore</button>
+    <button type="submit" form="resetForm" class="btn btn-quiet left"><i class="fas fa-rotate-left"></i>{{t "Restore"}}</button>
     {{/if}}
-    <a class="btn" href="/info/{{urlPath book.path}}" data-panel>Cancel</a>
-    <button type="submit" class="btn btn-primary">Save</button>
+    <a class="btn" href="/info/{{urlPath book.path}}" data-panel>{{t "Cancel"}}</a>
+    <button type="submit" class="btn btn-primary" title="Ctrl+S">{{t "Save"}}</button>
   </div>
 </form>
 {{#if book.edited}}
-<form id="resetForm" action="/admin/reset" method="post" hidden
-  onsubmit="return confirm('Discard your changes and use the details from the file?');">
+<form id="resetForm" action="/admin/reset" method="post" hidden>
   <input type="hidden" name="csrf" value="{{csrf}}">
   <input type="hidden" name="path" value="{{book.path}}">
 </form>

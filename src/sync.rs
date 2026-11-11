@@ -8,8 +8,9 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json, Response};
 use serde::Deserialize;
 use serde_json::json;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::broadcast::error::RecvError;
 
@@ -81,6 +82,70 @@ pub struct EventsQuery {
     /// Comma separated document ids to hear about. Every book when missing.
     #[serde(default)]
     documents: Option<String>,
+    /// The listening device, so the web panel can show it as connected.
+    #[serde(default)]
+    device_id: Option<String>,
+    #[serde(default)]
+    device: Option<String>,
+}
+
+/// Devices listening to `/api/progress/events` right now.
+#[derive(Clone, Default)]
+pub struct Presence {
+    devices: Arc<Mutex<HashMap<String, Listener>>>,
+}
+
+#[derive(Clone)]
+struct Listener {
+    device: String,
+    connections: usize,
+    since: i64,
+}
+
+impl Presence {
+    fn join(&self, device_id: &str, device: &str) -> PresenceGuard {
+        let mut devices = self.devices.lock().unwrap();
+        let entry = devices.entry(device_id.to_string()).or_insert_with(|| Listener {
+            device: String::new(),
+            connections: 0,
+            since: now(),
+        });
+        entry.connections += 1;
+        if !device.is_empty() {
+            entry.device = device.to_string();
+        }
+        PresenceGuard {
+            presence: self.clone(),
+            device_id: device_id.to_string(),
+        }
+    }
+
+    /// Connected device ids with their name, number of connections and since when.
+    fn snapshot(&self) -> HashMap<String, Listener> {
+        self.devices.lock().unwrap().clone()
+    }
+}
+
+/// Counts a device as connected while its event stream is open.
+struct PresenceGuard {
+    presence: Presence,
+    device_id: String,
+}
+
+impl Drop for PresenceGuard {
+    fn drop(&mut self) {
+        let mut devices = self.presence.devices.lock().unwrap();
+        if let Some(entry) = devices.get_mut(&self.device_id) {
+            entry.connections = entry.connections.saturating_sub(1);
+            if entry.connections == 0 {
+                devices.remove(&self.device_id);
+            }
+        }
+    }
+}
+
+fn short(value: Option<String>) -> String {
+    value.unwrap_or_default().trim().chars().take(120).collect()
 }
 
 /// Server-sent events with every change of a book's current position, so a
@@ -101,11 +166,13 @@ pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQue
         .event("hello")
         .data(json!({ "server_time": now() }).to_string());
     let changes = state.progress.subscribe();
+    let device_id = short(query.device_id);
+    let guard = (!device_id.is_empty()).then(|| state.presence.join(&device_id, &short(query.device)));
     let stream = futures_util::stream::unfold(
-        (Some(hello), changes, wanted),
-        |(first, mut changes, wanted)| async move {
+        (Some(hello), changes, wanted, guard),
+        |(first, mut changes, wanted, guard)| async move {
             if let Some(event) = first {
-                return Some((Ok::<_, Infallible>(event), (None, changes, wanted)));
+                return Some((Ok::<_, Infallible>(event), (None, changes, wanted, guard)));
             }
             loop {
                 let event = match changes.recv().await {
@@ -120,7 +187,7 @@ pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQue
                     Err(RecvError::Lagged(_)) => Event::default().event("resync").data("{}"),
                     Err(RecvError::Closed) => return None,
                 };
-                return Some((Ok(event), (None, changes, wanted)));
+                return Some((Ok(event), (None, changes, wanted, guard)));
             }
         },
     );
@@ -134,6 +201,172 @@ pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQue
         sse,
     )
         .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Summaries for the web panel
+
+/// What the panel needs to know about a book from its document id.
+async fn books_by_document(state: &AppState) -> HashMap<String, (String, String)> {
+    let index = state.documents.index(&state.library).await;
+    let snapshot = state.library.snapshot().await;
+    let titles: HashMap<&str, &str> = snapshot
+        .books
+        .iter()
+        .map(|b| (b.path.as_str(), b.title.as_str()))
+        .collect();
+    index
+        .into_iter()
+        .map(|(id, path)| {
+            let title = titles.get(path.as_str()).copied().unwrap_or_default().to_string();
+            (id, (path, title))
+        })
+        .collect()
+}
+
+fn book_fields(books: &HashMap<String, (String, String)>, document: &str) -> serde_json::Value {
+    match books.get(document) {
+        Some((path, title)) => json!({ "path": path, "title": title }),
+        None => json!({ "path": null, "title": null }),
+    }
+}
+
+/// The current position of every book that has one, newest first.
+pub async fn list_progress(State(state): State<AppState>) -> Response {
+    let books = books_by_document(&state).await;
+    let mut current = state.progress.all_current();
+    current.sort_by_key(|c| std::cmp::Reverse(c.1.timestamp));
+    let list: Vec<_> = current
+        .into_iter()
+        .map(|(document, record)| {
+            let mut entry = book_fields(&books, &document);
+            entry["document"] = json!(document);
+            entry["current"] = serde_json::to_value(record).unwrap_or_default();
+            entry
+        })
+        .collect();
+    Json(json!({ "books": list, "server_time": now() })).into_response()
+}
+
+/// Every device that saved a position or is listening now, with what it read last.
+pub async fn devices(State(state): State<AppState>) -> Response {
+    const RECENT: usize = 5;
+    let books = books_by_document(&state).await;
+    let live = state.presence.snapshot();
+
+    struct Device {
+        name: String,
+        last_seen: i64,
+        positions: usize,
+        // Latest position per book, newest first
+        recent: Vec<(String, progress::Record)>,
+    }
+    let mut devices: HashMap<String, Device> = HashMap::new();
+    for (document, history) in state.progress.all_history() {
+        for record in history {
+            let device = devices.entry(record.device_id.clone()).or_insert_with(|| Device {
+                name: String::new(),
+                last_seen: i64::MIN,
+                positions: 0,
+                recent: Vec::new(),
+            });
+            device.positions += 1;
+            if record.timestamp >= device.last_seen {
+                device.last_seen = record.timestamp;
+                device.name = record.device.clone();
+            }
+            match device.recent.iter_mut().find(|(d, _)| *d == document) {
+                Some((_, kept)) if kept.timestamp >= record.timestamp => {}
+                Some((_, kept)) => *kept = record,
+                None => device.recent.push((document.clone(), record)),
+            }
+        }
+    }
+    let mut list: Vec<_> = devices
+        .into_iter()
+        .map(|(id, mut device)| {
+            device.recent.sort_by_key(|r| std::cmp::Reverse(r.1.timestamp));
+            let book_count = device.recent.len();
+            let listener = live.get(&id);
+            let name = match listener {
+                Some(l) if device.name.is_empty() => l.device.clone(),
+                _ => device.name,
+            };
+            let recent: Vec<_> = device
+                .recent
+                .into_iter()
+                .take(RECENT)
+                .map(|(document, record)| {
+                    let mut entry = book_fields(&books, &document);
+                    entry["document"] = json!(document);
+                    entry["percentage"] = json!(record.percentage);
+                    entry["progress"] = json!(record.progress);
+                    entry["timestamp"] = json!(record.timestamp);
+                    entry["manual"] = json!(record.manual);
+                    entry
+                })
+                .collect();
+            json!({
+                "device_id": id,
+                "device": name,
+                "last_seen": device.last_seen,
+                "live": listener.is_some(),
+                "connections": listener.map_or(0, |l| l.connections),
+                "connected_since": listener.map(|l| l.since),
+                "positions": device.positions,
+                "books": book_count,
+                "recent": recent,
+            })
+        })
+        .collect();
+    // Listening devices that have not saved anything yet
+    for (id, listener) in &live {
+        if list.iter().any(|d| d["device_id"] == json!(id)) {
+            continue;
+        }
+        list.push(json!({
+            "device_id": id,
+            "device": listener.device,
+            "last_seen": null,
+            "live": true,
+            "connections": listener.connections,
+            "connected_since": listener.since,
+            "positions": 0,
+            "books": 0,
+            "recent": [],
+        }));
+    }
+    list.sort_by(|a, b| {
+        let key = |d: &serde_json::Value| {
+            (
+                d["live"].as_bool() == Some(true),
+                d["last_seen"].as_i64().unwrap_or(i64::MIN),
+            )
+        };
+        key(b).cmp(&key(a))
+    });
+    Json(json!({
+        "devices": list,
+        "listening": live.values().map(|l| l.connections).sum::<usize>(),
+        "server_time": now(),
+    }))
+    .into_response()
+}
+
+/// Forgets a device: removes every position it saved.
+pub async fn forget_device(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(device_id): Path<String>,
+) -> Response {
+    // A form on another site cannot send this header, so the token is enough
+    if !state.auth.check_csrf(header(&headers, "x-csrf-token")) {
+        return (StatusCode::FORBIDDEN, Json(json!({ "error": "Invalid CSRF token" }))).into_response();
+    }
+    match state.progress.forget_device(&device_id) {
+        Ok(removed) => Json(json!({ "removed": removed })).into_response(),
+        Err(err) => save_failed(err),
+    }
 }
 
 // ---------------------------------------------------------------------------

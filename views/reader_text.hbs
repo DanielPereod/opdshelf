@@ -1,6 +1,6 @@
 <div data-controls>
-  <button type="button" id="smaller" class="icon-btn" title="Smaller text"><i class="fas fa-minus"></i></button>
-  <button type="button" id="larger" class="icon-btn" title="Larger text"><i class="fas fa-plus"></i></button>
+  <button type="button" id="smaller" class="icon-btn" title="{{t "Smaller text"}}" aria-label="{{t "Smaller text"}}"><i class="fas fa-minus"></i></button>
+  <button type="button" id="larger" class="icon-btn" title="{{t "Larger text"}}" aria-label="{{t "Larger text"}}"><i class="fas fa-plus"></i></button>
 </div>
 
 <main class="stage">
@@ -41,7 +41,11 @@
     if (record) scroller.scrollTop = record.percentage * (scroller.scrollHeight - scroller.clientHeight);
     else scroller.scrollTop = Number(storeGet(legacyKey) || 0);
     showProgress();
-    if (from) ReaderSync.toast(`Continuing from ${from} (${Math.round(record.percentage * 100)}%)`);
+    if (from) ReaderSync.toast(t('Continuing from {device} ({pct}%)', { device: from, pct: Math.round(record.percentage * 100) }));
+    sync.follow((remote) => ReaderSync.remoteToast(remote, () => {
+      scroller.scrollTop = remote.percentage * (scroller.scrollHeight - scroller.clientHeight);
+      saved = fraction();
+    }));
     let saved = fraction();
     scroller.addEventListener('scroll', () => {
       showProgress();

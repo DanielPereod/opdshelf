@@ -1,13 +1,15 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{lang}}">
 
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark">
   <title>{{title}}</title>
   <link rel="icon" href="/static/icon.png" type="image/png">
   <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css" />
-  <link rel="stylesheet" href="/static/styles/app.css">
+  <link rel="stylesheet" href="/static/styles/app.css?v={{v}}">
+  <script src="/static/app/common.js?v={{v}}" data-i18n="{{i18n}}"></script>
   <script>
     function storeGet(key) {
       try { return localStorage.getItem(key); } catch { return null; }

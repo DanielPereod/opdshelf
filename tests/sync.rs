@@ -378,3 +378,136 @@ async fn a_position_that_lost_is_not_accepted() {
         "{kobo}"
     );
 }
+
+#[tokio::test]
+async fn panel_lists_positions_and_devices() {
+    let app = app();
+    let other = "0123456789abcdef0123456789abcdef";
+    let position = |device: &str, pct: f64, timestamp: i64| json!({ "progress": "/p", "percentage": pct, "device": device, "device_id": device, "timestamp": timestamp });
+    app.api(
+        "PUT",
+        &format!("/api/progress/{DOC}"),
+        Some(position("Kobo", 0.4, 1000)),
+    )
+    .await;
+    app.api(
+        "PUT",
+        &format!("/api/progress/{DOC}"),
+        Some(position("Phone", 0.5, 2000)),
+    )
+    .await;
+    app.api(
+        "PUT",
+        &format!("/api/progress/{other}"),
+        Some(position("Kobo", 0.9, 1500)),
+    )
+    .await;
+
+    // Every book's current position, newest first, with the book it belongs to
+    let (status, body) = app.api("GET", "/api/progress", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let books = body["books"].as_array().unwrap();
+    assert_eq!(books.len(), 2);
+    assert_eq!(books[0]["document"], DOC);
+    assert_eq!(books[0]["path"], "One.epub");
+    assert_eq!(books[0]["current"]["device"], "Phone");
+    assert_eq!(books[1]["path"], Value::Null, "a book that is not in the library");
+
+    // A device listening for changes shows up as connected
+    let events = app
+        .app
+        .clone()
+        .oneshot(
+            Request::get("/api/progress/events?device_id=Kobo&device=Kobo%20Libra")
+                .header(header::AUTHORIZATION, basic())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = app.api("GET", "/api/devices", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let devices = body["devices"].as_array().unwrap();
+    assert_eq!(devices.len(), 2);
+    let kobo = &devices[0];
+    assert_eq!(
+        (kobo["device_id"].as_str(), kobo["live"].as_bool()),
+        (Some("Kobo"), Some(true))
+    );
+    assert_eq!(kobo["books"], 2);
+    assert_eq!(kobo["last_seen"], 1500);
+    assert_eq!(kobo["recent"][0]["percentage"], 0.9);
+    assert_eq!(kobo["recent"][1]["title"], "One");
+    assert_eq!(devices[1]["live"], false);
+    assert_eq!(body["listening"], 1);
+    drop(events);
+    let (_, body) = app.api("GET", "/api/devices", None).await;
+    assert_eq!(body["listening"], 0, "closing the stream disconnects the device");
+
+    // Forgetting a device needs the panel's token
+    let (status, _) = app.api("DELETE", "/api/devices/Phone", None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let html = app
+        .app
+        .clone()
+        .oneshot(
+            Request::get("/admin")
+                .header(header::AUTHORIZATION, basic())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    let html = String::from_utf8_lossy(&html);
+    let start = html.find(r#"data-csrf=""#).unwrap() + 11;
+    let csrf = &html[start..start + 64];
+    let (status, body) = app
+        .send(
+            Request::delete("/api/devices/Phone")
+                .header(header::AUTHORIZATION, basic())
+                .header("x-csrf-token", csrf)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["removed"], 1);
+    let (_, body) = app.api("GET", &format!("/api/progress/{DOC}"), None).await;
+    assert_eq!(
+        body["current"]["device"], "Kobo",
+        "the other device's position is current again"
+    );
+}
+
+#[tokio::test]
+async fn the_panel_speaks_the_browsers_language() {
+    let app = app();
+    let get = |lang: &'static str| {
+        let app = app.app.clone();
+        async move {
+            let response = app
+                .oneshot(
+                    Request::get("/admin/sync")
+                        .header(header::AUTHORIZATION, basic())
+                        .header(header::ACCEPT_LANGUAGE, lang)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            String::from_utf8_lossy(&body).into_owned()
+        }
+    };
+    let spanish = get("es-ES,es;q=0.9").await;
+    assert!(spanish.contains(r#"<html lang="es">"#));
+    assert!(spanish.contains("Todos los libros") && spanish.contains("Conecta tus apps"));
+    let english = get("en-US").await;
+    assert!(english.contains(r#"<html lang="en">"#) && english.contains("All books"));
+    assert!(english.contains("/kosync"), "the KOReader sync address is shown");
+}

@@ -58,6 +58,15 @@
 - KOReader plugin: live sync with conflict handling, and the library with covers and downloads inside KOReader
 - Select a sentence and set it as the last position, so every device opens the book exactly there (in KOReader too, with the included plugin)
 - PDF, comic (CBZ, CBR, CB7, CBT, with right-to-left mode) and TXT readers
+- While a book is open, reading done on another device shows up at once with a button to jump there
+
+🔄 **Devices and sync page**
+- Every device that syncs (browsers, KOReader, the Android app) with its last activity, the books it is on and how far, and whether it is connected right now
+- Live feed of reading activity, and the addresses to set up OPDS apps, KOReader's progress sync and the Android app
+- Reading progress in the library: **Reading** and **Finished** shelves, a **Continue reading** row, progress bars in the list and on the covers, and per-device positions in each book's panel
+
+🌍 **English and Spanish**
+- The web panel follows the browser's language, and can be switched from the sidebar
 - Keyboard, touch swipe and mobile friendly
 
 🖥️ **Web admin panel**
@@ -272,7 +281,10 @@ The release APK is signed with the debug key so it can be installed directly. CI
 |--------|-----|---------|
 | `GET` | `/api/progress/<document>` | `current` position and `history` of a book |
 | `PUT` | `/api/progress/<document>` | Save a position: `progress`, `percentage` (0–1), `device`, `device_id`, and optionally `cfi`, `context` (`before`, `after`, `selected`), `manual`, `timestamp` (Unix seconds, when it was read) and `sent_at` (the device's clock when sending, to correct a wrong clock). Answers the `current` position, whether yours was `accepted` (false when a newer one from another device won) and `server_time` |
-| `GET` | `/api/progress/events` | Server-sent events: `hello` (`server_time`), then `progress` (`document`, `current`) on every change of a book's current position, and `resync` if some were missed. `?documents=<id>,<id>` limits it to those books |
+| `GET` | `/api/progress` | The `current` position of every book that has one, newest first, with the `path` and `title` of the book (`null` when the file is not in the library) |
+| `GET` | `/api/progress/events` | Server-sent events: `hello` (`server_time`), then `progress` (`document`, `current`) on every change of a book's current position, and `resync` if some were missed. `?documents=<id>,<id>` limits it to those books. Adding `&device_id=<id>&device=<name>` shows the device as connected in the web panel while the stream is open |
+| `GET` | `/api/devices` | Every device that saved a position or is listening: `device_id`, `device`, `last_seen`, `live`, `connections`, number of `books` and `positions`, and its `recent` books with their percentage |
+| `DELETE` | `/api/devices/<device_id>` | Forget a device: removes its positions. Needs the panel's `X-CSRF-Token` header |
 | `*` | `/kosync/...` | KOReader sync protocol (`users/auth`, `syncs/progress`) |
 
 `<document>` is KOReader's partial MD5 of the file. `progress` is an xpointer for reflowable books and the page number (from 1) for PDFs and comics.

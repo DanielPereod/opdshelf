@@ -56,7 +56,7 @@ pub async fn edit_page(
         "isbn": isbn,
     });
     if query.wants_panel() {
-        return fragment(&state, "inspector", selection);
+        return fragment(&state, &headers, "inspector", selection);
     }
     let data = with_selection(library_data(&state, &query).await, selection);
     page(

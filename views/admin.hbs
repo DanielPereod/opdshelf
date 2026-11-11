@@ -1,20 +1,33 @@
-<div class="app" id="app">
+<div class="app" id="app" data-csrf="{{csrf}}">
   <aside class="side" id="side">
     <div class="brand"><img src="/static/icon.png" alt="">OPDShelf</div>
-    <nav class="nav" aria-label="Shelves">
+    <nav class="nav" aria-label="{{t "Shelves"}}">
       <button type="button" class="nav-item" data-shelf="all" aria-current="true">
-        <i class="fas fa-book"></i><span class="label">All books</span><span class="count">{{total}}</span>
+        <i class="fas fa-book"></i><span class="label">{{t "All books"}}</span><span class="count">{{total}}</span>
+      </button>
+      <button type="button" class="nav-item" data-shelf="reading">
+        <i class="fas fa-book-open-reader"></i><span class="label">{{t "Reading"}}</span><span class="count" id="readingCount"></span>
+      </button>
+      <button type="button" class="nav-item" data-shelf="finished">
+        <i class="far fa-circle-check"></i><span class="label">{{t "Finished"}}</span><span class="count" id="finishedCount"></span>
       </button>
       <button type="button" class="nav-item" data-shelf="recent">
-        <i class="far fa-clock"></i><span class="label">Added this week</span><span class="count" id="recentCount"></span>
+        <i class="far fa-clock"></i><span class="label">{{t "Added this week"}}</span><span class="count" id="recentCount"></span>
       </button>
       <button type="button" class="nav-item" data-shelf="incomplete">
-        <i class="fas fa-circle-exclamation"></i><span class="label">Missing details</span>
+        <i class="fas fa-circle-exclamation"></i><span class="label">{{t "Missing details"}}</span>
         <span class="count{{#if incompleteCount}} strong{{/if}}">{{incompleteCount}}</span>
       </button>
 
+      <h2>{{t "Sync"}}</h2>
+      <a class="nav-item" href="/admin/sync" data-page="sync" {{#if syncView}}aria-current="true"{{/if}}>
+        <i class="fas fa-tablet-screen-button"></i><span class="label">{{t "Devices"}}</span>
+        <span class="live-dot" id="navLive" title="{{t "Connecting…"}}"></span>
+        <span class="count" id="deviceCount"></span>
+      </a>
+
       {{#if folderTree}}
-      <h2>Folders</h2>
+      <h2>{{t "Folders"}}</h2>
       {{#each folderTree}}
       <button type="button" class="nav-item" data-shelf="folder" data-value="{{path}}" style="--depth: {{depth}}"
         {{#if (eq path ../folder)}}data-initial{{/if}}>
@@ -24,7 +37,7 @@
       {{/if}}
 
       {{#if formatCounts}}
-      <h2>Formats</h2>
+      <h2>{{t "Formats"}}</h2>
       {{#each formatCounts}}
       <button type="button" class="nav-item" data-shelf="format" data-value="{{name}}">
         <i class="far fa-file"></i><span class="label">{{name}}</span><span class="count">{{count}}</span>
@@ -35,20 +48,25 @@
 
     <div class="side-foot">
       <div class="opds-box">
-        <p>OPDS catalog for reader apps</p>
+        <p>{{t "OPDS catalog for reader apps"}}</p>
         <div class="row">
           <code class="mono" id="opdsUrl">{{baseUrl}}/</code>
-          <button type="button" class="icon-btn" id="copyOpds" title="Copy address"><i class="far fa-copy"></i></button>
+          <button type="button" class="icon-btn" data-copy="opdsUrl" title="{{t "Copy address"}}"
+            aria-label="{{t "Copy address"}}"><i class="far fa-copy"></i></button>
         </div>
       </div>
       <div class="side-actions">
-        <button type="button" class="icon-btn" onclick="toggleTheme()" title="Light or dark">
+        <button type="button" class="icon-btn" onclick="toggleTheme()" title="{{t "Light or dark"}}"
+          aria-label="{{t "Light or dark"}}">
           <i class="fas fa-circle-half-stroke"></i>
         </button>
+        <button type="button" class="icon-btn lang-btn" id="langBtn" title="{{t "Language"}}"
+          aria-label="{{t "Language"}}">{{lang}}</button>
         {{#if authEnabled}}
-        <form action="/user/logout" method="post">
+        <form action="/user/logout" method="post" class="push">
           <input type="hidden" name="csrf" value="{{csrf}}">
-          <button type="submit" class="icon-btn" title="Sign out"><i class="fas fa-arrow-right-from-bracket"></i></button>
+          <button type="submit" class="btn btn-quiet btn-small" title="{{t "Sign out"}}">
+            <i class="fas fa-arrow-right-from-bracket"></i>{{t "Sign out"}}</button>
         </form>
         {{/if}}
       </div>
@@ -56,35 +74,39 @@
   </aside>
   <div class="scrim" id="scrim"></div>
 
-  <section class="main">
+  <section class="main" id="libraryView" {{#if syncView}}hidden{{/if}}>
     <header class="toolbar">
-      <button type="button" class="icon-btn menu-btn" id="menuBtn" title="Shelves"><i class="fas fa-bars"></i></button>
-      <h1><span id="shelfTitle">All books</span><small id="shownCount">{{total}}</small></h1>
+      <button type="button" class="icon-btn menu-btn" data-menu title="{{t "Shelves"}}" aria-label="{{t "Shelves"}}"><i
+          class="fas fa-bars"></i></button>
+      <h1><span id="shelfTitle">{{t "All books"}}</span><small id="shownCount">{{total}}</small></h1>
       <label class="search">
         <i class="fas fa-magnifying-glass"></i>
-        <input type="search" id="bookSearch" class="input" placeholder="Search" aria-label="Search title, author or file">
+        <input type="search" id="bookSearch" class="input" placeholder="{{t "Search"}}"
+          aria-label="{{t "Search title, author or file"}}">
         <kbd>/</kbd>
       </label>
       <span class="spacer"></span>
-      <div class="segmented" role="group" aria-label="View">
-        <button type="button" class="icon-btn" data-view="list" title="List"><i class="fas fa-list"></i></button>
-        <button type="button" class="icon-btn" data-view="grid" title="Covers"><i class="fas fa-grip"></i></button>
+      <div class="segmented" role="group" aria-label="{{t "View"}}">
+        <button type="button" class="icon-btn" data-view="list" title="{{t "List"}}" aria-label="{{t "List"}}"><i
+            class="fas fa-list"></i></button>
+        <button type="button" class="icon-btn" data-view="grid" title="{{t "Covers"}}" aria-label="{{t "Covers"}}"><i
+            class="fas fa-grip"></i></button>
       </div>
-      <button type="button" class="btn btn-primary" id="uploadBtn">
-        <i class="fas fa-arrow-up-from-bracket"></i><span class="label">Upload</span>
+      <button type="button" class="btn btn-primary" id="uploadBtn" aria-label="{{t "Upload"}}">
+        <i class="fas fa-arrow-up-from-bracket"></i><span class="label">{{t "Upload"}}</span>
       </button>
     </header>
 
     {{#if notice}}
     <div class="notice" role="status">
       <i class="fas fa-check"></i>{{notice}}
-      <button type="button" class="icon-btn" data-dismiss title="Dismiss"><i class="fas fa-xmark"></i></button>
+      <button type="button" class="icon-btn" data-dismiss title="{{t "Dismiss"}}"><i class="fas fa-xmark"></i></button>
     </div>
     {{/if}}
     {{#if error}}
     <div class="notice error" role="alert">
       <i class="fas fa-circle-exclamation"></i>{{error}}
-      <button type="button" class="icon-btn" data-dismiss title="Dismiss"><i class="fas fa-xmark"></i></button>
+      <button type="button" class="icon-btn" data-dismiss title="{{t "Dismiss"}}"><i class="fas fa-xmark"></i></button>
     </div>
     {{/if}}
 
@@ -92,64 +114,70 @@
       <input type="hidden" name="csrf" value="{{csrf}}">
       <strong id="bulkCount"></strong>
       <div class="bulk-move">
-        <input class="input" name="folder" id="bulkFolder" list="folderList" placeholder="Folder (empty for root)"
-          aria-label="Destination folder">
-        <button type="submit" class="btn" name="action" value="move"><i class="far fa-folder-open"></i>Move</button>
+        <input class="input" name="folder" id="bulkFolder" list="folderList" placeholder="{{t "Folder (empty for root)"}}"
+          aria-label="{{t "Destination folder"}}">
+        <button type="submit" class="btn" name="action" value="move"><i class="far fa-folder-open"></i>{{t "Move"}}</button>
       </div>
-      <button type="button" class="btn" id="bulkDelete"><i class="far fa-trash-can"></i>Delete</button>
-      <button type="button" class="icon-btn" id="bulkClear" title="Clear selection"><i class="fas fa-xmark"></i></button>
+      <button type="button" class="btn" id="bulkDelete"><i class="far fa-trash-can"></i>{{t "Delete"}}</button>
+      <button type="button" class="icon-btn" id="bulkClear" title="{{t "Clear selection"}}"
+        aria-label="{{t "Clear selection"}}"><i class="fas fa-xmark"></i></button>
     </form>
 
     <div class="books" id="books">
+      <section class="continue" id="continue" aria-labelledby="continueTitle" hidden>
+        <div class="section-head">
+          <h2 id="continueTitle">{{t "Continue reading"}}</h2>
+          <button type="button" class="link-btn" data-goto-shelf="reading">{{t "See all"}}</button>
+        </div>
+        <div class="continue-row" id="continueRow"></div>
+      </section>
       {{#if books}}
       <div class="cols">
-        <label class="pick"><input type="checkbox" id="pickAll" aria-label="Select all shown books"></label>
-        <span><button type="button" data-sort="name">Title</button></span>
-        <span class="c-folder"><button type="button" data-sort="folder">Folder</button></span>
-        <span class="c-fmt"><button type="button" data-sort="format">Format</button></span>
-        <span class="c-meta">Details</span>
-        <span class="c-size num"><button type="button" data-sort="size">Size</button></span>
-        <span class="c-added num"><button type="button" data-sort="date">Added</button></span>
+        <label class="pick"><input type="checkbox" id="pickAll" aria-label="{{t "Select all shown books"}}"></label>
+        <span><button type="button" data-sort="name">{{t "Title"}}</button></span>
+        <span class="c-folder"><button type="button" data-sort="folder">{{t "Folder"}}</button></span>
+        <span class="c-fmt"><button type="button" data-sort="format">{{t "Format"}}</button></span>
+        <span class="c-prog"><button type="button" data-sort="progress">{{t "Progress"}}</button></span>
+        <span class="c-size num"><button type="button" data-sort="size">{{t "Size"}}</button></span>
+        <span class="c-added num"><button type="button" data-sort="date">{{t "Added"}}</button></span>
         <span class="c-read"></span>
       </div>
       <div class="list" id="bookList">
         {{#each books}}
         <div class="book{{#if (eq path ../book.path)}} selected{{/if}}" data-path="{{path}}" data-title="{{title}}"
           data-authors="{{authors}}" data-folder="{{folder}}" data-format="{{format}}" data-added="{{modified}}"
-          data-bytes="{{bytes}}" data-series="{{series}}"
-          data-index="{{seriesIndex}}" data-incomplete="{{#if incomplete}}1{{/if}}">
+          data-bytes="{{bytes}}" data-series="{{series}}" data-index="{{seriesIndex}}"
+          data-incomplete="{{#if incomplete}}1{{/if}}" data-readable="{{#if readable}}1{{/if}}"
+          data-cover="{{#if hasCover}}/thumb/{{urlPath path}}?v={{coverVersion}}{{/if}}">
           <label class="pick"><input type="checkbox" name="path" value="{{path}}" form="bulkForm"
-              aria-label="Select {{title}}"></label>
+              aria-label="{{t "Select {title}" title=title}}"></label>
           <a class="book-link" href="/info/{{urlPath path}}">
             <span class="thumb">
               <span>{{format}}</span>
               {{#if hasCover}}
               <img src="/thumb/{{urlPath path}}?v={{coverVersion}}" alt="" loading="lazy" onerror="this.remove()">
               {{/if}}
+              <i class="thumb-bar"></i>
             </span>
             <span class="book-name">
               <b title="{{title}}">{{title}}</b>
               <span>{{#if authors}}{{authors}}{{else}}—{{/if}}{{#if series}} · {{series}}{{#if seriesIndex}} #{{seriesIndex}}{{/if}}{{/if}}</span>
+              {{#if noAuthors}}
+              <span class="flag"><i class="fas fa-circle-exclamation"></i>{{t "No author"}}</span>
+              {{else}}{{#unless hasCover}}
+              <span class="flag"><i class="far fa-image"></i>{{t "No cover"}}</span>
+              {{/unless}}{{/if}}
             </span>
           </a>
           <span class="c-folder" title="{{folder}}">{{folder}}</span>
           <span class="c-fmt"><span class="badge">{{format}}</span></span>
-          <span class="c-meta">
-            {{#if noAuthors}}
-            <span class="status strong"><i class="fas fa-circle-exclamation"></i>No author</span>
-            {{else}}{{#unless hasCover}}
-            <span class="status strong"><i class="far fa-image"></i>No cover</span>
-            {{else}}{{#if edited}}
-            <span class="status"><i class="fas fa-pen"></i>Edited</span>
-            {{else}}
-            <span class="status"><i class="far fa-circle-check"></i>From file</span>
-            {{/if}}{{/unless}}{{/if}}
-          </span>
+          <span class="c-prog" data-progress><span class="muted">—</span></span>
           <span class="c-size c-num num">{{size}}</span>
           <span class="c-added c-num num" data-date></span>
           <span class="c-read">
             {{#if readable}}
-            <a class="icon-btn" href="/read/{{urlPath path}}" title="Read"><i class="fas fa-book-open"></i></a>
+            <a class="icon-btn" href="/read/{{urlPath path}}" title="{{t "Read"}}" aria-label="{{t "Read"}}"><i
+                class="fas fa-book-open"></i></a>
             {{/if}}
           </span>
         </div>
@@ -157,23 +185,26 @@
       </div>
       <div class="empty" id="noMatches" hidden>
         <i class="fas fa-magnifying-glass"></i>
-        <strong>No books match</strong>
-        Try another word or shelf.
+        <strong id="noMatchesTitle">{{t "No books match"}}</strong>
+        <span id="noMatchesText">{{t "Try another word or shelf."}}</span>
       </div>
       {{else}}
       <div class="empty">
         <i class="fas fa-book"></i>
-        <strong>No books yet</strong>
-        Drop EPUB, PDF or comic files here, or use Upload.
+        <strong>{{t "No books yet"}}</strong>
+        {{t "Drop EPUB, PDF or comic files here, or use Upload."}}
+        <p><button type="button" class="btn btn-primary" data-upload><i class="fas fa-arrow-up-from-bracket"></i>{{t "Upload books"}}</button></p>
       </div>
       {{/if}}
     </div>
 
-    <div class="drop-hint"><i class="fas fa-inbox"></i>Drop files anywhere to upload them to <strong
-        id="dropTarget">the library root</strong></div>
+    <div class="drop-hint"><i class="fas fa-inbox"></i>{{t "Drop files anywhere to upload them to"}} <strong
+        id="dropTarget">{{t "the library root"}}</strong></div>
   </section>
 
-  <aside class="insp" id="insp" aria-label="Book" {{#unless book}}hidden{{/unless}}>
+  {{> sync}}
+
+  <aside class="insp" id="insp" aria-label="{{t "Book"}}" {{#unless book}}hidden{{/unless}}>
     {{#if book}}{{> inspector}}{{/if}}
   </aside>
 </div>
@@ -185,18 +216,22 @@
 <dialog id="uploadDialog">
   <form class="dialog-body" action="/admin/upload" method="post" enctype="multipart/form-data" id="uploadForm">
     <input type="hidden" name="csrf" value="{{csrf}}">
-    <h2>Upload books</h2>
-    <label class="field" for="uploadFolder"><span>Folder <em>empty for the root</em></span>
+    <h2>{{t "Upload books"}}</h2>
+    <label class="field" for="uploadFolder"><span>{{t "Folder"}} <em>{{t "empty for the root"}}</em></span>
       <input type="text" name="folder" id="uploadFolder" list="folderList" class="input"></label>
     <label class="dropzone" id="dropZone">
       <i class="fas fa-arrow-up-from-bracket"></i>
-      <strong>Choose files or drop them here</strong>
+      <strong>{{t "Choose files or drop them here"}}</strong>
       <span>{{formats}}</span>
       <input type="file" id="uploadFiles" name="books" accept="{{accept}}" multiple required hidden>
     </label>
-    <p id="uploadInfo" hidden></p>
+    <div class="upload-progress" id="uploadProgress" hidden>
+      <div class="upload-line"><span id="uploadInfo"></span><span class="mono" id="uploadPct"></span></div>
+      <div class="track"><b id="uploadBar"></b></div>
+    </div>
+    <p class="error-text" id="uploadError" role="alert" hidden></p>
     <div class="dialog-actions">
-      <button type="button" class="btn" data-close-dialog>Cancel</button>
+      <button type="button" class="btn" data-close-dialog id="uploadCancel">{{t "Cancel"}}</button>
     </div>
   </form>
 </dialog>
@@ -205,16 +240,16 @@
   <form class="dialog-body" action="/admin/rename" method="post">
     <input type="hidden" name="csrf" value="{{csrf}}">
     <input type="hidden" name="path" id="renamePath">
-    <h2>Rename or move</h2>
-    <label class="field" for="renameName"><span>File name</span>
+    <h2>{{t "Rename or move"}}</h2>
+    <label class="field" for="renameName"><span>{{t "File name"}}</span>
       <div class="name-row"><input type="text" name="name" id="renameName" class="input" required><span class="ext"
           id="renameExt"></span></div>
     </label>
-    <label class="field" for="renameFolder"><span>Folder <em>empty for the root</em></span>
+    <label class="field" for="renameFolder"><span>{{t "Folder"}} <em>{{t "empty for the root"}}</em></span>
       <input type="text" name="folder" id="renameFolder" list="folderList" class="input"></label>
     <div class="dialog-actions">
-      <button type="button" class="btn" data-close-dialog>Cancel</button>
-      <button type="submit" class="btn btn-primary">Save</button>
+      <button type="button" class="btn" data-close-dialog>{{t "Cancel"}}</button>
+      <button type="submit" class="btn btn-primary">{{t "Save"}}</button>
     </div>
   </form>
 </dialog>
@@ -223,39 +258,60 @@
   <form class="dialog-body" action="/admin/delete" method="post">
     <input type="hidden" name="csrf" value="{{csrf}}">
     <input type="hidden" name="path" id="deletePath">
-    <h2>Delete this book?</h2>
-    <p><strong id="deleteTitle"></strong> will be removed from the disk. This cannot be undone.</p>
+    <h2>{{t "Delete this book?"}}</h2>
+    <p>{{{t "{title} will be removed from the disk. This cannot be undone." title="<strong id='deleteTitle'></strong>"}}}</p>
     <div class="dialog-actions">
-      <button type="button" class="btn" data-close-dialog>Cancel</button>
-      <button type="submit" class="btn btn-primary">Delete</button>
+      <button type="button" class="btn" data-close-dialog>{{t "Cancel"}}</button>
+      <button type="submit" class="btn btn-danger">{{t "Delete"}}</button>
     </div>
   </form>
 </dialog>
 
 <dialog id="bulkDeleteDialog">
   <div class="dialog-body">
-    <h2>Delete <span id="bulkDeleteCount"></span>?</h2>
-    <p>The files will be removed from the disk. This cannot be undone.</p>
+    <h2 id="bulkDeleteTitle"></h2>
+    <p>{{t "The files will be removed from the disk. This cannot be undone."}}</p>
     <div class="dialog-actions">
-      <button type="button" class="btn" data-close-dialog>Cancel</button>
-      <button type="submit" class="btn btn-primary" form="bulkForm" name="action" value="delete">Delete</button>
+      <button type="button" class="btn" data-close-dialog>{{t "Cancel"}}</button>
+      <button type="submit" class="btn btn-danger" form="bulkForm" name="action" value="delete">{{t "Delete"}}</button>
     </div>
   </div>
 </dialog>
 
+<dialog id="confirmDialog">
+  <form class="dialog-body" method="dialog">
+    <h2 id="confirmTitle"></h2>
+    <p id="confirmText"></p>
+    <div class="dialog-actions">
+      <button type="submit" class="btn" value="cancel">{{t "Cancel"}}</button>
+      <button type="submit" class="btn btn-primary" value="ok" id="confirmOk"></button>
+    </div>
+  </form>
+</dialog>
+
 <div class="drop-overlay" id="dropOverlay" hidden>
-  <div>Drop to upload to <span id="dropOverlayTarget">the library root</span></div>
+  <div>{{{t "Drop to upload to {folder}" folder="<span id='dropOverlayTarget'></span>"}}}</div>
 </div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script data-accept="{{accept}}">
   (function () {
     const $ = (id) => document.getElementById(id);
     const accepted = document.currentScript.dataset.accept.split(',');
+    const csrf = $('app').dataset.csrf;
     const list = $('bookList');
     const rows = list ? Array.from(list.querySelectorAll('.book')) : [];
+    const byPath = new Map(rows.map((r) => [r.dataset.path, r]));
     const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
     const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
     const state = { shelf: 'all', value: '', sort: 'date', dir: 'desc', query: '' };
+    const libraryRoot = t('the library root');
+    // Book path → its current position, from /api/progress
+    const progress = new Map();
+    const FINISHED = 0.98;
+    const isReading = (p) => p && p.percentage > 0 && p.percentage < FINISHED;
+    const isFinished = (p) => p && p.percentage >= FINISHED;
 
     // Dates, in the reader's own locale
     const thisYear = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
@@ -267,11 +323,46 @@
       cell.title = date.toLocaleString();
     });
     $('recentCount').textContent = rows.filter((r) => Date.parse(r.dataset.added) > weekAgo).length;
+    $('dropTarget').textContent = libraryRoot;
+    $('dropOverlayTarget').textContent = libraryRoot;
+
+    // ------------------------------------------------------------ toasts and confirmations
+    window.showToast = function (message, action) {
+      const el = document.createElement('div');
+      el.className = 'toast';
+      el.setAttribute('role', 'status');
+      const text = document.createElement('span');
+      text.textContent = message;
+      el.append(text);
+      if (action) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = action.label;
+        button.onclick = () => { el.remove(); action.run(); };
+        el.append(button);
+      }
+      $('toasts').append(el);
+      setTimeout(() => el.remove(), action ? 8000 : 4000);
+    };
+    window.confirmAction = function (title, text, ok) {
+      const dialog = $('confirmDialog');
+      $('confirmTitle').textContent = title;
+      $('confirmText').textContent = text;
+      $('confirmOk').textContent = ok;
+      dialog.returnValue = '';
+      dialog.showModal();
+      return new Promise((resolve) => {
+        dialog.addEventListener('close', () => resolve(dialog.returnValue === 'ok'), { once: true });
+      });
+    };
 
     // ------------------------------------------------------------ shelves, search, sort
     function inShelf(row) {
       const d = row.dataset;
+      const p = progress.get(d.path);
       switch (state.shelf) {
+        case 'reading': return isReading(p);
+        case 'finished': return isFinished(p);
         case 'recent': return Date.parse(d.added) > weekAgo;
         case 'incomplete': return d.incomplete === '1';
         case 'folder': return d.folder === state.value || d.folder.startsWith(state.value + '/');
@@ -279,6 +370,11 @@
         default: return true;
       }
     }
+
+    const emptyTexts = {
+      reading: [t('Nothing in progress'), t('Books you start on any device show up here.')],
+      finished: [t('No finished books yet'), t('Books read to the end on any device show up here.')],
+    };
 
     function refresh() {
       const query = state.query.toLowerCase().trim();
@@ -300,35 +396,50 @@
           || (isNaN(pa) || isNaN(pb) ? isNaN(pa) - isNaN(pb) : pa - pb)
           || collator.compare(a.dataset.title, b.dataset.title);
       };
+      const read = (row) => { const p = progress.get(row.dataset.path); return p ? p.percentage : -1; };
+      const lastRead = (row) => { const p = progress.get(row.dataset.path); return p ? p.timestamp : 0; };
       const compare = {
         name: byTitle,
         folder: (a, b) => collator.compare(a.dataset.folder, b.dataset.folder) || byTitle(a, b),
         format: (a, b) => collator.compare(a.dataset.format, b.dataset.format) || byTitle(a, b),
+        progress: (a, b) => (read(a) - read(b)) || byTitle(a, b),
         size: (a, b) => (Number(a.dataset.bytes) - Number(b.dataset.bytes)) || byTitle(a, b),
         date: (a, b) => a.dataset.added.localeCompare(b.dataset.added) || byTitle(a, b),
       }[state.sort];
       const sign = state.dir === 'desc' ? -1 : 1;
-      rows.sort((a, b) => sign * compare(a, b));
+      // The reading shelves list what was read last first
+      const sorter = (state.shelf === 'reading' || state.shelf === 'finished') && !query
+        ? (a, b) => lastRead(b) - lastRead(a)
+        : (a, b) => sign * compare(a, b);
+      rows.sort(sorter);
       rows.forEach((row) => list.appendChild(row));
       $('shownCount').textContent = shown;
-      if ($('noMatches')) $('noMatches').hidden = shown > 0 || rows.length === 0;
+      if ($('noMatches')) {
+        $('noMatches').hidden = shown > 0 || rows.length === 0;
+        const [title, text] = (!query && emptyTexts[state.shelf]) || [t('No books match'), t('Try another word or shelf.')];
+        $('noMatchesTitle').textContent = title;
+        $('noMatchesText').textContent = text;
+      }
       document.querySelectorAll('[data-sort]').forEach((b) => {
         if (b.dataset.sort === state.sort) b.setAttribute('aria-sort', state.dir === 'desc' ? 'descending' : 'ascending');
         else b.removeAttribute('aria-sort');
       });
+      renderContinue();
       updateBulk();
     }
 
     function selectShelf(button) {
+      showPage('library');
       document.querySelectorAll('[data-shelf]').forEach((b) => b.setAttribute('aria-current', b === button));
       state.shelf = button.dataset.shelf;
       state.value = button.dataset.value || '';
       $('shelfTitle').textContent = button.querySelector('.label').textContent;
       const folder = state.shelf === 'folder' ? state.value : '';
-      $('dropTarget').textContent = folder || 'the library root';
-      $('dropOverlayTarget').textContent = folder || 'the library root';
+      $('dropTarget').textContent = folder || libraryRoot;
+      $('dropOverlayTarget').textContent = folder || libraryRoot;
       $('uploadFolder').value = folder;
       const url = new URL(location.href);
+      if (url.pathname === '/admin/sync') url.pathname = '/admin';
       if (folder && url.pathname === '/admin') url.searchParams.set('folder', folder);
       else url.searchParams.delete('folder');
       history.replaceState(history.state, '', url);
@@ -337,9 +448,13 @@
     }
 
     document.querySelectorAll('[data-shelf]').forEach((b) => b.addEventListener('click', () => selectShelf(b)));
-    // Text columns start A-Z, size and date start with the biggest/newest;
+    document.addEventListener('click', (e) => {
+      const go = e.target.closest('[data-goto-shelf]');
+      if (go) selectShelf(document.querySelector(`[data-shelf="${go.dataset.gotoShelf}"]`));
+    });
+    // Text columns start A-Z, size, date and progress start with the biggest/newest;
     // clicking the active column again reverses it.
-    const firstDir = (key) => (key === 'size' || key === 'date' ? 'desc' : 'asc');
+    const firstDir = (key) => (key === 'size' || key === 'date' || key === 'progress' ? 'desc' : 'asc');
     document.querySelectorAll('[data-sort]').forEach((b) => b.addEventListener('click', () => {
       const key = b.dataset.sort;
       state.dir = key === state.sort ? (state.dir === 'asc' ? 'desc' : 'asc') : firstDir(key);
@@ -348,9 +463,12 @@
       refresh();
     }));
     $('bookSearch').addEventListener('input', (e) => { state.query = e.target.value; refresh(); });
+    $('bookSearch').addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && e.target.value) { e.stopPropagation(); e.target.value = ''; state.query = ''; refresh(); }
+    });
     document.addEventListener('keydown', (e) => {
       const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
-      if (e.key === '/' && !typing) { e.preventDefault(); $('bookSearch').focus(); }
+      if (e.key === '/' && !typing) { e.preventDefault(); showPage('library'); $('bookSearch').focus(); }
     });
 
     {
@@ -359,8 +477,97 @@
       state.sort = document.querySelector(`[data-sort="${key}"]`) ? key : 'date';
       state.dir = dir === 'asc' || dir === 'desc' ? dir : firstDir(state.sort);
     }
-    const initial = document.querySelector('[data-initial]');
-    if (initial) selectShelf(initial); else refresh();
+
+    // ------------------------------------------------------------ reading progress
+    const pct = (p) => Math.round((p.percentage || 0) * 100);
+    function progressCell(p) {
+      const cell = document.createElement('span');
+      cell.className = 'prog';
+      const bar = document.createElement('span');
+      bar.className = 'track';
+      const fill = document.createElement('b');
+      fill.style.width = pct(p) + '%';
+      bar.append(fill);
+      const label = document.createElement('span');
+      label.className = 'mono';
+      label.textContent = isFinished(p) ? t('Done') : pct(p) + '%';
+      cell.append(bar, label);
+      cell.title = t('{pct}% on {device}, {when}', { pct: pct(p), device: p.device || t('another device'), when: timeAgo(p.timestamp) });
+      return cell;
+    }
+    function paintProgress() {
+      rows.forEach((row) => {
+        const p = progress.get(row.dataset.path);
+        const cell = row.querySelector('[data-progress]');
+        row.classList.toggle('done', Boolean(isFinished(p)));
+        row.style.setProperty('--read', p ? pct(p) + '%' : '0%');
+        row.classList.toggle('started', Boolean(p));
+        if (p) cell.replaceChildren(progressCell(p));
+        else cell.innerHTML = '<span class="muted">—</span>';
+      });
+      const all = Array.from(progress.entries()).filter(([path]) => byPath.has(path));
+      $('readingCount').textContent = all.filter(([, p]) => isReading(p)).length || '';
+      $('finishedCount').textContent = all.filter(([, p]) => isFinished(p)).length || '';
+    }
+
+    function renderContinue() {
+      const box = $('continue');
+      const show = state.shelf === 'all' && !state.query.trim() && !$('books').closest('[hidden]');
+      const reading = Array.from(progress.entries())
+        .filter(([path, p]) => byPath.has(path) && isReading(p))
+        .sort((a, b) => b[1].timestamp - a[1].timestamp)
+        .slice(0, 8);
+      box.hidden = !show || reading.length === 0;
+      if (box.hidden) return;
+      const row = $('continueRow');
+      row.replaceChildren(...reading.map(([path, p]) => {
+        const d = byPath.get(path).dataset;
+        const card = document.createElement('a');
+        card.className = 'continue-card';
+        card.href = d.readable ? '/read/' + encodePath(path) : '/info/' + encodePath(path);
+        const cover = document.createElement('span');
+        cover.className = 'thumb';
+        cover.innerHTML = '<span></span>';
+        cover.firstChild.textContent = d.format;
+        if (d.cover) {
+          const img = document.createElement('img');
+          img.src = d.cover; img.alt = ''; img.loading = 'lazy';
+          img.onerror = () => img.remove();
+          cover.append(img);
+        }
+        const text = document.createElement('span');
+        text.className = 'continue-text';
+        const title = document.createElement('b');
+        title.textContent = d.title;
+        const meta = document.createElement('small');
+        meta.textContent = t('{pct}% · {device}', { pct: pct(p), device: p.device || t('another device') });
+        const when = document.createElement('small');
+        when.textContent = timeAgo(p.timestamp);
+        const bar = document.createElement('span');
+        bar.className = 'track';
+        bar.innerHTML = '<b></b>';
+        bar.firstChild.style.width = pct(p) + '%';
+        text.append(title, meta, bar, when);
+        card.append(cover, text);
+        card.title = d.readable ? t('Continue reading {title}', { title: d.title }) : d.title;
+        return card;
+      }));
+    }
+
+    async function loadProgress() {
+      try {
+        const response = await fetch('/api/progress', { headers: { Accept: 'application/json' } });
+        if (!response.ok) throw new Error(response.statusText);
+        const data = await response.json();
+        progress.clear();
+        data.books.forEach((b) => { if (b.path) progress.set(b.path, b.current); });
+        paintProgress();
+        refresh();
+        document.dispatchEvent(new CustomEvent('progresschange'));
+      } catch {
+        // The library works without positions
+      }
+    }
 
     // ------------------------------------------------------------ list or covers
     function setView(view) {
@@ -371,6 +578,26 @@
     document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
     setView(storeGet('opdshelf:view') === 'grid' ? 'grid' : 'list');
 
+    // ------------------------------------------------------------ library or sync page
+    function showPage(page) {
+      const sync = page === 'sync';
+      $('libraryView').hidden = sync;
+      $('syncView').hidden = !sync;
+      document.querySelector('[data-page="sync"]').setAttribute('aria-current', sync);
+      if (sync) document.querySelectorAll('[data-shelf]').forEach((b) => b.setAttribute('aria-current', false));
+      document.title = sync ? t('Sync - OPDShelf') : 'OPDShelf';
+      document.dispatchEvent(new CustomEvent('pagechange', { detail: { page } }));
+    }
+    window.showPage = showPage;
+    document.querySelector('[data-page="sync"]').addEventListener('click', (e) => {
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      e.preventDefault();
+      closePanel(false);
+      showPage('sync');
+      history.pushState({ page: 'sync' }, '', '/admin/sync');
+      closeMenu();
+    });
+
     // ------------------------------------------------------------ selection
     function picked() {
       return rows.filter((r) => !r.hidden && r.querySelector('.pick input').checked);
@@ -378,8 +605,8 @@
     function updateBulk() {
       const count = picked().length;
       $('bulkForm').hidden = count === 0;
-      $('bulkCount').textContent = count + (count === 1 ? ' book selected' : ' books selected');
-      $('bulkDeleteCount').textContent = count + (count === 1 ? ' book' : ' books');
+      $('bulkCount').textContent = count === 1 ? t('1 book selected') : t('{n} books selected', { n: count });
+      $('bulkDeleteTitle').textContent = count === 1 ? t('Delete 1 book?') : t('Delete {n} books?', { n: count });
       const shown = rows.filter((r) => !r.hidden).length;
       if ($('pickAll')) {
         $('pickAll').checked = count > 0 && count === shown;
@@ -399,10 +626,18 @@
 
     // ------------------------------------------------------------ inspector
     const insp = $('insp');
+    let editDirty = false;
     function markSelected(path) {
       rows.forEach((r) => r.classList.toggle('selected', r.dataset.path === path));
     }
+    async function leaveEdit() {
+      if (!editDirty) return true;
+      const ok = await confirmAction(t('Discard your changes?'), t('The changes to this book have not been saved.'), t('Discard'));
+      if (ok) editDirty = false;
+      return ok;
+    }
     async function openPanel(href, push) {
+      if (!(await leaveEdit())) return;
       try {
         const url = new URL(href, location.href);
         url.searchParams.set('panel', '1');
@@ -412,21 +647,85 @@
         insp.hidden = false;
         const path = insp.querySelector('[data-delete]').dataset.delete;
         markSelected(path);
+        paintReading();
         if (push) history.pushState({ panel: href }, '', href);
+        insp.querySelector('.tab[aria-current="page"]')?.focus({ preventScroll: true });
       } catch (err) {
         location.href = href;
       }
     }
-    function closePanel(push) {
+    async function closePanel(push) {
+      if (insp.hidden) return;
+      if (!(await leaveEdit())) return;
       insp.hidden = true;
       insp.innerHTML = '';
       markSelected(null);
       if (push) {
-        const url = new URL('/admin', location.href);
-        if (state.shelf === 'folder') url.searchParams.set('folder', state.value);
+        const url = new URL($('syncView').hidden ? '/admin' : '/admin/sync', location.href);
+        if (state.shelf === 'folder' && $('syncView').hidden) url.searchParams.set('folder', state.value);
         history.pushState({ panel: null }, '', url);
       }
     }
+
+    // How far the book in the panel was read, on every device
+    async function paintReading() {
+      const box = insp.querySelector('[data-reading]');
+      if (!box || !box.dataset.reading) return;
+      let data;
+      try {
+        const response = await fetch('/api/progress/' + box.dataset.reading, { headers: { Accept: 'application/json' } });
+        if (!response.ok) throw new Error(response.statusText);
+        data = await response.json();
+      } catch {
+        box.querySelector('[data-reading-body]').textContent = t('Cannot load the reading progress.');
+        return;
+      }
+      const body = box.querySelector('[data-reading-body]');
+      if (!data.current) {
+        body.innerHTML = '';
+        const p = document.createElement('p');
+        p.className = 'muted';
+        p.textContent = t('Not started on any device yet.');
+        body.append(p);
+        return;
+      }
+      const c = data.current;
+      const head = document.createElement('div');
+      head.className = 'reading-now';
+      const big = document.createElement('strong');
+      big.textContent = isFinished(c) ? t('Finished') : pct(c) + '%';
+      const where = document.createElement('span');
+      where.textContent = t('on {device}, {when}', { device: c.device || t('another device'), when: timeAgo(c.timestamp) });
+      head.append(big, where);
+      const bar = document.createElement('div');
+      bar.className = 'track big';
+      bar.innerHTML = '<b></b>';
+      bar.firstChild.style.width = pct(c) + '%';
+      const devices = document.createElement('ul');
+      devices.className = 'device-positions';
+      const seen = new Set();
+      const me = storeGet('opdshelf:device-id');
+      data.history.forEach((r) => {
+        if (seen.has(r.device_id)) return;
+        seen.add(r.device_id);
+        const li = document.createElement('li');
+        const icon = document.createElement('i');
+        icon.className = deviceIcon(r.device);
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = (r.device || t('Unknown device')) + (r.device_id === me ? ' ' + t('(this browser)') : '');
+        const value = document.createElement('span');
+        value.className = 'mono';
+        value.textContent = pct(r) + '%';
+        const when = document.createElement('small');
+        when.textContent = timeAgo(r.timestamp) + (r.manual ? ' · ' + t('set by hand') : '');
+        if (r.device_id === c.device_id && r.timestamp === c.timestamp) li.className = 'current';
+        li.append(icon, name, value, when);
+        devices.append(li);
+      });
+      body.replaceChildren(head, bar, devices);
+    }
+    document.addEventListener('progresschange', paintReading);
 
     document.addEventListener('click', (e) => {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
@@ -442,16 +741,27 @@
       }
       const rename = e.target.closest('[data-rename]');
       if (rename) { openRename(rename.dataset); return; }
+      if (e.target.closest('[data-upload]')) { openUpload(); return; }
       if (e.target.closest('[data-close-dialog]')) e.target.closest('dialog').close();
       if (e.target.closest('[data-dismiss]')) e.target.closest('.notice').remove();
+      const copy = e.target.closest('[data-copy]');
+      if (copy) copyText($(copy.dataset.copy), copy);
     });
     window.addEventListener('popstate', () => {
       const path = location.pathname;
+      editDirty = false;
       if (path.startsWith('/info/') || path.startsWith('/admin/edit/')) openPanel(path, false);
-      else closePanel(false);
+      else {
+        closePanel(false);
+        showPage(path === '/admin/sync' ? 'sync' : 'library');
+      }
     });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !insp.hidden && !document.querySelector('dialog[open]')) closePanel(true);
+      if (e.key === 'Escape' && $('side').classList.contains('open')) closeMenu();
+    });
+    window.addEventListener('beforeunload', (e) => {
+      if (editDirty) e.preventDefault();
     });
 
     // Remove the one-off notice from the address so a reload does not show it again
@@ -470,13 +780,14 @@
       $('lookupError').hidden = true;
       $('lookupResult').hidden = true;
       $('lookupBtn').disabled = true;
+      $('lookupBtn').querySelector('i').className = 'fas fa-spinner fa-spin';
       try {
         const response = await fetch('/admin/lookup?isbn=' + encodeURIComponent(isbn));
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || response.statusText);
         found = data;
-        $('lookupSource').textContent = 'Found on ' + data.source;
-        $('lookupTitle').textContent = [data.title || '(no title)', data.authors.join(', ')].filter(Boolean).join(' · ');
+        $('lookupSource').textContent = t('Found on {source}', { source: data.source });
+        $('lookupTitle').textContent = [data.title || t('(no title)'), data.authors.join(', ')].filter(Boolean).join(' · ');
         $('lookupExtra').textContent = [data.publisher, data.date].filter(Boolean).join(', ');
         $('lookupCover').hidden = !data.coverUrl;
         if (data.coverUrl) $('lookupCover').src = data.coverUrl;
@@ -487,6 +798,7 @@
         $('lookupError').hidden = false;
       } finally {
         $('lookupBtn').disabled = false;
+        $('lookupBtn').querySelector('i').className = 'fas fa-magnifying-glass';
       }
     }
     function apply() {
@@ -511,6 +823,12 @@
         $('coverFile').value = '';
       }
       $('lookupResult').hidden = true;
+      markDirty();
+    }
+    function markDirty() {
+      editDirty = true;
+      const status = $('editStatus');
+      if (status) status.hidden = false;
     }
     insp.addEventListener('click', (e) => {
       if (e.target.closest('#lookupBtn')) lookup();
@@ -518,6 +836,28 @@
     });
     insp.addEventListener('keydown', (e) => {
       if (e.target.id === 'isbn' && e.key === 'Enter') { e.preventDefault(); lookup(); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && $('editForm')) {
+        e.preventDefault();
+        $('editForm').requestSubmit();
+      }
+    });
+    insp.addEventListener('input', (e) => {
+      if (e.target.closest('#editForm') && e.target.id !== 'isbn') {
+        e.target.classList.add('changed');
+        markDirty();
+      }
+    });
+    insp.addEventListener('submit', async (e) => {
+      if (e.target.id === 'editForm') {
+        editDirty = false;
+        e.target.querySelector('button[type="submit"].btn-primary').disabled = true;
+      }
+      if (e.target.id === 'resetForm') {
+        e.preventDefault();
+        const ok = await confirmAction(t('Restore the details from the file?'),
+          t('Your changes to this book are discarded.'), t('Restore'));
+        if (ok) { editDirty = false; e.target.submit(); }
+      }
     });
     insp.addEventListener('change', (e) => {
       if (e.target.id !== 'coverFile') return;
@@ -526,6 +866,7 @@
       $('coverPreview').src = URL.createObjectURL(file);
       $('coverPreview').className = 'cover';
       $('coverUrl').value = '';
+      markDirty();
     });
 
     // ------------------------------------------------------------ rename
@@ -542,23 +883,62 @@
       $('renameName').select();
     }
 
-    // ------------------------------------------------------------ upload
+    // ------------------------------------------------------------ upload, with progress
     const isAccepted = (file) => accepted.some((ext) => file.name.toLowerCase().endsWith(ext));
+    const sizeText = (bytes) => bytes > 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.ceil(bytes / 1024) + ' KB';
+    let uploading = null;
+    function openUpload() {
+      $('uploadError').hidden = true;
+      $('uploadProgress').hidden = true;
+      $('dropZone').hidden = false;
+      $('uploadDialog').showModal();
+    }
     function upload(files) {
       if (!files.length) return;
       const invalid = Array.from(files).filter((f) => !isAccepted(f));
-      const info = $('uploadInfo');
-      info.hidden = false;
+      if (!$('uploadDialog').open) openUpload();
       if (invalid.length) {
-        info.textContent = 'Not a supported format: ' + invalid.map((f) => f.name).join(', ');
-        if (!$('uploadDialog').open) $('uploadDialog').showModal();
+        $('uploadError').textContent = t('Not a supported format: {files}', { files: invalid.map((f) => f.name).join(', ') });
+        $('uploadError').hidden = false;
         return;
       }
-      info.textContent = files.length === 1 ? 'Uploading ' + files[0].name + '…' : 'Uploading ' + files.length + ' books…';
-      if (!$('uploadDialog').open) $('uploadDialog').showModal();
-      $('uploadForm').submit();
+      const total = Array.from(files).reduce((sum, f) => sum + f.size, 0);
+      $('uploadError').hidden = true;
+      $('dropZone').hidden = true;
+      $('uploadProgress').hidden = false;
+      $('uploadInfo').textContent = files.length === 1
+        ? t('Uploading {name}…', { name: files[0].name })
+        : t('Uploading {n} books ({size})…', { n: files.length, size: sizeText(total) });
+      const form = new FormData();
+      form.append('csrf', csrf);
+      form.append('folder', $('uploadFolder').value);
+      Array.from(files).forEach((f) => form.append('books', f));
+      const xhr = new XMLHttpRequest();
+      uploading = xhr;
+      xhr.open('POST', '/admin/upload');
+      xhr.upload.onprogress = (e) => {
+        if (!e.lengthComputable) return;
+        const done = Math.round((e.loaded / e.total) * 100);
+        $('uploadBar').style.width = done + '%';
+        $('uploadPct').textContent = done + '%';
+        if (done === 100) $('uploadInfo').textContent = t('Reading the new books…');
+      };
+      xhr.onload = () => {
+        uploading = null;
+        if (xhr.status >= 200 && xhr.status < 400) location.href = xhr.responseURL || '/admin';
+        else failUpload(xhr.status + ' ' + xhr.statusText);
+      };
+      xhr.onerror = () => { uploading = null; failUpload(t('The connection was lost.')); };
+      xhr.send(form);
     }
-    $('uploadBtn').addEventListener('click', () => { $('uploadInfo').hidden = true; $('uploadDialog').showModal(); });
+    function failUpload(reason) {
+      $('uploadProgress').hidden = true;
+      $('dropZone').hidden = false;
+      $('uploadError').textContent = t('Upload failed: {reason}', { reason });
+      $('uploadError').hidden = false;
+    }
+    $('uploadDialog').addEventListener('close', () => { if (uploading) uploading.abort(); uploading = null; });
+    $('uploadBtn').addEventListener('click', openUpload);
     $('uploadFiles').addEventListener('change', (e) => upload(e.target.files));
 
     let dragDepth = 0;
@@ -578,25 +958,75 @@
       e.preventDefault();
       dragDepth = 0;
       $('dropOverlay').hidden = true;
-      $('uploadFiles').files = e.dataTransfer.files;
       upload(e.dataTransfer.files);
     });
 
     // ------------------------------------------------------------ misc
     const side = $('side');
     function closeMenu() { side.classList.remove('open'); }
-    $('menuBtn').addEventListener('click', () => side.classList.toggle('open'));
+    document.querySelectorAll('[data-menu]').forEach((b) => b.addEventListener('click', () => side.classList.toggle('open')));
     $('scrim').addEventListener('click', closeMenu);
 
-    $('copyOpds').addEventListener('click', async () => {
-      const icon = $('copyOpds').querySelector('i');
+    async function copyText(el, button) {
+      const icon = button.querySelector('i');
       try {
-        await navigator.clipboard.writeText($('opdsUrl').textContent);
+        await navigator.clipboard.writeText(el.textContent.trim());
         icon.className = 'fas fa-check';
+        showToast(t('Copied'));
         setTimeout(() => { icon.className = 'far fa-copy'; }, 1500);
       } catch {
-        getSelection().selectAllChildren($('opdsUrl'));
+        getSelection().selectAllChildren(el);
       }
+    }
+
+    $('langBtn').addEventListener('click', () => {
+      const next = document.documentElement.lang === 'es' ? 'en' : 'es';
+      document.cookie = 'opdshelf_lang=' + next + '; path=/; max-age=31536000; samesite=lax';
+      location.reload();
     });
+
+    // ------------------------------------------------------------ live changes from other devices
+    window.liveSync = (function () {
+      let source = null;
+      let retry = 1000;
+      let pending = null;
+      function setLive(live) {
+        document.querySelectorAll('[data-live-state]').forEach((el) => { el.dataset.liveState = live; });
+        $('navLive').dataset.on = live === 'on';
+        $('navLive').title = live === 'on' ? t('Live: changes arrive at once') : t('Connecting…');
+        document.dispatchEvent(new CustomEvent('livechange', { detail: { live } }));
+      }
+      function connect() {
+        source = new EventSource('/api/progress/events');
+        source.addEventListener('hello', (e) => {
+          retry = 1000;
+          setLive('on');
+          try { window.serverOffset = JSON.parse(e.data).server_time - Date.now() / 1000; } catch { }
+        });
+        source.addEventListener('progress', (e) => {
+          const change = JSON.parse(e.data);
+          document.dispatchEvent(new CustomEvent('remoteprogress', { detail: change }));
+          clearTimeout(pending);
+          pending = setTimeout(loadProgress, 300);
+        });
+        source.addEventListener('resync', () => loadProgress());
+        source.onerror = () => {
+          source.close();
+          setLive('off');
+          setTimeout(connect, retry);
+          retry = Math.min(30000, retry * 2);
+        };
+      }
+      return { connect };
+    })();
+
+    const initial = document.querySelector('[data-initial]');
+    if (!$('syncView').hidden) { showPage('sync'); refresh(); }
+    else if (initial) selectShelf(initial);
+    else refresh();
+    loadProgress();
+    liveSync.connect();
+    // Times such as "5 minutes ago" move on by themselves
+    setInterval(() => { paintProgress(); renderContinue(); }, 60000);
   })();
 </script>

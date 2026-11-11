@@ -14,6 +14,9 @@
   --fg: #111111;
   /* Secondary text: at least 4.5:1 on --pane, --bg and --soft (WCAG 1.4.3) */
   --muted: #646464;
+  /* The one colour of the panel, for actions that delete */
+  --danger: #b42318;
+  --on-danger: #ffffff;
   --soft: #f1f1f1;
   --inverse: #ffffff;
   --shadow: 0 16px 40px rgb(0 0 0 / 0.12);
@@ -34,13 +37,14 @@
   --sp-16: 64px;
 
   /* Type scale */
-  --fs-xs: 12px;
-  --fs-sm: 13px;
-  --fs-base: 14px;
-  --fs-md: 16px;
-  --fs-lg: 18px;
-  --fs-xl: 20px;
-  --fs-2xl: 24px;
+  /* Type scale, in rem so it follows the browser's text size (12 to 24px by default) */
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-base: 0.875rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.125rem;
+  --fs-xl: 1.25rem;
+  --fs-2xl: 1.5rem;
 
   /* Corners */
   --r-sm: 4px;
@@ -51,23 +55,26 @@
   --control: 32px;
   --control-sm: 28px;
   --bar: 52px;
-  --focus-ring: 0 0 0 3px rgb(17 17 17 / 0.18);
+  /* With the field's own border in --fg this makes a 2px ring in the text colour */
+  --focus-ring: 0 0 0 1px var(--fg);
   color-scheme: light;
 }
 
 .dark {
+  /* Panels one step above the page, so they read as surfaces */
   --bg: #0b0b0b;
-  --pane: #0b0b0b;
-  --hover: #181818;
-  --line: #222222;
-  --line-strong: #333333;
+  --pane: #121212;
+  --hover: #1e1e1e;
+  --line: #262626;
+  --line-strong: #383838;
   --line-input: #6b6b6b;
+  --danger: #f97066;
+  --on-danger: #1a0505;
   --fg: #ececec;
   --muted: #9a9a9a;
-  --soft: #1b1b1b;
+  --soft: #222222;
   --inverse: #0b0b0b;
   --shadow: 0 16px 40px rgb(0 0 0 / 0.6);
-  --focus-ring: 0 0 0 3px rgb(236 236 236 / 0.22);
   color-scheme: dark;
 }
 
@@ -133,6 +140,40 @@ button {
 
 img {
   max-width: 100%;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Hidden until focused with the keyboard */
+.skip-link {
+  position: fixed;
+  top: var(--sp-2);
+  left: var(--sp-2);
+  z-index: 100;
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--r-sm);
+  background: var(--fg);
+  color: var(--inverse);
+  font-weight: 600;
+  transform: translateY(-200%);
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+.main:focus {
+  outline: none;
 }
 
 .mono {
@@ -529,8 +570,46 @@ input[type="checkbox"] {
   height: 26px;
 }
 
-.menu-btn {
+.sort-select {
+  position: relative;
+  flex: none;
+}
+
+.sort-select i {
+  position: absolute;
+  left: var(--sp-3);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  pointer-events: none;
+}
+
+.sort-select select {
+  width: auto;
+  max-width: 180px;
+  padding-left: var(--sp-8);
+  padding-right: var(--sp-8);
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: right 15px center, right 10px center;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.menu-btn,
+.select-btn {
   display: none;
+}
+
+.books.grid.selecting .pick {
+  opacity: 1 !important;
+}
+
+.books.selecting .book {
+  cursor: pointer;
 }
 
 .bulk {
@@ -630,15 +709,15 @@ input[type="checkbox"] {
   font-weight: 600;
 }
 
-.cols button[aria-sort] {
+.cols button[data-dir] {
   color: var(--fg);
 }
 
-.cols button[aria-sort="ascending"]::after {
+.cols button[data-dir="asc"]::after {
   content: " \2191";
 }
 
-.cols button[aria-sort="descending"]::after {
+.cols button[data-dir="desc"]::after {
   content: " \2193";
 }
 
@@ -711,12 +790,78 @@ input[type="checkbox"] {
   color: var(--muted);
 }
 
+/* Drawn covers (see placeholderCover in common.js): just the initial when
+   small, the title and author when there is room */
+.thumb {
+  container-type: inline-size;
+}
+
+.thumb.ph > span:not(.ph-art) {
+  display: none;
+}
+
+.thumb > .ph-art {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 6%;
+  padding: 10%;
+  background:
+    linear-gradient(90deg, rgb(0 0 0 / 0.22) 0 4%, rgb(255 255 255 / 0.08) 4% 5%, transparent 5%),
+    hsl(var(--ph-hue, 0) 16% 34%);
+  color: #fff;
+  font-family: var(--serif);
+  letter-spacing: 0;
+  text-align: center;
+  overflow: hidden;
+}
+
+.ph-initial {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ph-title,
+.ph-author {
+  display: none;
+}
+
+@container (min-width: 72px) {
+  .ph-initial {
+    display: none;
+  }
+
+  .ph-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 5;
+    line-clamp: 5;
+    overflow: hidden;
+    font-size: clamp(11px, 13cqi, 20px);
+    font-weight: 600;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+  }
+
+  .ph-author {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    font-family: var(--sans);
+    font-size: clamp(9px, 8cqi, 13px);
+    opacity: 0.8;
+  }
+}
+
 .book-name {
   min-width: 0;
 }
 
 .book-name b,
-.book-name span {
+.book-name > span {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -727,7 +872,7 @@ input[type="checkbox"] {
   font-weight: 600;
 }
 
-.book-name span {
+.book-name > span {
   font-size: var(--fs-sm);
   color: var(--muted);
 }
@@ -741,8 +886,8 @@ input[type="checkbox"] {
 }
 
 .c-num {
-  font-family: var(--mono);
   font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -957,6 +1102,11 @@ input[type="checkbox"] {
   border-radius: var(--r-sm);
   background: var(--soft);
   display: block;
+}
+
+.hero .cover-ph {
+  width: 100%;
+  border-radius: var(--r-sm);
 }
 
 .cover.none {
@@ -1236,6 +1386,19 @@ dialog::backdrop {
   color: var(--muted);
 }
 
+.error-code {
+  margin: 0 0 var(--sp-2) !important;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
 .login-card .notice {
   border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
@@ -1426,15 +1589,18 @@ dialog::backdrop {
 
 /* Floating notes of the reader, e.g. where a book was continued from */
 .reader-toast {
+  /* Under the top bar, where it does not cover the lines being read */
   position: fixed;
-  left: 50%;
-  bottom: 56px;
+  top: 60px;
+  left: var(--sp-4);
+  right: var(--sp-4);
   z-index: 20;
-  transform: translateX(-50%);
+  width: fit-content;
+  max-width: 480px;
+  margin: 0 auto;
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  max-width: calc(100vw - 32px);
   padding: var(--sp-2) var(--sp-4);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
@@ -1546,14 +1712,21 @@ dialog::backdrop {
 }
 
 .btn-danger {
-  background: var(--fg);
-  border-color: var(--fg);
-  color: var(--inverse);
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--on-danger);
 }
 
 .btn-danger:hover {
-  background: var(--fg);
-  opacity: 0.88;
+  background: var(--danger);
+  opacity: 0.9;
+}
+
+.bulk .btn-danger,
+.bulk .btn-danger:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--on-danger);
 }
 
 .link-btn {
@@ -1653,14 +1826,12 @@ a.nav-item {
 }
 
 .prog .mono {
+  min-width: 4ch;
+  font-family: var(--sans);
   font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
   white-space: nowrap;
-}
-
-.book.done .prog .mono {
-  color: var(--fg);
-  font-weight: 600;
 }
 
 .thumb-bar {
@@ -1694,17 +1865,12 @@ a.nav-item {
 }
 
 .flag {
-  display: inline-flex !important;
+  display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
-  margin-top: 1px;
-  font-size: var(--fs-xs) !important;
+  font-style: normal;
   font-weight: 600;
-  color: var(--fg) !important;
-}
-
-.books.grid .flag {
-  display: none !important;
+  color: var(--fg);
 }
 
 .track.big {
@@ -2430,6 +2596,78 @@ a.nav-item {
   }
 }
 
+/* A narrow list (phones, tablets with the menu open): the search field gets
+   a row of its own below the title and the actions */
+@container main (max-width: 780px) {
+  /* Title and actions on top, the search field on its own row below */
+  .toolbar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: var(--bar);
+    padding: var(--sp-2) var(--sp-3);
+    gap: var(--sp-2);
+  }
+
+  .toolbar h1 {
+    flex: 1;
+    margin: 0;
+    font-size: var(--fs-md);
+  }
+
+  /* The spacer breaks the line; search and sort follow it */
+  .toolbar {
+    row-gap: var(--sp-1);
+  }
+
+  .toolbar h1 + .search + .spacer {
+    order: 1;
+    flex-basis: 100%;
+    height: 0;
+  }
+
+  .toolbar h1 + .search,
+  .toolbar .sort-select {
+    order: 2;
+  }
+
+  .toolbar h1 + .search {
+    flex: 1 1 120px;
+    max-width: none;
+  }
+
+  .sort-select select {
+    max-width: 200px;
+  }
+
+  /* Selection bar: count and actions on top, the move field below */
+  .bulk strong {
+    flex: 1;
+  }
+
+  .bulk #bulkDelete,
+  .bulk #bulkClear {
+    order: 1;
+    margin-left: 0;
+  }
+
+  .bulk-move {
+    order: 2;
+    flex-basis: 100%;
+    min-width: 0;
+  }
+
+  .bulk-move .input {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+  }
+
+  .search kbd,
+  .toolbar .label {
+    display: none;
+  }
+}
+
 @container main (max-width: 680px) {
   .cols,
   .book {
@@ -2444,7 +2682,7 @@ a.nav-item {
 
 @media (max-width: 1100px) {
   .app {
-    grid-template-columns: 210px minmax(0, 1fr);
+    grid-template-columns: 232px minmax(0, 1fr);
   }
 
   .insp {
@@ -2515,35 +2753,6 @@ a.nav-item {
     display: inline-grid;
   }
 
-  /* Title and actions on top, the search field on its own row below */
-  .toolbar {
-    flex-wrap: wrap;
-    height: auto;
-    min-height: var(--bar);
-    padding: var(--sp-2) var(--sp-3);
-    gap: var(--sp-2);
-  }
-
-  .toolbar h1 {
-    flex: 1;
-    margin: 0;
-    font-size: var(--fs-md);
-  }
-
-  .toolbar h1 + .search {
-    order: 1;
-    flex-basis: 100%;
-    max-width: none;
-  }
-
-  .toolbar h1 + .search + .spacer {
-    display: none;
-  }
-
-  .search kbd,
-  .toolbar .label {
-    display: none;
-  }
 
   .toolbar .btn {
     padding: 0 var(--sp-2);
@@ -2597,6 +2806,22 @@ a.nav-item {
 
   .book:not(.started) .c-prog {
     display: none;
+  }
+
+  .books.selecting .book {
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+  }
+
+  .books.selecting .book .pick {
+    display: flex;
+  }
+
+  .books.selecting:not(.grid) .book .pick {
+    padding-left: var(--sp-4);
+  }
+
+  .books.selecting .book-link {
+    padding-left: var(--sp-2);
   }
 
   .prog .track {
@@ -2681,6 +2906,12 @@ a.nav-item {
   .reader-bar .segmented .icon-btn[aria-pressed="true"] {
     background: none;
     color: var(--muted);
+  }
+}
+
+@media (max-width: 760px), (pointer: coarse) {
+  .select-btn {
+    display: inline-grid;
   }
 }
 

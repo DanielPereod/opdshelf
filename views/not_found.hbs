@@ -1,0 +1,14 @@
+<main class="login" id="main">
+  <div class="login-card error-page">
+    <div class="brand"><img src="/static/icon.png" alt="">OPDShelf</div>
+    <div>
+      <p class="error-code mono">404</p>
+      <h1>{{t "This page does not exist"}}</h1>
+      <p>{{t "The book may have been moved, renamed or deleted, or the link is incomplete."}}</p>
+    </div>
+    <div class="error-actions">
+      <a class="btn btn-primary" href="/admin"><i class="fas fa-book"></i>{{t "Go to the library"}}</a>
+      <button type="button" class="btn" onclick="history.back()"><i class="fas fa-arrow-left"></i>{{t "Go back"}}</button>
+    </div>
+  </div>
+</main>

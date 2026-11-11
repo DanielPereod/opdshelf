@@ -122,8 +122,30 @@ pub fn router(config: Config) -> Router {
         .route("/kosync/healthcheck", get(sync::kosync_health))
         .route("/static/{*path}", get(static_file))
         .route("/healthz", get(|| async { "ok" }))
+        .layer(middleware::from_fn_with_state(state.clone(), not_found_page))
         .layer(middleware::from_fn_with_state(state.clone(), require_auth))
         .with_state(state)
+}
+
+/// A browser that opens a page that does not exist (a moved book, an old
+/// link) gets a page of the panel with a way back instead of a blank one.
+async fn not_found_page(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    let wants_html = request.method() == axum::http::Method::GET
+        && request
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.contains("text/html"));
+    let path = request.uri().path().to_string();
+    let headers = request.headers().clone();
+    let response = next.run(request).await;
+    let raw = ["/static/", "/api/", "/kosync/", "/opds", "/download/", "/cover/", "/thumb/", "/page/", "/pages/", "/apps/"];
+    if response.status() != StatusCode::NOT_FOUND || !wants_html || raw.iter().any(|p| path.starts_with(p)) {
+        return response;
+    }
+    let mut page = page(&state, &headers, "not_found", "Not found - OPDShelf", json!({}));
+    *page.status_mut() = StatusCode::NOT_FOUND;
+    page
 }
 
 async fn require_auth(State(state): State<AppState>, request: Request, next: Next) -> Response {

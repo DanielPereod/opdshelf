@@ -85,6 +85,10 @@
     };
     document.addEventListener('keydown', onKey);
     rendition.on('keydown', onKey);
+    // Screen readers name the frame that holds the page
+    rendition.on('rendered', (section, view) => {
+      if (view && view.iframe) view.iframe.title = document.title;
+    });
 
     // Swipe inside the book
     let touchX = null;

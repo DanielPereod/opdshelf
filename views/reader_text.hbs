@@ -4,7 +4,8 @@
 </div>
 
 <main class="stage">
-  <div id="scroller" class="scroll-stage">
+  <h1 class="visually-hidden">{{book.title}}</h1>
+  <div id="scroller" class="scroll-stage" tabindex="0" aria-label="{{book.title}}">
     <article id="text" class="text-page">{{text}}</article>
   </div>
 </main>

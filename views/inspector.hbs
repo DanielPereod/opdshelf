@@ -18,7 +18,7 @@
     <img class="cover" src="/cover/{{urlPath book.path}}?v={{book.coverVersion}}" alt=""
       onerror="this.onerror=null;this.className='cover none';this.removeAttribute('src')">
     {{else}}
-    <div class="cover none"></div>
+    <span class="thumb cover-ph" data-ph-title="{{book.title}}" data-ph-author="{{book.authors}}"><span></span></span>
     {{/if}}
     <div>
       <h2>{{book.title}}</h2>

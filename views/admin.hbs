@@ -100,13 +100,13 @@
     {{#if notice}}
     <div class="notice" role="status">
       <i class="fas fa-check"></i>{{notice}}
-      <button type="button" class="icon-btn" data-dismiss title="{{t "Dismiss"}}"><i class="fas fa-xmark"></i></button>
+      <button type="button" class="icon-btn" data-dismiss title="{{t "Dismiss"}}" aria-label="{{t "Dismiss"}}"><i class="fas fa-xmark"></i></button>
     </div>
     {{/if}}
     {{#if error}}
     <div class="notice error" role="alert">
       <i class="fas fa-circle-exclamation"></i>{{error}}
-      <button type="button" class="icon-btn" data-dismiss title="{{t "Dismiss"}}"><i class="fas fa-xmark"></i></button>
+      <button type="button" class="icon-btn" data-dismiss title="{{t "Dismiss"}}" aria-label="{{t "Dismiss"}}"><i class="fas fa-xmark"></i></button>
     </div>
     {{/if}}
 
@@ -727,8 +727,11 @@
     }
     document.addEventListener('progresschange', paintReading);
 
+    // Below 1100px the panel floats over the list, which is dimmed; a click there closes it
+    const panelFloats = window.matchMedia('(max-width: 1100px)');
     document.addEventListener('click', (e) => {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      if (e.target.classList.contains('main') && panelFloats.matches && !insp.hidden) { closePanel(true); return; }
       const link = e.target.closest('.book-link, [data-panel]');
       if (link) { e.preventDefault(); openPanel(link.getAttribute('href'), true); return; }
       if (e.target.closest('[data-close]')) { e.preventDefault(); closePanel(true); return; }

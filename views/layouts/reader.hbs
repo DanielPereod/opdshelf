@@ -67,9 +67,17 @@
       });
       document.dispatchEvent(new CustomEvent('paperchange', { detail: { paper } }));
     }
+    // On small phones only the current colour shows, and it cycles to the next one
+    const paperOrder = ['light', 'gray', 'dark'];
+    const compactBar = window.matchMedia('(max-width: 520px)');
     document.querySelectorAll('button[data-paper]').forEach((b) => b.addEventListener('click', () => {
-      storeSet('opdshelf:paper', b.dataset.paper);
-      setPaper(b.dataset.paper);
+      let paper = b.dataset.paper;
+      if (compactBar.matches && b.getAttribute('aria-pressed') === 'true') {
+        paper = paperOrder[(paperOrder.indexOf(paper) + 1) % paperOrder.length];
+      }
+      storeSet('opdshelf:paper', paper);
+      setPaper(paper);
+      document.querySelector(`button[data-paper="${paper}"]`).focus();
     }));
     setPaper(readerPaper());
   </script>

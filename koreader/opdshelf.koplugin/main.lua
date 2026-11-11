@@ -73,6 +73,10 @@ end
 -- Set when the home screen is asked for from a book, to show it in the file browser that follows
 local home_requested = false
 
+local function urlEncode(s)
+    return (tostring(s):gsub("[^%w%-%._~]", function(c) return string.format("%%%02X", c:byte()) end))
+end
+
 local function percent(value)
     return T(_("%1 %"), math.floor((value or 0) * 100 + 0.5))
 end
@@ -717,7 +721,9 @@ function OPDShelf:startStream()
     UIManager:unschedule(self.retry_task)
     local reconnecting = self.stream_failures and self.stream_failures > 0
     self.stream = Stream.new{
-        url = self.client.server .. "/api/progress/events?documents=" .. self.document,
+        -- Who is listening, so the server's Devices page shows this one as connected now
+        url = self.client.server .. "/api/progress/events?documents=" .. self.document
+            .. "&device_id=" .. urlEncode(self.device_id or "") .. "&device=" .. urlEncode(self:deviceName()),
         headers = { ["Authorization"] = self.client:authorization(), ["User-Agent"] = "OPDShelf-KOReader" },
         on_open = function()
             self.stream_failures = 0

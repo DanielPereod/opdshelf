@@ -8,6 +8,8 @@
   <a href="#installation">Install</a> •
   <a href="#configuration">Configuration</a> •
   <a href="#opds-catalog">OPDS catalog</a> •
+  <a href="#reading-progress-sync">Sync</a> •
+  <a href="#releases-and-channels">Releases</a> •
   <a href="#upgrading-from-1x">Upgrading</a> •
   <a href="#faq">FAQ</a>
 </p>
@@ -53,29 +55,32 @@
 - Resumable downloads (HTTP range requests)
 
 📖 **Read in the browser**
-- EPUB reader with table of contents, font size, dark mode and position memory
+- EPUB reader with table of contents, a two-page spread on wide screens, and an **Aa** panel for text size, font, line spacing, margins and justification (kept for every book)
+- Page colours (light, sepia, dark) and a theme button that cycles System, Light and Dark
 - Reading position synced live between browsers, devices and KOReader, also after reading offline
 - KOReader plugin: live sync with conflict handling, the library with covers and downloads, and a home screen that can be KOReader's start screen
 - Select a sentence and set it as the last position, so every device opens the book exactly there (in KOReader too, with the included plugin)
-- PDF, comic (CBZ, CBR, CB7, CBT, with right-to-left mode) and TXT readers
+- PDF reader that fits the width or the whole page, with a "Page 3 of 20" counter; comic (CBZ, CBR, CB7, CBT, with right-to-left mode) and TXT readers
 - While a book is open, reading done on another device shows up at once with a button to jump there
 
 🔄 **Devices and sync page**
 - Every device that syncs (browsers, KOReader, the Android app) with its last activity, the books it is on and how far, and whether it is connected right now
 - Live feed of reading activity, and the addresses to set up OPDS apps, KOReader and the Android app
 - Download the KOReader plugin and the Android app from the panel. They come from the latest GitHub releases (`android-latest`, `koreader-latest`, or the `-beta` ones on beta servers), so they update without updating the server; a file copied to `DATA_DIR/apps/` (`opdshelf.apk`, `opdshelf.koplugin.zip`) takes their place
-- Reading progress in the library: **Reading** and **Finished** shelves, a **Continue reading** row, progress bars in the list and on the covers, and per-device positions in each book's panel
+- Reading progress in the library: **Reading** and **Finished** shelves, a **Continue reading** row, progress bars in the list and on the covers, and per-device positions in each book's panel. A book read to the end shows 100 %
+- **Mark as read / unread** from the book panel or for a whole selection. Marks live only in the panel (`DATA_DIR/marks.json`): positions in KOReader and the app are not touched. "Unread" hides the positions saved so far; reading again brings the book back
 
 🌍 **English and Spanish**
 - The web panel follows the browser's language, and can be switched from the sidebar
 - Keyboard, touch swipe and mobile friendly
 
 🖥️ **Web admin panel**
-- Three-pane layout: sidebar with folders and formats, book list or cover grid, and a details panel
+- Three-pane layout: sidebar with folders, formats, authors and series, book list or cover grid, and a details panel. Author and series in the book panel link to their shelf
+- Redesigned with design tokens, AA contrast, large touch targets and an adaptive layout for phones (two-row selection bar, full-width dialogs)
 - Quick filters for "Added this week" and "Missing details"
 - Drag-and-drop uploads of several books at once, into any folder
 - Rename, move and delete books
-- Edit title, authors, series, description, subjects and more, and change the cover. Book files are never modified
+- Edit title, authors, series, description, subjects and more, and change the cover, with author, series and language suggestions from the library. Book files are never modified
 - Fill in metadata and cover from an ISBN (Open Library, with Google Books as fallback)
 - Select several books to move or delete them at once
 - Search (press `/`), folder filter and sorting
@@ -91,7 +96,7 @@
 
 The Docker image `koalilla/opds-server` is published for **linux/amd64** and **linux/arm64**, so it runs on a PC, a NAS or a Raspberry Pi.
 
-Two channels are published: `latest`, built from `main`, and `beta`, built from the `beta` branch, where new features are tried before they reach `main`. Use `koalilla/opds-server:beta` to run the beta; its panel offers the beta builds of the Android app and the KOReader plugin.
+Two channels are published: `latest`, built from `main`, and `beta`, built from the `beta` branch, where new features are tried before they reach `main`. Use `koalilla/opds-server:beta` to run the beta; its panel offers the beta builds of the Android app and the KOReader plugin (see [Releases and channels](#releases-and-channels)).
 
 ### Docker Compose (recommended)
 
@@ -253,7 +258,7 @@ Install the OPDShelf plugin from [`koreader/opdshelf.koplugin`](koreader/opdshel
 
 **Set as last position**: select some text and choose it in the selection menu. Other devices open the book on that sentence. **Go to where another device left it** lists the latest position of each device, to jump back to any of them.
 
-**Library.** **Tools → OPDShelf → Library** (also a gesture action) browses the server's catalog with covers, as a list or a grid, by recent books, folders, authors and series, with search. Tap a book for its cover, series, subjects and description, and to download it or download and read it; a long press downloads it straight away. Downloaded books are marked, with how far they were read. Books go to the download folder chosen in the menu.
+**Library.** **Tools → OPDShelf → Library** (also a gesture action) browses the server's catalog with covers, as a list or a grid, by recent books, folders, authors and series, with search. Tap a book for its cover, series, subjects and description, and to download it or download and read it; a long press downloads it straight away. Downloaded books are marked, with how far they were read. Books go to the download folder chosen in the menu. Downloads run in the background, so the screen keeps refreshing on e-ink devices such as Kindle and a tap on the message cancels them.
 
 **Home screen.** Once installed, OPDShelf works as KOReader's launcher: its home screen opens when KOReader starts and after closing a book, and the file browser's home button goes back to it. At the top there is a status bar with the time, date, Wi-Fi and battery. Below it you find the book to continue, with its cover, progress and, when another device read further, where that one is; then the newest books on the server; then the last books read on the device, with their progress. A tab bar at the bottom leads to Home, Library, Search, Files and Settings. Pull down to refresh. Without a connection it shows what it last saw from the server. Turn it off with **Tools → OPDShelf → Show the home screen at start**, or choose another screen in **File browser → Settings → Start with**. It can also be opened from **Tools → OPDShelf → Home** or with a gesture action.
 
@@ -265,11 +270,15 @@ KOReader's own **Progress sync** also works without the plugin: set its custom s
 
 ### Android app
 
-[`android/`](android) is an app for reading the library on Android, also offline:
+[`android/`](android) is an app for reading the library on Android, also offline. Download it from the web panel's devices page, or from the [`android-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/android-latest) release.
 
-- Browse and search the catalog, and download books to the phone (EPUB, PDF, CBZ).
-- Read them with [Readium](https://readium.org). The position is saved on the phone and sent to the server when there is a connection, so it is shared with KOReader and the web reader.
-- When a book was read further on another device, it opens there and says so. Select text and choose **Set as last position** to pin a sentence, as in KOReader.
+- **My books**: the books on the phone, with a **Continue reading** card, filters (All, Reading, Not started, Finished, with counts), search, sorting and a ⋮ menu on every book. Long press to select several and mark them finished or remove them.
+- **Explore**: browse and search the catalog by recent books, A–Z, authors, series and folders, as a grid or a list, and download books (EPUB, PDF, CBZ). Downloads can be cancelled. Without a connection a band says so and the downloaded books are still at hand.
+- **Book details** with cover, series, publisher, year, language and subjects; two panes on tablets.
+- **Reader** built on [Readium](https://readium.org): light, sepia and dark themes (the bars follow them), fonts, margins, justification, brightness, minutes left in the chapter, contents, bookmarks, search inside the book, previous/next chapter, volume keys to turn pages and the screen kept on while reading.
+- **Sync**: the position is saved on the phone and sent to the server when there is a connection, so it is shared with KOReader and the web reader. When a book was read further on another device, it opens there and says so. Select text and choose **Set as last position** to pin a sentence, as in KOReader. The last page of a book saves 100 %, so it counts as finished everywhere.
+- Mark a book as finished by hand, from the menu or its details.
+- Works with large fonts (up to 200 %), in landscape and on tablets, and follows the system theme or a chosen one.
 - EPUB positions are KOReader xpointers, worked out with the same script as the web reader.
 
 In the app's **Settings**, enter the server address (`192.168.1.10:3000` or `https://books.example.com`), OPDShelf's username and password, and a name for the device.
@@ -322,6 +331,20 @@ Without those secrets the release workflow stops instead of publishing an APK si
 | `*` | `/kosync/...` | KOReader sync protocol (`users/auth`, `syncs/progress`) |
 
 `<document>` is KOReader's partial MD5 of the file. `progress` is an xpointer for reflowable books and the page number (from 1) for PDFs and comics.
+
+---
+
+## Releases and channels
+
+There are two channels, each built from its own branch:
+
+| | Stable (`main`) | Beta (`beta`) |
+|---|---|---|
+| Docker image | `koalilla/opds-server:latest` | `koalilla/opds-server:beta` |
+| Android app | [`android-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/android-latest) | [`android-beta`](https://github.com/DanielPereod/opdshelf/releases/tag/android-beta) (pre-release) |
+| KOReader plugin | [`koreader-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/koreader-latest) | [`koreader-beta`](https://github.com/DanielPereod/opdshelf/releases/tag/koreader-beta) (pre-release) |
+
+New features land in `beta` first and reach `main` once tried. Every push to a branch publishes its Docker image, and every push that touches the app or the plugin updates that channel's releases. The web panel offers the downloads of its own channel (`APPS_CHANNEL`), so the apps update without updating the server. Versioned Android releases (`android-v1.2.0`) are described in [Publishing a release](#publishing-a-release).
 
 ---
 

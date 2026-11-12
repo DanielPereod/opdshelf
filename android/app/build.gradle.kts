@@ -15,6 +15,7 @@ android {
         // Set by the release workflow from the tag, e.g. android-v1.2.3
         versionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 1
         versionName = System.getenv("APP_VERSION_NAME") ?: "0.1.0"
+        manifestPlaceholders["appLabel"] = "@string/app_name"
     }
 
     signingConfigs {
@@ -38,12 +39,23 @@ android {
     }
 
     buildTypes {
+        // Android refuses to update an app with an APK signed with another key ("conflicts with
+        // an existing package"). So APKs signed with the test key are a separate app,
+        // "OPDShelf test", that installs next to the real one instead of blocking its updates.
+        val testKey = signingConfigs.getByName("test")
+        val releaseKey = signingConfigs.findByName("release")
         debug {
-            signingConfig = signingConfigs.getByName("test")
+            signingConfig = testKey
+            applicationIdSuffix = ".test"
+            manifestPlaceholders["appLabel"] = "OPDShelf test"
         }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("test")
+            signingConfig = releaseKey ?: testKey
+            if (releaseKey == null) {
+                applicationIdSuffix = ".test"
+                manifestPlaceholders["appLabel"] = "OPDShelf test"
+            }
         }
     }
 

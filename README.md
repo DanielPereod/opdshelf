@@ -5,13 +5,10 @@
 <p align="center"><em>Host your own OPDS library server in seconds</em></p>
 <p align="center">
   <a href="#features">Features</a> •
+  <a href="#real-time-sync">Real-time sync</a> •
   <a href="#installation">Install</a> •
   <a href="#configuration">Configuration</a> •
-  <a href="#opds-catalog">OPDS catalog</a> •
-  <a href="#reading-progress-sync">Sync</a> •
-  <a href="#releases-and-channels">Releases</a> •
-  <a href="#upgrading-from-1x">Upgrading</a> •
-  <a href="#faq">FAQ</a>
+  <a href="#releases-and-channels">Releases</a>
 </p>
 
 <p align="center">
@@ -35,70 +32,42 @@
 
 ## Features
 
-🚀 **Simple & Fast**
-- A single self-contained binary written in **Rust** (templates, styles and icons are embedded)
-- No database required: your folder structure is the library
-- Minimal memory use: books are never loaded whole into memory
+- **Single Rust binary, no database.** Your folder structure is the library; new, changed and deleted files show up instantly.
+- **OPDS 1.2 catalog** for any reader (KOReader, Moon+ Reader, Readest, Calibre…): recent books, titles, folders, authors and series, with search and pagination ([URLs](docs/opds.md)).
+- **Web panel** in English and Spanish: list or cover grid, drag-and-drop uploads, metadata and cover editing (with ISBN lookup), authors and series shelves, bulk move, delete and **mark as read / unread**, light and dark themes, works on phones.
+- **Read in the browser**: EPUB (text settings, two-page spread), PDF, comics (CBZ, CBR, CB7, CBT) and TXT.
+- **Devices page**: every device that syncs, whether it is connected right now, the books it is on and how far, and a live feed of reading activity.
+- **Android app** and **KOReader plugin**, downloadable from the panel.
+- EPUB, PDF, FB2, MOBI, AZW, CBZ, CBR, DJVU, RTF, TXT and more. Metadata and covers are read from the files, which are never modified.
+- Optional username and password (Basic auth for readers, a login form for the panel).
 
-📚 **Your library, organised**
-- EPUB, PDF, FB2, MOBI, AZW, CBZ, CBR, DJVU, RTF, TXT and more
-- Books in subfolders are found recursively (`Series/Volume 1.epub`)
-- Title, authors, series, description, language and subjects read from EPUB, FB2, PDF and ComicInfo.xml
-- Covers extracted from EPUB, FB2, PDF (first page), CBZ/ZIP, CBR, CB7 and CBT, served as small cached thumbnails in lists
-- New, changed and deleted files show up instantly, no rescan or restart needed
-- Only book formats are listed, so audiobooks or metadata files sharing the folder are ignored
+## Real-time sync
 
-📱 **OPDS 1.2 catalog**
-- Works with any OPDS reader (KOReader, Moon+ Reader, Readest, Calibre, etc.)
-- Browse by recently added, title, folder, author or series. Books of a series are listed in volume order
-- Search (OpenSearch) and pagination for large libraries
-- Resumable downloads (HTTP range requests)
+Your reading position follows you between the browser, the Android app and KOReader **in real time**. Each reader keeps a live connection to the server, so a page turned on the phone shows up on the Kobo or Kindle within seconds, and the other way round, without KOReader's Progress sync (kosync).
 
-📖 **Read in the browser**
-- EPUB reader with table of contents, a two-page spread on wide screens, and an **Aa** panel for text size, font, line spacing, margins and justification (kept for every book)
-- Page colours (light, sepia, dark) and a theme button that cycles System, Light and Dark
-- Reading position synced live between browsers, devices and KOReader, also after reading offline
-- KOReader plugin: live sync with conflict handling, the library with covers and downloads, and a home screen that can be KOReader's start screen
-- Select a sentence and set it as the last position, so every device opens the book exactly there (in KOReader too, with the included plugin)
-- PDF reader that fits the width or the whole page, with a "Page 3 of 20" counter; comic (CBZ, CBR, CB7, CBT, with right-to-left mode) and TXT readers
-- While a book is open, reading done on another device shows up at once with a button to jump there
+- Reading offline is fine: the position is kept and sent once back online, with the time it was read, so newer reading done elsewhere always wins.
+- When another device is further ahead, the reader goes there and says from where; when it is behind, or both read separately, it asks.
+- **Set as last position**: select a sentence on any device and the others open the book exactly there.
+- Books are matched by content, so a position follows a renamed or moved file. Finished books show 100 % everywhere.
 
-🔄 **Devices and sync page**
-- Every device that syncs (browsers, KOReader, the Android app) with its last activity, the books it is on and how far, and whether it is connected right now
-- Live feed of reading activity, and the addresses to set up OPDS apps, KOReader and the Android app
-- Download the KOReader plugin and the Android app from the panel. They come from the latest GitHub releases (`android-latest`, `koreader-latest`, or the `-beta` ones on beta servers), so they update without updating the server; a file copied to `DATA_DIR/apps/` (`opdshelf.apk`, `opdshelf.koplugin.zip`) takes their place
-- Reading progress in the library: **Reading** and **Finished** shelves, a **Continue reading** row, progress bars in the list and on the covers, and per-device positions in each book's panel. A book read to the end shows 100 %
-- **Mark as read / unread** from the book panel or for a whole selection. Marks live only in the panel (`DATA_DIR/marks.json`): positions in KOReader and the app are not touched. "Unread" hides the positions saved so far; reading again brings the book back
+Details, conflict handling and the API: [docs/sync.md](docs/sync.md).
 
-🌍 **English and Spanish**
-- The web panel follows the browser's language, and can be switched from the sidebar
-- Keyboard, touch swipe and mobile friendly
+### KOReader plugin
 
-🖥️ **Web admin panel**
-- Three-pane layout: sidebar with folders, formats, authors and series, book list or cover grid, and a details panel. Author and series in the book panel link to their shelf
-- Redesigned with design tokens, AA contrast, large touch targets and an adaptive layout for phones (two-row selection bar, full-width dialogs)
-- Quick filters for "Added this week" and "Missing details"
-- Drag-and-drop uploads of several books at once, into any folder
-- Rename, move and delete books
-- Edit title, authors, series, description, subjects and more, and change the cover, with author, series and language suggestions from the library. Book files are never modified
-- Fill in metadata and cover from an ISBN (Open Library, with Google Books as fallback)
-- Select several books to move or delete them at once
-- Search (press `/`), folder filter and sorting
-- Light and dark themes, works offline (no CDN)
+Download it from the panel (or the [`koreader-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/koreader-latest) release), unzip `opdshelf.koplugin` into KOReader's `plugins` folder and restart. In **Tools → OPDShelf → Server** enter the address, username and password. Besides live sync it brings:
 
-🔒 **Secure by default**
-- Optional username/password: Basic auth for readers, a login form for the panel
-- Signed sessions, CSRF protection and paths confined to the books folder
+- **Library**: the server's catalog with covers, search and downloads (in the background, so e-ink screens such as Kindle keep refreshing).
+- **Home screen**: works as KOReader's launcher, with the book to continue, the newest books on the server and the last ones read.
+
+### Android app
+
+Download it from the panel (or the [`android-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/android-latest) release). Browse and download the catalog, read offline with a [Readium](https://readium.org) reader (themes, bookmarks, search, volume keys), filter your books by reading state, and sync as above. Building and signing: [docs/android.md](docs/android.md).
 
 ---
 
 ## Installation
 
-The Docker image `koalilla/opds-server` is published for **linux/amd64** and **linux/arm64**, so it runs on a PC, a NAS or a Raspberry Pi.
-
-Two channels are published: `latest`, built from `main`, and `beta`, built from the `beta` branch, where new features are tried before they reach `main`. Use `koalilla/opds-server:beta` to run the beta; its panel offers the beta builds of the Android app and the KOReader plugin (see [Releases and channels](#releases-and-channels)).
-
-### Docker Compose (recommended)
+The Docker image `koalilla/opds-server` runs on **linux/amd64** and **linux/arm64** (PC, NAS, Raspberry Pi).
 
 ```yaml
 services:
@@ -119,52 +88,19 @@ services:
 docker compose up -d
 ```
 
-Open the admin panel at **http://localhost:3000/admin** and add **http://localhost:3000/** to your reader.
+Open the panel at **http://localhost:3000/admin** and add **http://localhost:3000/** to your reader as an OPDS catalog.
 
-The books folder must be writable: uploads, renames and deletes happen there, and edited metadata, custom covers and thumbnails are kept in `books/.opdshelf`. To keep the library read-only, mount it with `:ro` and point `DATA_DIR` to another volume (uploads and file changes from the panel will then fail):
+The books folder must be writable (edits, covers and thumbnails are kept in `books/.opdshelf`). To mount it read-only, add `:ro` and point `DATA_DIR` to another volume. On network shares (SMB/NFS), add `WATCH=false`. On CasaOS, paste the Compose file above in **App Store → Custom Install**.
 
-```yaml
-    volumes:
-      - /path/to/books:/app/books:ro
-      - ./data:/app/data
-    environment:
-      - DATA_DIR=/app/data
-```
-
-### Docker
+From source (needs [Rust](https://rustup.rs) and [Node.js](https://nodejs.org)):
 
 ```bash
-docker run -d --name opdshelf -p 3000:3000 \
-  -v /path/to/books:/app/books \
-  -e ADMIN_USERNAME=admin -e ADMIN_PASSWORD=change-me \
-  --restart unless-stopped koalilla/opds-server:latest
-```
-
-### CasaOS
-
-1. In the CasaOS dashboard, open **App Store → Custom Install** (the `+` button).
-2. Use the import button (top right) and paste the Docker Compose file above, or fill in the form by hand:
-   - **Docker Image**: `koalilla/opds-server:latest`
-   - **Port**: host `3000` → container `3000`
-   - **Volume**: your books folder, e.g. `/DATA/Media/Books` → `/app/books`
-   - **Environment variables**: `ADMIN_USERNAME` and `ADMIN_PASSWORD` (optional, see [Configuration](#configuration))
-3. Install, then open `http://<casaos-ip>:3000/admin`.
-
-If your books are on a network share (SMB/NFS) mounted in CasaOS, add `WATCH=false` so new files are picked up on each request.
-
-To update, pull the latest image (in CasaOS: the app's settings → **Update**, or `docker compose pull && docker compose up -d`).
-
-### From source
-
-Requires [Rust](https://rustup.rs) and [Node.js](https://nodejs.org) (only to build the CSS and icons).
-
-```bash
-npm ci && npm run build        # Tailwind CSS + Font Awesome into static/
-cargo build --release          # binary at target/release/opdshelf
+npm ci && npm run build
+cargo build --release
 BOOKS_DIR=~/Books ./target/release/opdshelf
 ```
 
-In release builds the templates and `static/` are embedded into the binary, so it can be copied anywhere on its own.
+Coming from 1.x? See [docs/upgrading.md](docs/upgrading.md).
 
 ---
 
@@ -199,165 +135,15 @@ PDF metadata and covers need `pdfinfo` and `pdftoppm` (poppler), and CBR/CB7/CBT
 
 ---
 
-## OPDS catalog
-
-| URL | Content |
-|-----|---------|
-| `/` | Catalog root: recently added, by title, folders, authors, series and search |
-| `/opds/books?sort=name-asc` | Every book. `sort` is `date-desc` (default), `date-asc`, `name-asc` or `name-desc` |
-| `/opds/folders/<path>` | Subfolders and books of a folder |
-| `/opds/authors` | Authors, each linking to their books |
-| `/opds/series` | Series, each linking to its books in volume order |
-| `/opds/search?q=<terms>` | Search by title, author, series, path or subject |
-
-Feeds are paginated with `?page=N`. The old `/?sort=...` URLs redirect to `/opds/books`.
-
-When authentication is enabled, readers log in with HTTP Basic auth using the same username and password.
-
-### Other endpoints
-
-| URL | Content |
-|-----|---------|
-| `/admin` | Web panel |
-| `/read/<path>` | Read a book in the browser |
-| `/download/<path>` | Download the original file |
-| `/healthz` | Health check (used by the Docker image) |
-
----
-
-## Reading progress sync
-
-The web reader saves where you are on the server, so a book opens at the same place in any browser. While offline it keeps reading from a local copy and sends the position when the connection is back. Positions are stored in `DATA_DIR/progress.json`.
-
-A page number means a different place on every screen size, so EPUB positions point to a place in the text instead. To pin the exact sentence you stopped at, select it in the EPUB reader and choose **Set as last position**; other devices open the book on that sentence and highlight it.
-
-Which position wins:
-- The most recent one, by when it was read (not when it reached the server), so a position saved offline earlier does not replace newer reading done elsewhere.
-- A device that sends again the position it already had (readers do this when they close or sleep) has not moved, so it does not undo reading done meanwhile on another device.
-- The last 30 positions of each book are kept.
-
-### KOReader
-
-Install the OPDShelf plugin from [`koreader/opdshelf.koplugin`](koreader/opdshelf.koplugin): copy the `opdshelf.koplugin` folder into KOReader's `plugins` folder (`.adds/koreader/plugins` on Kobo, `koreader/plugins` on Kindle and in Android's storage) and restart KOReader. Then in **Tools → OPDShelf → Server** enter the server address and OPDShelf's username and password. If Progress sync already pointed to `…/kosync`, the address and username are filled in.
-
-**Live sync.** The plugin syncs with its own protocol, not KOReader's Progress sync (which it offers to turn off):
-
-- The position is sent a few seconds after each page turn, when the book is closed and when the device goes to sleep. Without a connection it is kept and sent, with the time it was read, once back online.
-- While a book is open the plugin keeps a connection to the server (`/api/progress/events`), so reading done on the phone or in the browser reaches the Kobo at once, and the other way round.
-- Positions sent while offline carry the device's clock at sending time, so the server can correct e-readers whose clock is wrong before comparing them.
-
-**Conflicts.** When the server has a position from another device:
-
-| Situation | What happens |
-|-----------|--------------|
-| The other device is further ahead | KOReader goes there and says from where (**When another device is further ahead** can ask instead, or stay) |
-| The other device is behind | It asks before going back |
-| You are turning pages right now | It never moves the page under you: it asks |
-| Both devices read since they last synced (for example one offline) | It shows both positions and lets you choose; the one you keep becomes the latest everywhere |
-| A sentence was set as last position on another device | It offers to go there and highlights it |
-
-**Set as last position**: select some text and choose it in the selection menu. Other devices open the book on that sentence. **Go to where another device left it** lists the latest position of each device, to jump back to any of them.
-
-**Library.** **Tools → OPDShelf → Library** (also a gesture action) browses the server's catalog with covers, as a list or a grid, by recent books, folders, authors and series, with search. Tap a book for its cover, series, subjects and description, and to download it or download and read it; a long press downloads it straight away. Downloaded books are marked, with how far they were read. Books go to the download folder chosen in the menu. Downloads run in the background, so the screen keeps refreshing on e-ink devices such as Kindle and a tap on the message cancels them.
-
-**Home screen.** Once installed, OPDShelf works as KOReader's launcher: its home screen opens when KOReader starts and after closing a book, and the file browser's home button goes back to it. At the top there is a status bar with the time, date, Wi-Fi and battery. Below it you find the book to continue, with its cover, progress and, when another device read further, where that one is; then the newest books on the server; then the last books read on the device, with their progress. A tab bar at the bottom leads to Home, Library, Search, Files and Settings. Pull down to refresh. Without a connection it shows what it last saw from the server. Turn it off with **Tools → OPDShelf → Show the home screen at start**, or choose another screen in **File browser → Settings → Start with**. It can also be opened from **Tools → OPDShelf → Home** or with a gesture action.
-
-The plugin's texts follow KOReader's language; it includes Spanish.
-
-Books are matched by KOReader's partial MD5 of the file, so a position follows a book that is renamed or moved. KOReader's EPUB positions (xpointers) and the web reader's are translated in the browser, with the surrounding text saved alongside to find the place again if the two disagree.
-
-KOReader's own **Progress sync** also works without the plugin: set its custom server to `https://your-server/kosync` and log in with OPDShelf's username and password (keep **Document matching method** on **Binary**). It only syncs when opening and closing books, and sends the top of the page.
-
-### Android app
-
-[`android/`](android) is an app for reading the library on Android, also offline. Download it from the web panel's devices page, or from the [`android-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/android-latest) release.
-
-- **My books**: the books on the phone, with a **Continue reading** card, filters (All, Reading, Not started, Finished, with counts), search, sorting and a ⋮ menu on every book. Long press to select several and mark them finished or remove them.
-- **Explore**: browse and search the catalog by recent books, A–Z, authors, series and folders, as a grid or a list, and download books (EPUB, PDF, CBZ). Downloads can be cancelled. Without a connection a band says so and the downloaded books are still at hand.
-- **Book details** with cover, series, publisher, year, language and subjects; two panes on tablets.
-- **Reader** built on [Readium](https://readium.org): light, sepia and dark themes (the bars follow them), fonts, margins, justification, brightness, minutes left in the chapter, contents, bookmarks, search inside the book, previous/next chapter, volume keys to turn pages and the screen kept on while reading.
-- **Sync**: the position is saved on the phone and sent to the server when there is a connection, so it is shared with KOReader and the web reader. When a book was read further on another device, it opens there and says so. Select text and choose **Set as last position** to pin a sentence, as in KOReader. The last page of a book saves 100 %, so it counts as finished everywhere.
-- Mark a book as finished by hand, from the menu or its details.
-- Works with large fonts (up to 200 %), in landscape and on tablets, and follows the system theme or a chosen one.
-- EPUB positions are KOReader xpointers, worked out with the same script as the web reader.
-
-In the app's **Settings**, enter the server address (`192.168.1.10:3000` or `https://books.example.com`), OPDShelf's username and password, and a name for the device.
-
-To build it you need JDK 17 or newer and the Android SDK (platform 37):
-
-```sh
-cd android
-./gradlew assembleRelease   # app/build/outputs/apk/release/app-release.apk
-./gradlew testDebugUnitTest
-```
-
-Builds without a release key are signed with a test key kept in the repository (`android/app/opdshelf-test.keystore`), so a newer test APK installs over an older one. CI builds one on every pull request; download it from the run's artifacts. Since the test key is public, those APKs are for testing only.
-
-#### Publishing a release
-
-Pushing a tag like `android-v1.2.0` builds the APK, signs it with the private release key and publishes it in GitHub Releases as `opdshelf-1.2.0.apk`. The version code comes from the tag (1.2.0 → 10200), so each release installs over the previous one.
-
-Besides those versioned releases, every push to `main` or `beta` that touches the app publishes a build to the `android-latest` or `android-beta` release, which is what the web panel offers. Its version code comes from the commit date, so each build installs over the previous one, and it is signed with the release key when the repository has one (with the test key otherwise).
-
-The release key is set up once. Create it and keep a copy of the file and its password somewhere safe: without them, later versions can no longer update the installed app.
-
-```sh
-keytool -genkeypair -keystore opdshelf-release.keystore -alias opdshelf \
-  -keyalg RSA -keysize 4096 -validity 36500
-gh secret set ANDROID_KEYSTORE_BASE64 < <(base64 -w0 opdshelf-release.keystore)
-gh secret set ANDROID_KEYSTORE_PASSWORD   # the password chosen above
-gh secret set ANDROID_KEY_PASSWORD        # the same password, unless a different one was given for the key
-gh secret set ANDROID_KEY_ALIAS --body opdshelf
-```
-
-Then:
-
-```sh
-git tag android-v1.0.0 && git push origin android-v1.0.0
-```
-
-Without those secrets the release workflow stops instead of publishing an APK signed with the public test key.
-
-### Progress API
-
-| Method | URL | Content |
-|--------|-----|---------|
-| `GET` | `/api/progress/<document>` | `current` position and `history` of a book |
-| `PUT` | `/api/progress/<document>` | Save a position: `progress`, `percentage` (0–1), `device`, `device_id`, and optionally `cfi`, `context` (`before`, `after`, `selected`), `manual`, `timestamp` (Unix seconds, when it was read) and `sent_at` (the device's clock when sending, to correct a wrong clock). Answers the `current` position, whether yours was `accepted` (false when a newer one from another device won) and `server_time` |
-| `GET` | `/api/progress` | The `current` position of every book that has one, newest first, with the `path` and `title` of the book (`null` when the file is not in the library) |
-| `GET` | `/api/progress/events` | Server-sent events: `hello` (`server_time`), then `progress` (`document`, `current`) on every change of a book's current position, and `resync` if some were missed. `?documents=<id>,<id>` limits it to those books. Adding `&device_id=<id>&device=<name>` shows the device as connected in the web panel while the stream is open |
-| `GET` | `/api/devices` | Every device that saved a position or is listening: `device_id`, `device`, `last_seen`, `live`, `connections`, number of `books` and `positions`, and its `recent` books with their percentage |
-| `DELETE` | `/api/devices/<device_id>` | Forget a device: removes its positions. Needs the panel's `X-CSRF-Token` header |
-| `*` | `/kosync/...` | KOReader sync protocol (`users/auth`, `syncs/progress`) |
-
-`<document>` is KOReader's partial MD5 of the file. `progress` is an xpointer for reflowable books and the page number (from 1) for PDFs and comics.
-
----
-
 ## Releases and channels
-
-There are two channels, each built from its own branch:
 
 | | Stable (`main`) | Beta (`beta`) |
 |---|---|---|
 | Docker image | `koalilla/opds-server:latest` | `koalilla/opds-server:beta` |
-| Android app | [`android-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/android-latest) | [`android-beta`](https://github.com/DanielPereod/opdshelf/releases/tag/android-beta) (pre-release) |
-| KOReader plugin | [`koreader-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/koreader-latest) | [`koreader-beta`](https://github.com/DanielPereod/opdshelf/releases/tag/koreader-beta) (pre-release) |
+| Android app | [`android-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/android-latest) | [`android-beta`](https://github.com/DanielPereod/opdshelf/releases/tag/android-beta) |
+| KOReader plugin | [`koreader-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/koreader-latest) | [`koreader-beta`](https://github.com/DanielPereod/opdshelf/releases/tag/koreader-beta) |
 
-New features land in `beta` first and reach `main` once tried. Every push to a branch publishes its Docker image, and every push that touches the app or the plugin updates that channel's releases. The web panel offers the downloads of its own channel (`APPS_CHANNEL`), so the apps update without updating the server. Versioned Android releases (`android-v1.2.0`) are described in [Publishing a release](#publishing-a-release).
-
----
-
-## Upgrading from 1.x
-
-Version 2 is a rewrite in Rust of the original Bun server. The Docker image name, port (`3000`) and books volume (`/app/books`) are unchanged, so pulling the new image is usually enough. Things to know:
-
-- **The catalog root is now a navigation feed.** `/` lists "Recently added", "All books by title", folders, authors and search instead of every book. Readers that pinned `/` still work but show these entries first; point them to `/opds/books` for the old flat list. `/?sort=...` URLs redirect there.
-- **`BASE_URL` replaces `REVERSE_PROXY` / `REVERSE_PROXY_HOST`.** The old pair is still read and treated as `BASE_URL`, but new setups should use `BASE_URL`.
-- **Everyone has to log in again.** Session cookies are now signed, so cookies from 1.x are rejected.
-- **A `.opdshelf` folder appears inside the books folder** to hold edited metadata, custom covers and thumbnails. It is hidden from the library. Set `DATA_DIR` to store it elsewhere.
-- **Only book formats are listed.** Other files in the folder (audio, images, `.opf`, etc.) no longer show up. Adjust with `ALLOWED_EXTENSIONS` / `EXCLUDE_EXTENSIONS`.
-- Running from source now needs Rust instead of Bun (see [From source](#from-source)).
+New features land in `beta` first. Every push publishes that channel's image and app releases, and the panel offers the apps of its own channel, so they update without updating the server.
 
 ---
 
@@ -366,64 +152,12 @@ Version 2 is a rewrite in Rust of the original Bun server. The Docker image name
 ```bash
 npm ci && npm run build   # or: npm run watch:css
 cargo run                 # debug builds read views/ and static/ from disk
-cargo test                # unit and HTTP integration tests
-luajit koreader/test/plugin_test.lua koreader/opdshelf.koplugin   # KOReader plugin (needs lua-cjson)
-luajit koreader/test/library_test.lua koreader/opdshelf.koplugin
-luajit koreader/test/browser_test.lua koreader/opdshelf.koplugin
+cargo test
+luajit koreader/test/plugin_test.lua koreader/opdshelf.koplugin   # also library_test, browser_test
 cargo fmt && cargo clippy --all-targets
 ```
 
----
-
-## FAQ
-
-<details>
-<summary><strong>What is OPDS?</strong></summary>
-
-OPDS (Open Publication Distribution System) is a standard for sharing digital books via web feeds, supported by most e-reader apps.
-</details>
-
-<details>
-<summary><strong>How do I connect my e-reader?</strong></summary>
-
-Add your server's URL (shown at the bottom of the admin panel) as an OPDS catalog in your reader app. If you set a username and password, enter them in the reader too.
-</details>
-
-<details>
-<summary><strong>Books not showing up?</strong></summary>
-
-Check that the files are inside `BOOKS_DIR` (any depth), that their extension is in the allowed list and that neither the file nor a parent folder starts with a dot.
-</details>
-
-<details>
-<summary><strong>Does editing metadata change my files?</strong></summary>
-
-No. Edits and custom covers are saved in `DATA_DIR` and applied on top of what is read from the file, in the panel and in the OPDS feed. "Restore file metadata" on the edit page discards them.
-</details>
-
-<details>
-<summary><strong>I upgraded from 1.x and my reader shows folders instead of books</strong></summary>
-
-The root URL is now a navigation catalog. Open "Recently added" or "All books by title", or point the reader to `/opds/books`. See [Upgrading from 1.x](#upgrading-from-1x).
-</details>
-
-<details>
-<summary><strong>New books don't appear until I reload</strong></summary>
-
-The folder is watched for changes. Some network shares (SMB, NFS, some FUSE mounts) don't report them; set `WATCH=false` and the library is rescanned on each request instead.
-</details>
-
-<details>
-<summary><strong>ISBN lookup doesn't find anything</strong></summary>
-
-It queries Open Library first and Google Books second, so the server needs outbound internet access. Some editions are simply missing from both.
-</details>
-
----
-
-## Contributing
-
-Pull requests welcome! Open an issue first for feature discussions. CI runs `cargo fmt --check`, `cargo clippy` and `cargo test`.
+Pull requests welcome! Open an issue first for feature discussions.
 
 ## License
 

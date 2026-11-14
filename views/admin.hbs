@@ -36,15 +36,21 @@
         <div id="seriesShelves"></div>
       </details>
 
-      {{#if folderTree}}
-      <h2>{{t "Folders"}}</h2>
+      <div class="nav-head">
+        <h2>{{t "Folders"}}</h2>
+        <button type="button" class="icon-btn" data-new-folder title="{{t "New folder"}}" aria-label="{{t "New folder"}}"><i
+            class="fas fa-plus"></i></button>
+      </div>
       {{#each folderTree}}
       <button type="button" class="nav-item" data-shelf="folder" data-value="{{path}}" style="--depth: {{depth}}"
         {{#if (eq path ../folder)}}data-initial{{/if}}>
         <i class="far fa-folder"></i><span class="label" title="{{path}}">{{name}}</span><span class="count">{{count}}</span>
       </button>
+      {{else}}
+      <button type="button" class="nav-item nav-add" data-new-folder>
+        <i class="fas fa-folder-plus"></i><span class="label">{{t "New folder"}}</span>
+      </button>
       {{/each}}
-      {{/if}}
 
       {{#if formatCounts}}
       <h2>{{t "Formats"}}</h2>
@@ -141,15 +147,9 @@
     <form class="bulk" id="bulkForm" action="/admin/bulk" method="post" hidden>
       <input type="hidden" name="csrf" value="{{csrf}}">
       <strong id="bulkCount"></strong>
-      <div class="bulk-move">
-        <input class="input" name="folder" id="bulkFolder" list="folderList" placeholder="{{t "Folder…"}}"
-          aria-label="{{t "Destination folder"}}">
-        <button type="submit" class="btn" name="action" value="move" title="{{t "Move"}}"><i class="far fa-folder-open"></i><span class="lbl">{{t "Move"}}</span></button>
-      </div>
+      <button type="button" class="btn" id="bulkMove" title="{{t "Move to folder"}}" aria-label="{{t "Move to folder"}}"><i class="far fa-folder-open"></i><span class="lbl">{{t "Move to folder"}}</span></button>
       <button type="button" class="btn" data-bulk-mark="read" title="{{t "Mark as read"}}"><i class="far fa-circle-check"></i><span class="lbl">{{t "Mark as read"}}</span><span class="short">{{t "Read (done)"}}</span></button>
       <button type="button" class="btn" data-bulk-mark="unread" title="{{t "Mark as unread"}}"><i class="far fa-circle"></i><span class="lbl">{{t "Mark as unread"}}</span><span class="short">{{t "Unread"}}</span></button>
-      <button type="button" class="btn bulk-move-toggle" id="bulkMoveToggle" aria-expanded="false" title="{{t "Move"}}"
-        aria-label="{{t "Move"}}"><i class="far fa-folder-open"></i></button>
       <button type="button" class="btn btn-danger" id="bulkDelete" title="{{t "Delete"}}"><i class="far fa-trash-can"></i><span class="lbl">{{t "Delete"}}</span></button>
       <button type="button" class="icon-btn" id="bulkClear" title="{{t "Clear selection"}}"
         aria-label="{{t "Clear selection"}}"><i class="fas fa-xmark"></i></button>
@@ -215,6 +215,10 @@
         <strong id="noMatchesTitle">{{t "No books match"}}</strong>
         <span id="noMatchesText">{{t "Try another word or shelf."}}</span>
         <p><button type="button" class="btn" id="clearSearch"><i class="fas fa-xmark"></i>{{t "Clear search"}}</button></p>
+        <p class="folder-empty-actions" id="folderEmptyActions" hidden>
+          <button type="button" class="btn btn-primary" data-upload><i class="fas fa-arrow-up-from-bracket"></i>{{t "Upload books here"}}</button>
+          <button type="button" class="btn" id="deleteFolderBtn"><i class="far fa-trash-can"></i>{{t "Delete folder"}}</button>
+        </p>
       </div>
       {{else}}
       <div class="empty">
@@ -277,6 +281,60 @@
     <p class="error-text" id="uploadError" role="alert" hidden></p>
     <div class="dialog-actions">
       <button type="button" class="btn" data-close-dialog id="uploadCancel">{{t "Cancel"}}</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="folderDialog">
+  <form class="dialog-body" action="/admin/folder" method="post">
+    <input type="hidden" name="csrf" value="{{csrf}}">
+    <input type="hidden" name="action" value="create">
+    <h2>{{t "New folder"}}</h2>
+    <label class="field" for="folderName"><span>{{t "Name"}}</span>
+      <input type="text" name="name" id="folderName" class="input" required autocomplete="off"></label>
+    {{#if folderTree}}
+    <label class="field" for="folderParent"><span>{{t "Inside"}}</span>
+      <select name="path" id="folderParent" class="input">
+        <option value="">{{t "The library root"}}</option>
+        {{#each folderTree}}<option value="{{path}}">{{path}}</option>{{/each}}
+      </select></label>
+    {{/if}}
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close-dialog>{{t "Cancel"}}</button>
+      <button type="submit" class="btn btn-primary">{{t "Create"}}</button>
+    </div>
+  </form>
+</dialog>
+
+<form action="/admin/folder" method="post" id="deleteFolderForm" hidden>
+  <input type="hidden" name="csrf" value="{{csrf}}">
+  <input type="hidden" name="action" value="delete">
+  <input type="hidden" name="path" id="deleteFolderPath">
+</form>
+
+<dialog id="moveDialog">
+  <form class="dialog-body" action="/admin/bulk" method="post" id="moveForm">
+    <input type="hidden" name="csrf" value="{{csrf}}">
+    <input type="hidden" name="action" value="move">
+    <div id="movePaths" hidden></div>
+    <h2>{{t "Move to folder"}}</h2>
+    <p id="moveText"></p>
+    <div class="folder-pick">
+      <button type="submit" class="folder-option" name="folder" value=""><i class="fas fa-house"></i><span
+          class="label">{{t "The library root"}}</span></button>
+      {{#each folderTree}}
+      <button type="submit" class="folder-option" name="folder" value="{{path}}" style="--depth: {{depth}}"><i
+          class="far fa-folder"></i><span class="label" title="{{path}}">{{name}}</span><span class="count">{{count}}</span></button>
+      {{/each}}
+    </div>
+    <label class="field" for="moveNew"><span>{{t "Or a new folder"}}</span>
+      <div class="lookup-row">
+        <input type="text" id="moveNew" class="input" autocomplete="off" placeholder="{{t "Folder name"}}">
+        <button type="submit" class="btn btn-primary" name="folder" id="moveNewBtn" disabled>{{t "Create and move"}}</button>
+      </div>
+    </label>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close-dialog>{{t "Cancel"}}</button>
     </div>
   </form>
 </dialog>
@@ -522,6 +580,17 @@
         $('clearSearch').hidden = !query;
         document.querySelector('.cols').hidden = shown === 0;
         $('noMatchesText').textContent = text;
+        // An empty folder says how to fill it, and can be deleted
+        const emptyFolder = !query && state.shelf === 'folder' && shown === 0;
+        $('folderEmptyActions').hidden = !emptyFolder;
+        $('noMatches').querySelector('i').className = emptyFolder ? 'far fa-folder-open' : 'fas fa-magnifying-glass';
+        if (emptyFolder) {
+          $('noMatchesTitle').textContent = t('This folder is empty');
+          $('noMatchesText').textContent = t('Upload books here, or select books and use Move to folder. On a computer you can also drag them onto the folder.');
+          const hasSubfolders = Array.from(document.querySelectorAll('.nav-item[data-shelf="folder"]'))
+            .some((b) => b.dataset.value.startsWith(state.value + '/'));
+          $('deleteFolderBtn').hidden = hasSubfolders;
+        }
       }
       const sortSelect = $('sortSelect');
       if (sortSelect) {
@@ -798,12 +867,7 @@
     }, true);
     $('bulkClear').addEventListener('click', () => setSelecting(false));
     $('bulkDelete').addEventListener('click', () => $('bulkDeleteDialog').showModal());
-    // On phones the move field opens from a button, to keep the bar to two rows
-    $('bulkMoveToggle').addEventListener('click', () => {
-      const open = $('bulkForm').classList.toggle('moving');
-      $('bulkMoveToggle').setAttribute('aria-expanded', open);
-      if (open) $('bulkFolder').focus();
-    });
+    $('bulkMove').addEventListener('click', () => openMove(picked().map((r) => r.dataset.path)));
     document.querySelectorAll('[data-bulk-mark]').forEach((b) => b.addEventListener('click', async () => {
       await markBooks(picked().map((r) => r.dataset.path), b.dataset.bulkMark);
       setSelecting(false);
@@ -1007,6 +1071,9 @@
       }
       const rename = e.target.closest('[data-rename]');
       if (rename) { openRename(rename.dataset); return; }
+      const move = e.target.closest('[data-move]');
+      if (move) { openMove([move.dataset.move], move.dataset.folder); return; }
+      if (e.target.closest('[data-new-folder]')) { openNewFolder(); return; }
       if (e.target.closest('[data-upload]')) { openUpload(); return; }
       if (e.target.closest('[data-close-dialog]')) e.target.closest('dialog').close();
       if (e.target.closest('[data-dismiss]')) e.target.closest('.notice').remove();
@@ -1147,6 +1214,94 @@
       $('renameFolder').value = data.folder;
       $('renameDialog').showModal();
       $('renameName').select();
+    }
+
+    // ------------------------------------------------------------ folders
+    const currentFolder = () => (state.shelf === 'folder' ? state.value : '');
+    function openNewFolder() {
+      $('folderName').value = '';
+      // The sidebar's + makes a top-level folder; another one can be picked below
+      if ($('folderParent')) $('folderParent').value = '';
+      closeMenu();
+      $('folderDialog').showModal();
+      $('folderName').focus();
+    }
+    // One click on a folder moves the books there; a new name creates the folder
+    function openMove(paths, from) {
+      if (!paths.length) return;
+      $('movePaths').replaceChildren(...paths.map((p) => Object.assign(document.createElement('input'),
+        { type: 'hidden', name: 'path', value: p })));
+      const row = paths.length === 1 && rows.find((r) => r.dataset.path === paths[0]);
+      $('moveText').textContent = row ? row.dataset.title : t('{n} books selected', { n: paths.length });
+      document.querySelectorAll('#moveDialog .folder-option').forEach((b) => {
+        const here = from !== undefined && b.value === from;
+        b.disabled = here;
+        b.title = here ? t('It is already here') : '';
+      });
+      $('moveNew').value = '';
+      $('moveNewBtn').disabled = true;
+      $('moveDialog').showModal();
+    }
+    function moveBooks(paths, folder) {
+      const form = $('moveForm');
+      $('movePaths').replaceChildren(...paths.map((p) => Object.assign(document.createElement('input'),
+        { type: 'hidden', name: 'path', value: p })));
+      const target = Object.assign(document.createElement('input'), { type: 'hidden', name: 'folder', value: folder });
+      form.append(target);
+      form.submit();
+    }
+    $('moveNew').addEventListener('input', () => {
+      $('moveNewBtn').value = $('moveNew').value.trim();
+      $('moveNewBtn').disabled = !$('moveNewBtn').value;
+    });
+    // Enter would submit the first folder of the list
+    $('moveNew').addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      if (!$('moveNewBtn').disabled) $('moveNewBtn').click();
+    });
+    $('deleteFolderBtn').addEventListener('click', async () => {
+      const folder = currentFolder();
+      const ok = await confirmAction(t('Delete the folder {name}?', { name: folder }),
+        t('It is empty, so no book is lost.'), t('Delete'));
+      if (!ok) return;
+      $('deleteFolderPath').value = folder;
+      $('deleteFolderForm').submit();
+    });
+
+    // Drag books onto a folder of the sidebar to move them there
+    let dragged = null;
+    const folderItems = Array.from(document.querySelectorAll('.nav-item[data-shelf="folder"]'));
+    if (list && folderItems.length && matchMedia('(hover: hover)').matches) {
+      rows.forEach((r) => { r.draggable = true; });
+      list.addEventListener('dragstart', (e) => {
+        const row = e.target.closest('.book');
+        if (!row) return;
+        const chosen = picked();
+        dragged = (chosen.includes(row) ? chosen : [row]).map((r) => r.dataset.path);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', dragged.join('\n'));
+        document.body.classList.add('dragging-books');
+      });
+      list.addEventListener('dragend', () => {
+        dragged = null;
+        document.body.classList.remove('dragging-books');
+        folderItems.forEach((f) => f.classList.remove('drop-into'));
+      });
+      folderItems.forEach((item) => {
+        item.addEventListener('dragover', (e) => {
+          if (!dragged) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          item.classList.add('drop-into');
+        });
+        item.addEventListener('dragleave', () => item.classList.remove('drop-into'));
+        item.addEventListener('drop', (e) => {
+          if (!dragged) return;
+          e.preventDefault();
+          moveBooks(dragged, item.dataset.value);
+        });
+      });
     }
 
     // ------------------------------------------------------------ upload, with progress

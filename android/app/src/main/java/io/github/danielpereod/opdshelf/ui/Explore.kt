@@ -45,6 +45,7 @@ import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -130,6 +131,9 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
         )
     }
     val focus = LocalFocusManager.current
+    val pickBooks = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
+    ) { library.prepareUpload(it) }
     // Search and sections slide away while scrolling down and come back on the way up,
     // so short screens (phones on their side) keep room for the books
     var filtersShown by remember { mutableStateOf(true) }
@@ -158,6 +162,9 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
                     }
                 }
                 if (hasBooks) ViewSwitch(grid) { grid = it }
+                IconButton(onClick = { pickBooks.launch(bookMimeTypes) }) {
+                    Icon(Icons.Outlined.UploadFile, stringResource(R.string.add_books), tint = shelf.fg)
+                }
             },
         )
         androidx.compose.animation.AnimatedVisibility(filtersShown || query.isNotEmpty()) {

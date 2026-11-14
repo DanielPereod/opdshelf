@@ -72,6 +72,25 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent { AppTheme { Main(library, ::openBook) } }
+        if (savedInstanceState == null) receiveShared(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        receiveShared(intent)
+    }
+
+    /** Books shared from another app (Files, a browser's downloads, mail) go to the upload sheet. */
+    private fun receiveShared(intent: Intent?) {
+        val uris = when (intent?.action) {
+            Intent.ACTION_SEND -> listOfNotNull(
+                androidx.core.content.IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, android.net.Uri::class.java),
+            )
+            Intent.ACTION_SEND_MULTIPLE -> androidx.core.content.IntentCompat
+                .getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, android.net.Uri::class.java).orEmpty()
+            else -> emptyList()
+        }
+        library.prepareUpload(uris)
     }
 
     private fun openBook(book: LocalBook) {
@@ -136,6 +155,8 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
         }
     }
     LaunchedEffect(Unit) { library.openRoot() }
+    val upload by library.upload.collectAsState()
+    upload?.let { UploadDialog(it, library) }
 
     // Predictive back on details: the page shrinks and slides with the finger before it closes
     var backProgress by remember { mutableStateOf(0f) }

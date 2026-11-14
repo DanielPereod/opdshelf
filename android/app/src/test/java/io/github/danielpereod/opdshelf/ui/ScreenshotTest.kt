@@ -432,4 +432,55 @@ class ScreenshotTest {
             shot(name)
         }
     }
+
+    /** Like [shot], with dialogs drawn over the screen: they live in windows of their own. */
+    private fun shotWithDialogs(name: String) {
+        repeat(6) {
+            compose.waitForIdle()
+            Thread.sleep(250)
+            org.robolectric.shadows.ShadowLooper.idleMainLooper(500, java.util.concurrent.TimeUnit.MILLISECONDS)
+        }
+        dir!!.mkdirs()
+        val global = Class.forName("android.view.WindowManagerGlobal")
+        val instance = global.getMethod("getInstance").invoke(null)
+        @Suppress("UNCHECKED_CAST")
+        val views = (global.getDeclaredField("mViews").apply { isAccessible = true }.get(instance) as List<android.view.View>).toList()
+        val main = compose.activity.window.decorView
+        val bitmap = Bitmap.createBitmap(main.width, main.height, Bitmap.Config.ARGB_8888)
+        compose.runOnUiThread {
+            val canvas = android.graphics.Canvas(bitmap)
+            main.draw(canvas)
+            views.filter { it !== main && it.width > 0 }.forEach { v ->
+                canvas.drawColor(0x66000000)
+                canvas.save()
+                canvas.translate((main.width - v.width) / 2f, (main.height - v.height) / 2f)
+                v.draw(canvas)
+                canvas.restore()
+            }
+        }
+        File(dir, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
+    /** Adding books from this device: the sheet, choosing a folder, and the upload itself. */
+    @Test
+    fun upload() {
+        configure()
+        val library = show()
+        waitFor("Explorar")
+        val cache = compose.activity.cacheDir
+        val book = File(cache, "La Regenta.epub")
+        File(System.getenv("UPLOAD_BOOK") ?: error("UPLOAD_BOOK")).copyTo(book, overwrite = true)
+        val song = File(cache, "cancion.mp3").apply { writeText("x") }
+        compose.runOnUiThread { library.prepareUpload(listOf(android.net.Uri.fromFile(book), android.net.Uri.fromFile(song))) }
+        waitFor("al servidor")
+        shotWithDialogs("subir-01-hoja")
+        // The folder picker itself never goes idle under Robolectric, so the folder is set directly
+        compose.waitUntil(15_000) { library.folders.value != null }
+        compose.runOnUiThread { library.setUploadFolder("Clásicos") }
+        waitFor("Clásicos")
+        shotWithDialogs("subir-02-carpeta-elegida")
+        click("Subir")
+        waitFor("añadido a Clásicos")
+        shot("subir-04-hecho")
+    }
 }

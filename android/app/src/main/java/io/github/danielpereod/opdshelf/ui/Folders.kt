@@ -52,13 +52,14 @@ fun FolderPickerDialog(
     current: String?,
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
+    heading: String = stringResource(R.string.move_to_folder),
 ) {
     var name by rememberSaveable { mutableStateOf("") }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Column {
-                Text(stringResource(R.string.move_to_folder), color = shelf.fg)
+                Text(heading, color = shelf.fg)
                 Text(title, color = shelf.muted, fontSize = TextSize.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         },

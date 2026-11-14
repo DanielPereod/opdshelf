@@ -99,6 +99,7 @@ pub fn router(config: Config) -> Router {
         .route("/apps/opdshelf.koplugin.zip", get(apps::koreader_plugin))
         .route("/apps/opdshelf.apk", get(apps::android_app))
         .route("/admin/upload", post(upload).layer(DefaultBodyLimit::max(upload_limit)))
+        .route("/api/upload/{*path}", axum::routing::put(api_upload))
         .route("/admin/delete", post(delete))
         .route("/admin/rename", post(rename))
         .route("/admin/bulk", post(bulk))
@@ -441,6 +442,88 @@ fn unique_destination(dir: &std::path::Path, name: &str) -> PathBuf {
         .expect("some name is free")
 }
 
+/// Saves an uploaded book in `folder` (already sanitized) under a free name, answering where it went.
+async fn save_book(
+    state: &AppState,
+    folder: &str,
+    name: &str,
+    body: impl futures_util::Stream<Item = std::io::Result<axum::body::Bytes>>,
+) -> std::io::Result<String> {
+    use futures_util::StreamExt;
+    let dir = state.library.root().join(folder);
+    tokio::fs::create_dir_all(&dir).await?;
+    // Write to a hidden temp file first so half uploaded books never show up
+    let tmp = dir.join(format!(".upload-{:016x}", rand::random::<u64>()));
+    let result = async {
+        let mut file = tokio::fs::File::create(&tmp).await?;
+        let mut body = std::pin::pin!(body);
+        while let Some(chunk) = body.next().await {
+            file.write_all(&chunk?).await?;
+        }
+        file.flush().await?;
+        let dest = unique_destination(&dir, name);
+        tokio::fs::rename(&tmp, &dest).await?;
+        Ok::<_, std::io::Error>(dest)
+    }
+    .await;
+    match result {
+        Ok(dest) => {
+            state.library.invalidate();
+            tracing::info!("uploaded {}", dest.display());
+            let file = dest.file_name().and_then(|n| n.to_str()).unwrap_or(name);
+            Ok(if folder.is_empty() {
+                file.to_string()
+            } else {
+                format!("{folder}/{file}")
+            })
+        }
+        Err(err) => {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            Err(err)
+        }
+    }
+}
+
+/// Upload for apps: `PUT /api/upload/{folder/name.epub}` with the file as the body.
+/// No CSRF token is needed: a PUT from another site needs a CORS preflight this server never allows.
+/// Never overwrites; answers the path the book was saved under.
+async fn api_upload(State(state): State<AppState>, Path(path): Path<String>, body: Body) -> Response {
+    let Some(rel) = paths::sanitize(&path) else {
+        return (StatusCode::BAD_REQUEST, axum::Json(json!({"error": "Invalid path"}))).into_response();
+    };
+    let folder = paths::parent(&rel).to_string();
+    let name = paths::file_name(&rel).to_string();
+    if !state.library.is_allowed(&name) {
+        return (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            axum::Json(json!({"error": format!("Not a supported format: {name}")})),
+        )
+            .into_response();
+    }
+    // Raw bodies skip DefaultBodyLimit, so the limit is counted here
+    let limit = state.config.max_upload_bytes;
+    let mut received = 0usize;
+    let stream = futures_util::StreamExt::map(body.into_data_stream(), move |chunk| {
+        let chunk = chunk.map_err(std::io::Error::other)?;
+        received += chunk.len();
+        if received > limit {
+            return Err(std::io::Error::other("The file is larger than the upload limit"));
+        }
+        Ok(chunk)
+    });
+    match save_book(&state, &folder, &name, stream).await {
+        Ok(saved) => (StatusCode::CREATED, axum::Json(json!({"path": saved}))).into_response(),
+        Err(err) => {
+            tracing::warn!("upload of {rel} failed: {err}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(json!({"error": err.to_string()})),
+            )
+                .into_response()
+        }
+    }
+}
+
 async fn upload(State(state): State<AppState>, mut multipart: Multipart) -> Response {
     let mut csrf_ok = false;
     let mut folder = String::new();
@@ -478,33 +561,16 @@ async fn upload(State(state): State<AppState>, mut multipart: Multipart) -> Resp
                     rejected.push(name);
                     continue;
                 }
-                let dir = state.library.root().join(&folder);
-                if let Err(err) = tokio::fs::create_dir_all(&dir).await {
-                    return admin_redirect(&folder, None, Some(&format!("Cannot create folder: {err}")));
-                }
-                // Write to a hidden temp file first so half uploaded books never show up
-                let tmp = dir.join(format!(".upload-{:016x}", rand::random::<u64>()));
-                let result = async {
-                    let mut file = tokio::fs::File::create(&tmp).await?;
-                    while let Some(chunk) = field.chunk().await.map_err(std::io::Error::other)? {
-                        file.write_all(&chunk).await?;
-                    }
-                    file.flush().await?;
-                    let dest = unique_destination(&dir, &name);
-                    tokio::fs::rename(&tmp, &dest).await?;
-                    Ok::<_, std::io::Error>(dest)
-                }
-                .await;
-                match result {
-                    Ok(dest) => {
-                        state.library.invalidate();
-                        tracing::info!("uploaded {}", dest.display());
-                        saved.push(name);
-                    }
-                    Err(err) => {
-                        let _ = tokio::fs::remove_file(&tmp).await;
-                        return admin_redirect(&folder, None, Some(&format!("Upload of {name} failed: {err}")));
-                    }
+                match save_book(
+                    &state,
+                    &folder,
+                    &name,
+                    futures_util::StreamExt::map(&mut field, |c| c.map_err(std::io::Error::other)),
+                )
+                .await
+                {
+                    Ok(_) => saved.push(name),
+                    Err(err) => return admin_redirect(&folder, None, Some(&format!("Upload of {name} failed: {err}"))),
                 }
             }
             _ => {}

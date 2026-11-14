@@ -71,8 +71,11 @@
   </dl>
   <div class="rule"></div>
   <div class="link-row">
+    <button type="button" class="btn" data-move="{{book.path}}" data-folder="{{book.folder}}">
+      <i class="far fa-folder-open"></i>{{t "Move to folder"}}
+    </button>
     <button type="button" class="btn" data-rename="{{book.path}}" data-name="{{book.fileName}}" data-folder="{{book.folder}}">
-      <i class="fas fa-i-cursor"></i>{{t "Rename or move"}}
+      <i class="fas fa-i-cursor"></i>{{t "Rename"}}
     </button>
     <a class="btn" href="/admin/edit/{{urlPath book.path}}" data-panel><i class="fas fa-pen"></i>{{t "Edit details"}}</a>
   </div>

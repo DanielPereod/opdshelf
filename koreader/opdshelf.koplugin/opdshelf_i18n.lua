@@ -117,6 +117,7 @@ local es = {
     ["Loading…"] = "Cargando…",
     ["Name of this device on other devices"] = "Nombre de este dispositivo en los demás",
     ["No device has synced this book yet."] = "Ningún dispositivo ha sincronizado aún este libro.",
+    ["%1 books in your library · Today: %2 min"] = "%1 libros en tu biblioteca · Hoy: %2 min",
     ["Not connected: set up the server in the menu"] = "Sin conectar: configura el servidor en el menú",
     ["Nothing here."] = "No hay nada aquí.",
     ["Nothing read yet"] = "Aún no has leído nada",

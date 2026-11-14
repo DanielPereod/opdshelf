@@ -121,6 +121,11 @@ function Client:getProgress(document)
     return self:json_request("GET", "/api/progress/" .. document)
 end
 
+--- Today's reading time on every device, from the server's statistics.
+function Client:getToday()
+    return self:json_request("GET", "/api/stats/today")
+end
+
 function Client:putProgress(document, record)
     return self:json_request("PUT", "/api/progress/" .. document, record)
 end

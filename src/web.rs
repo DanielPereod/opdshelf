@@ -4,7 +4,7 @@ use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
-use axum::{Form, Router};
+use axum::{Form, Json, Router};
 use handlebars::Handlebars;
 use serde::Deserialize;
 use serde_json::json;
@@ -101,9 +101,13 @@ pub fn router(config: Config) -> Router {
         .route("/apps/versions.json", get(apps::versions))
         .route("/apps/connect.svg", get(apps::connect_qr))
         .route("/admin/upload", post(upload).layer(DefaultBodyLimit::max(upload_limit)))
+        .route("/api/upload/{*path}", axum::routing::put(api_upload))
         .route("/admin/delete", post(delete))
         .route("/admin/rename", post(rename))
         .route("/admin/bulk", post(bulk))
+        .route("/admin/folder", post(folder_action))
+        .route("/api/folders", get(api_folders).post(api_create_folder))
+        .route("/api/books/move", post(api_move_books))
         .route("/admin/edit/{*path}", get(edit::edit_page))
         .route(
             "/admin/edit",
@@ -116,6 +120,9 @@ pub fn router(config: Config) -> Router {
         .route("/api/progress", get(sync::list_progress))
         .route("/api/progress/events", get(sync::events))
         .route("/api/devices", get(sync::devices))
+        .route("/api/stats", get(crate::stats::summary))
+        .route("/api/stats/today", get(crate::stats::today))
+        .route("/admin/stats", get(admin_stats))
         .route("/api/annotations", get(sync::list_annotations))
         .route(
             "/api/annotations/{document}",
@@ -421,6 +428,12 @@ async fn admin_sync(State(state): State<AppState>, headers: HeaderMap, Query(que
     page(&state, &headers, "admin", "Sync - OPDShelf", data)
 }
 
+async fn admin_stats(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<AdminQuery>) -> Response {
+    let mut data = library_data(&state, &query).await;
+    data["statsView"] = json!(true);
+    page(&state, &headers, "admin", "Statistics - OPDShelf", data)
+}
+
 fn unique_destination(dir: &std::path::Path, name: &str) -> PathBuf {
     let candidate = dir.join(name);
     if !candidate.exists() {
@@ -438,6 +451,88 @@ fn unique_destination(dir: &std::path::Path, name: &str) -> PathBuf {
         })
         .find(|p| !p.exists())
         .expect("some name is free")
+}
+
+/// Saves an uploaded book in `folder` (already sanitized) under a free name, answering where it went.
+async fn save_book(
+    state: &AppState,
+    folder: &str,
+    name: &str,
+    body: impl futures_util::Stream<Item = std::io::Result<axum::body::Bytes>>,
+) -> std::io::Result<String> {
+    use futures_util::StreamExt;
+    let dir = state.library.root().join(folder);
+    tokio::fs::create_dir_all(&dir).await?;
+    // Write to a hidden temp file first so half uploaded books never show up
+    let tmp = dir.join(format!(".upload-{:016x}", rand::random::<u64>()));
+    let result = async {
+        let mut file = tokio::fs::File::create(&tmp).await?;
+        let mut body = std::pin::pin!(body);
+        while let Some(chunk) = body.next().await {
+            file.write_all(&chunk?).await?;
+        }
+        file.flush().await?;
+        let dest = unique_destination(&dir, name);
+        tokio::fs::rename(&tmp, &dest).await?;
+        Ok::<_, std::io::Error>(dest)
+    }
+    .await;
+    match result {
+        Ok(dest) => {
+            state.library.invalidate();
+            tracing::info!("uploaded {}", dest.display());
+            let file = dest.file_name().and_then(|n| n.to_str()).unwrap_or(name);
+            Ok(if folder.is_empty() {
+                file.to_string()
+            } else {
+                format!("{folder}/{file}")
+            })
+        }
+        Err(err) => {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            Err(err)
+        }
+    }
+}
+
+/// Upload for apps: `PUT /api/upload/{folder/name.epub}` with the file as the body.
+/// No CSRF token is needed: a PUT from another site needs a CORS preflight this server never allows.
+/// Never overwrites; answers the path the book was saved under.
+async fn api_upload(State(state): State<AppState>, Path(path): Path<String>, body: Body) -> Response {
+    let Some(rel) = paths::sanitize(&path) else {
+        return (StatusCode::BAD_REQUEST, axum::Json(json!({"error": "Invalid path"}))).into_response();
+    };
+    let folder = paths::parent(&rel).to_string();
+    let name = paths::file_name(&rel).to_string();
+    if !state.library.is_allowed(&name) {
+        return (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            axum::Json(json!({"error": format!("Not a supported format: {name}")})),
+        )
+            .into_response();
+    }
+    // Raw bodies skip DefaultBodyLimit, so the limit is counted here
+    let limit = state.config.max_upload_bytes;
+    let mut received = 0usize;
+    let stream = futures_util::StreamExt::map(body.into_data_stream(), move |chunk| {
+        let chunk = chunk.map_err(std::io::Error::other)?;
+        received += chunk.len();
+        if received > limit {
+            return Err(std::io::Error::other("The file is larger than the upload limit"));
+        }
+        Ok(chunk)
+    });
+    match save_book(&state, &folder, &name, stream).await {
+        Ok(saved) => (StatusCode::CREATED, axum::Json(json!({"path": saved}))).into_response(),
+        Err(err) => {
+            tracing::warn!("upload of {rel} failed: {err}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(json!({"error": err.to_string()})),
+            )
+                .into_response()
+        }
+    }
 }
 
 async fn upload(State(state): State<AppState>, mut multipart: Multipart) -> Response {
@@ -477,33 +572,16 @@ async fn upload(State(state): State<AppState>, mut multipart: Multipart) -> Resp
                     rejected.push(name);
                     continue;
                 }
-                let dir = state.library.root().join(&folder);
-                if let Err(err) = tokio::fs::create_dir_all(&dir).await {
-                    return admin_redirect(&folder, None, Some(&format!("Cannot create folder: {err}")));
-                }
-                // Write to a hidden temp file first so half uploaded books never show up
-                let tmp = dir.join(format!(".upload-{:016x}", rand::random::<u64>()));
-                let result = async {
-                    let mut file = tokio::fs::File::create(&tmp).await?;
-                    while let Some(chunk) = field.chunk().await.map_err(std::io::Error::other)? {
-                        file.write_all(&chunk).await?;
-                    }
-                    file.flush().await?;
-                    let dest = unique_destination(&dir, &name);
-                    tokio::fs::rename(&tmp, &dest).await?;
-                    Ok::<_, std::io::Error>(dest)
-                }
-                .await;
-                match result {
-                    Ok(dest) => {
-                        state.library.invalidate();
-                        tracing::info!("uploaded {}", dest.display());
-                        saved.push(name);
-                    }
-                    Err(err) => {
-                        let _ = tokio::fs::remove_file(&tmp).await;
-                        return admin_redirect(&folder, None, Some(&format!("Upload of {name} failed: {err}")));
-                    }
+                match save_book(
+                    &state,
+                    &folder,
+                    &name,
+                    futures_util::StreamExt::map(&mut field, |c| c.map_err(std::io::Error::other)),
+                )
+                .await
+                {
+                    Ok(_) => saved.push(name),
+                    Err(err) => return admin_redirect(&folder, None, Some(&format!("Upload of {name} failed: {err}"))),
                 }
             }
             _ => {}
@@ -646,35 +724,25 @@ async fn bulk(State(state): State<AppState>, body: axum::body::Bytes) -> Respons
         }
     };
 
-    let mut done = 0;
-    let mut failed = Vec::new();
-    for path in &selected {
-        let Some((rel, file)) = state.library.book_path(path) else {
-            failed.push(format!("{path}: not found"));
-            continue;
-        };
-        let result = match action.as_str() {
-            "delete" => delete_book(&state, &rel, &file).await.map_err(|e| e.to_string()),
-            "move" => {
-                let name = paths::file_name(&rel);
-                let new_rel = if folder.is_empty() {
-                    name.to_string()
-                } else {
-                    format!("{folder}/{name}")
+    let (done, failed) = match action.as_str() {
+        "move" => move_books(&state, &selected, &folder).await,
+        "delete" => {
+            let mut done = 0;
+            let mut failed = Vec::new();
+            for path in &selected {
+                let Some((rel, file)) = state.library.book_path(path) else {
+                    failed.push(format!("{path}: not found"));
+                    continue;
                 };
-                if new_rel == rel {
-                    Ok(())
-                } else {
-                    move_book(&state, &rel, &file, &new_rel).await
+                match delete_book(&state, &rel, &file).await {
+                    Ok(()) => done += 1,
+                    Err(err) => failed.push(format!("{}: {err}", paths::file_name(&rel))),
                 }
             }
-            _ => return (StatusCode::BAD_REQUEST, "Unknown action").into_response(),
-        };
-        match result {
-            Ok(()) => done += 1,
-            Err(err) => failed.push(format!("{}: {err}", paths::file_name(&rel))),
+            (done, failed)
         }
-    }
+        _ => return (StatusCode::BAD_REQUEST, "Unknown action").into_response(),
+    };
     let notice = (done > 0).then(|| match action.as_str() {
         "delete" => format!("Deleted {done} book(s)"),
         _ => format!(
@@ -685,6 +753,155 @@ async fn bulk(State(state): State<AppState>, body: axum::body::Bytes) -> Respons
     let error = (!failed.is_empty()).then(|| failed.join("; "));
     let back = if action == "move" { folder.as_str() } else { "" };
     admin_redirect(back, notice.as_deref(), error.as_deref())
+}
+
+/// Creates `name` inside the folder `parent` (`""` for the root) and answers its path.
+/// A folder that already exists is fine.
+async fn create_folder(state: &AppState, parent: &str, name: &str) -> Result<String, String> {
+    let Some((parent, _)) = state.library.folder_path(parent) else {
+        return Err("Folder not found".into());
+    };
+    let Some(name) = paths::sanitize_name(name.trim()) else {
+        return Err("Invalid folder name".into());
+    };
+    let rel = if parent.is_empty() {
+        name
+    } else {
+        format!("{parent}/{name}")
+    };
+    let dir = state.library.root().join(&rel);
+    if dir.is_dir() {
+        return Ok(rel);
+    }
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|err| format!("Cannot create folder: {err}"))?;
+    state.library.invalidate();
+    tracing::info!("created folder {rel}");
+    Ok(rel)
+}
+
+/// Moves books into `folder` (`""` for the root). Answers how many moved and what failed.
+async fn move_books(state: &AppState, selected: &[String], folder: &str) -> (usize, Vec<String>) {
+    let mut done = 0;
+    let mut failed = Vec::new();
+    for path in selected {
+        let Some((rel, file)) = state.library.book_path(path) else {
+            failed.push(format!("{path}: not found"));
+            continue;
+        };
+        let name = paths::file_name(&rel);
+        let new_rel = if folder.is_empty() {
+            name.to_string()
+        } else {
+            format!("{folder}/{name}")
+        };
+        if new_rel == rel {
+            done += 1;
+            continue;
+        }
+        match move_book(state, &rel, &file, &new_rel).await {
+            Ok(()) => done += 1,
+            Err(err) => failed.push(format!("{name}: {err}")),
+        }
+    }
+    (done, failed)
+}
+
+// ---------------------------------------------------------------------------
+// Folders for the apps
+
+/// Every folder of the library, with how many books it holds (its subfolders included).
+async fn api_folders(State(state): State<AppState>) -> Response {
+    let snapshot = state.library.snapshot().await;
+    let folders: Vec<_> = snapshot
+        .folders
+        .iter()
+        .map(|f| json!({ "path": f, "name": paths::file_name(f), "count": snapshot.count_under(f) }))
+        .collect();
+    Json(json!({ "folders": folders })).into_response()
+}
+
+#[derive(Deserialize)]
+struct NewFolder {
+    #[serde(default)]
+    parent: String,
+    name: String,
+}
+
+async fn api_create_folder(State(state): State<AppState>, Json(request): Json<NewFolder>) -> Response {
+    match create_folder(&state, &request.parent, &request.name).await {
+        Ok(path) => (StatusCode::CREATED, Json(json!({ "path": path }))).into_response(),
+        Err(err) => (StatusCode::BAD_REQUEST, Json(json!({ "error": err }))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct MoveRequest {
+    paths: Vec<String>,
+    /// `""` for the root.
+    #[serde(default)]
+    folder: String,
+}
+
+/// Moves books into a folder, creating it if needed. Answers each book's new path.
+async fn api_move_books(State(state): State<AppState>, Json(request): Json<MoveRequest>) -> Response {
+    let folder = match request.folder.trim() {
+        "" => String::new(),
+        f => match paths::sanitize(f) {
+            Some(f) => f,
+            None => return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Invalid folder name" }))).into_response(),
+        },
+    };
+    let (moved, failed) = move_books(&state, &request.paths, &folder).await;
+    let status = if moved == 0 && !failed.is_empty() {
+        StatusCode::BAD_REQUEST
+    } else {
+        StatusCode::OK
+    };
+    (
+        status,
+        Json(json!({ "moved": moved, "folder": folder, "failed": failed })),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+struct FolderForm {
+    csrf: String,
+    action: String,
+    /// The folder to delete, or the one to create the new folder in (`""` for the root).
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    name: String,
+}
+
+/// Creates a folder, or deletes one that has nothing in it.
+async fn folder_action(State(state): State<AppState>, Form(form): Form<FolderForm>) -> Response {
+    if !state.auth.check_csrf(&form.csrf) {
+        return (StatusCode::FORBIDDEN, "Invalid CSRF token").into_response();
+    }
+    match form.action.as_str() {
+        "create" => match create_folder(&state, &form.path, &form.name).await {
+            Ok(rel) => admin_redirect(&rel, Some(&format!("Created folder {rel}")), None),
+            Err(err) => admin_redirect(paths::sanitize(&form.path).as_deref().unwrap_or(""), None, Some(&err)),
+        },
+        "delete" => {
+            let Some((rel, dir)) = state.library.folder_path(&form.path).filter(|(rel, _)| !rel.is_empty()) else {
+                return admin_redirect("", None, Some("Folder not found"));
+            };
+            // remove_dir refuses folders with anything in them, so no book is ever lost here
+            if let Err(err) = tokio::fs::remove_dir(&dir).await {
+                tracing::warn!("cannot delete folder {rel}: {err}");
+                return admin_redirect(&rel, None, Some("Only empty folders can be deleted"));
+            }
+            state.library.invalidate();
+            tracing::info!("deleted folder {rel}");
+            admin_redirect(paths::parent(&rel), Some(&format!("Deleted folder {rel}")), None)
+        }
+        _ => (StatusCode::BAD_REQUEST, "Unknown action").into_response(),
+    }
 }
 
 // ---------------------------------------------------------------------------

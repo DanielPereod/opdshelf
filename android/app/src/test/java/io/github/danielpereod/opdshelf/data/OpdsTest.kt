@@ -44,4 +44,25 @@ class OpdsTest {
         assertEquals("https://books.example/download/My%20Book.epub", entry.acquisition!!.url)
         assertEquals("https://books.example/thumb/My%20Book.epub", entry.thumbnailUrl)
     }
+
+    @Test
+    fun knowsWhereABookIsInTheLibrary() {
+        val entry = Entry(
+            id = "urn:opdshelf:book:Novela%20negra/El%20a%C3%B1o.epub", title = "El año", authors = emptyList(), summary = null,
+            feedUrl = null,
+            acquisition = Acquisition("http://h:3000/download/Novela%20negra/El%20a%C3%B1o.epub", "application/epub+zip", null, null),
+            thumbnailUrl = "http://h:3000/thumb/Novela%20negra/El%20a%C3%B1o.epub?v=1",
+            coverUrl = "http://h:3000/cover/Novela%20negra/El%20a%C3%B1o.epub?v=1",
+        )
+        assertEquals("Novela negra/El año.epub", entry.serverPath)
+        assertEquals("Novela%20negra/El%20a%C3%B1o.epub", encodeLibraryPath("Novela negra/El año.epub"))
+        assertEquals("a-b_c.~d", encodeLibraryPath("a-b_c.~d"))
+
+        val moved = entry.movedTo("Novela negra/El año.epub", "Sport/El año.epub")
+        assertEquals("urn:opdshelf:book:Sport/El%20a%C3%B1o.epub", moved.id)
+        assertEquals("http://h:3000/download/Sport/El%20a%C3%B1o.epub", moved.acquisition!!.url)
+        assertEquals("http://h:3000/cover/Sport/El%20a%C3%B1o.epub?v=1", moved.coverUrl)
+        assertEquals("Sport/El año.epub", moved.serverPath)
+        assertNull(entry.copy(acquisition = null).serverPath)
+    }
 }

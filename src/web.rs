@@ -114,6 +114,9 @@ pub fn router(config: Config) -> Router {
         .route("/api/progress", get(sync::list_progress))
         .route("/api/progress/events", get(sync::events))
         .route("/api/devices", get(sync::devices))
+        .route("/api/stats", get(crate::stats::summary))
+        .route("/api/stats/today", get(crate::stats::today))
+        .route("/admin/stats", get(admin_stats))
         .route("/api/annotations", get(sync::list_annotations))
         .route(
             "/api/annotations/{document}",
@@ -417,6 +420,12 @@ async fn admin_sync(State(state): State<AppState>, headers: HeaderMap, Query(que
     let mut data = library_data(&state, &query).await;
     data["syncView"] = json!(true);
     page(&state, &headers, "admin", "Sync - OPDShelf", data)
+}
+
+async fn admin_stats(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<AdminQuery>) -> Response {
+    let mut data = library_data(&state, &query).await;
+    data["statsView"] = json!(true);
+    page(&state, &headers, "admin", "Statistics - OPDShelf", data)
 }
 
 fn unique_destination(dir: &std::path::Path, name: &str) -> PathBuf {

@@ -226,7 +226,7 @@ pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQue
 // Summaries for the web panel
 
 /// What the panel needs to know about a book from its document id.
-async fn books_by_document(state: &AppState) -> HashMap<String, (String, String)> {
+pub(crate) async fn books_by_document(state: &AppState) -> HashMap<String, (String, String)> {
     let index = state.documents.index(&state.library).await;
     let snapshot = state.library.snapshot().await;
     let titles: HashMap<&str, &str> = snapshot

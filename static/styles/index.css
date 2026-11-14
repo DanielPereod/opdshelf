@@ -2526,6 +2526,91 @@ a.nav-item {
   align-items: start;
 }
 
+/* Statistics page */
+.chart {
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  height: 180px;
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--pane);
+}
+
+.chart-bar {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.chart-bar span {
+  display: block;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--fg);
+}
+
+.chart-bar span.zero {
+  background: var(--line-strong);
+}
+
+.chart-bar small {
+  font-size: 10px;
+  line-height: 1;
+  color: var(--muted);
+  text-align: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.chart-months {
+  gap: var(--sp-2);
+}
+
+@media (max-width: 700px) {
+  /* Every other day's number, so they fit */
+  #stDays .chart-bar small {
+    overflow: visible;
+  }
+
+  #stDays .chart-bar:nth-last-child(even) small {
+    visibility: hidden;
+  }
+}
+
+.top-books {
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-1) 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--pane);
+}
+
+.top-books li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+}
+
+.top-books li span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.top-books li small {
+  flex: none;
+  color: var(--muted);
+}
+
 .activity {
   list-style: none;
   margin: 0;

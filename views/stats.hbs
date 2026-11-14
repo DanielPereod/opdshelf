@@ -1,0 +1,126 @@
+<main class="main sync-page" id="statsView" tabindex="-1" {{#unless statsView}}hidden{{/unless}}>
+  <header class="toolbar">
+    <button type="button" class="icon-btn menu-btn" data-menu title="{{t "Shelves"}}" aria-label="{{t "Shelves"}}"><i
+        class="fas fa-bars"></i></button>
+    <h1>{{t "Statistics"}}</h1>
+    <span class="spacer"></span>
+    <button type="button" class="icon-btn" id="statsRefresh" title="{{t "Refresh"}}" aria-label="{{t "Refresh"}}"><i
+        class="fas fa-arrows-rotate"></i></button>
+  </header>
+
+  <div class="sync-scroll">
+    <div class="sync-wrap">
+      <div class="stats">
+        <div class="stat"><span>{{t "Today"}}</span><strong id="stToday">—</strong><small id="stTodaySessions">—</small></div>
+        <div class="stat"><span>{{t "Streak"}}</span><strong id="stStreak">—</strong><small id="stLongest">—</small></div>
+        <div class="stat"><span>{{t "Last 30 days"}}</span><strong id="stMonth">—</strong><small id="stAverage">—</small></div>
+        <div class="stat"><span>{{t "Finished this year"}}</span><strong id="stFinished">—</strong><small id="stTotal">—</small></div>
+      </div>
+
+      <section class="panel-section" aria-labelledby="stDaysTitle">
+        <div class="section-head">
+          <h2 id="stDaysTitle">{{t "Time read per day"}}</h2>
+          <small class="muted">{{t "Worked out from the positions your devices sync"}}</small>
+        </div>
+        <div class="chart" id="stDays" role="list"></div>
+      </section>
+
+      <div class="sync-columns">
+        <section class="panel-section" aria-labelledby="stMonthsTitle">
+          <div class="section-head"><h2 id="stMonthsTitle">{{t "Books finished per month"}}</h2></div>
+          <div class="chart chart-months" id="stMonths" role="list"></div>
+        </section>
+        <section class="panel-section" aria-labelledby="stTopTitle">
+          <div class="section-head"><h2 id="stTopTitle">{{t "Most read in the last 30 days"}}</h2></div>
+          <ol class="top-books" id="stTop"></ol>
+        </section>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  (function () {
+    const $ = (id) => document.getElementById(id);
+    const lang = document.documentElement.lang || 'en';
+
+    function duration(seconds) {
+      const minutes = Math.round(seconds / 60);
+      if (minutes < 60) return t('{n} min', { n: minutes });
+      const hours = Math.floor(minutes / 60);
+      return t('{h} h {m} min', { h: hours, m: minutes % 60 });
+    }
+    const days = (n) => (n === 1 ? t('1 day') : t('{n} days', { n }));
+    const local = (date) => new Date(date + 'T12:00:00');
+
+    function bars(el, items, value, label, tick) {
+      el.textContent = '';
+      const max = Math.max(1, ...items.map(value));
+      for (const item of items) {
+        const bar = document.createElement('div');
+        bar.className = 'chart-bar';
+        bar.setAttribute('role', 'listitem');
+        bar.title = label(item);
+        bar.setAttribute('aria-label', bar.title);
+        const fill = document.createElement('span');
+        fill.style.height = (value(item) / max) * 100 + '%';
+        if (!value(item)) fill.className = 'zero';
+        const caption = document.createElement('small');
+        caption.textContent = tick(item);
+        bar.append(fill, caption);
+        el.append(bar);
+      }
+    }
+
+    async function load() {
+      let data;
+      try {
+        const response = await fetch('/api/stats', { headers: { Accept: 'application/json' } });
+        data = await response.json();
+      } catch {
+        $('stDays').textContent = t('Cannot load the statistics.');
+        return;
+      }
+      const month = data.days.reduce((sum, d) => sum + d.seconds, 0);
+      const readDays = data.days.filter((d) => d.seconds >= 60).length;
+      $('stToday').textContent = duration(data.today.seconds);
+      $('stTodaySessions').textContent = data.today.sessions === 1 ? t('1 session') : t('{n} sessions', { n: data.today.sessions });
+      $('stStreak').textContent = days(data.streak.current);
+      $('stLongest').textContent = t('Longest: {days}', { days: days(data.streak.longest) });
+      $('stMonth').textContent = duration(month);
+      $('stAverage').textContent = t('{time} a day on {days} read', { time: duration(readDays ? month / readDays : 0), days: days(readDays) });
+      const year = String(new Date().getFullYear());
+      $('stFinished').textContent = data.finished.filter((m) => m.month.startsWith(year)).reduce((s, m) => s + m.count, 0);
+      $('stTotal').textContent = t('{time} read in all', { time: duration(data.total_seconds) });
+
+      const dayName = (d) => local(d.date).toLocaleDateString(lang, { weekday: 'short', day: 'numeric', month: 'short' });
+      bars($('stDays'), data.days, (d) => d.seconds, (d) => dayName(d) + ': ' + duration(d.seconds),
+        (d) => String(local(d.date).getDate()));
+      const monthName = (m) => local(m.month + '-15').toLocaleDateString(lang, { month: 'short' });
+      bars($('stMonths'), data.finished, (m) => m.count,
+        (m) => monthName(m) + ': ' + m.count + (m.books.length ? ' · ' + m.books.map((b) => b.title || t('A book that is not in the library')).join(', ') : ''),
+        monthName);
+
+      $('stTop').textContent = '';
+      if (!data.top_books.length) {
+        const li = document.createElement('li');
+        li.className = 'muted';
+        li.textContent = t('Nothing read in the last 30 days.');
+        $('stTop').append(li);
+      }
+      for (const book of data.top_books) {
+        const li = document.createElement('li');
+        const name = document.createElement('span');
+        name.textContent = book.title || t('A book that is not in the library');
+        if (!book.title) name.className = 'muted';
+        const time = document.createElement('small');
+        time.textContent = duration(book.seconds);
+        li.append(name, time);
+        $('stTop').append(li);
+      }
+    }
+
+    document.addEventListener('pagechange', (e) => { if (e.detail.page === 'stats') load(); });
+    $('statsRefresh').addEventListener('click', load);
+  })();
+</script>

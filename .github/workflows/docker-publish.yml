@@ -5,6 +5,12 @@ on:
     branches: [main, beta]
   workflow_dispatch:
 
+# One build per branch: a newer push cancels the build still running, so an
+# older build that finishes last can never overwrite the image
+concurrency:
+  group: docker-publish-${{ github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest

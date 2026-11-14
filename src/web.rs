@@ -79,6 +79,8 @@ pub fn router(config: Config) -> Router {
     Router::new()
         .route("/", get(opds::root))
         .route("/opds/books", get(opds::books))
+        .route("/opds/reading", get(opds::reading))
+        .route("/opds/random", get(opds::random))
         .route("/opds/folders", get(opds::folders_root))
         .route("/opds/folders/{*path}", get(opds::folder))
         .route("/opds/authors", get(opds::authors))

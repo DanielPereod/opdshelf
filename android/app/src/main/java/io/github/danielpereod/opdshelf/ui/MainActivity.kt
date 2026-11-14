@@ -30,6 +30,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.FormatQuote
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -79,7 +80,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-enum class Tab { Home, Explore, Settings }
+enum class Tab { Home, Explore, Highlights, Settings }
 
 private enum class Setup { Welcome, Connect }
 
@@ -154,6 +155,7 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
     val tabs = listOf(
         Triple(Tab.Home, Icons.AutoMirrored.Outlined.LibraryBooks, R.string.tab_home),
         Triple(Tab.Explore, Icons.Outlined.Explore, R.string.tab_explore),
+        Triple(Tab.Highlights, Icons.Outlined.FormatQuote, R.string.tab_highlights),
         Triple(Tab.Settings, Icons.Outlined.Settings, R.string.tab_settings),
     )
     val select: (Tab) -> Unit = {
@@ -256,6 +258,7 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
                     modifier = modifier,
                 )
                 Tab.Explore -> ExploreScreen(library, openBook, modifier)
+                Tab.Highlights -> HighlightsScreen(library, modifier)
                 Tab.Settings -> SettingsScreen(
                     library,
                     onSaved = { library.openRoot() },

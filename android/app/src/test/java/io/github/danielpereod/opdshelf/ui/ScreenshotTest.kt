@@ -180,6 +180,18 @@ class ScreenshotTest {
         shot("07-ajustes$suffix")
     }
 
+    /** Every highlight of the library and the daily review; the server needs some highlights. */
+    @Test
+    fun highlights() {
+        configure()
+        show()
+        click("Subrayados")
+        waitFor("Unos pocos subrayados")
+        shot("08-subrayados")
+        compose.onNode(androidx.compose.ui.test.hasScrollToIndexAction()).performScrollToNode(hasText("TODOS LOS SUBRAYADOS"))
+        shot("08b-subrayados-todos")
+    }
+
     @Test
     fun app() = screens("")
 

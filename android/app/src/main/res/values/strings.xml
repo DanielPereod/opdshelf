@@ -261,4 +261,14 @@
     <string name="color_gray">Gray</string>
     <string name="highlight_color">Colour</string>
     <plurals name="highlights_count"><item quantity="one">%1$d highlight · %2$d with a note</item><item quantity="other">%1$d highlights · %2$d with a note</item></plurals>
+    <string name="tab_highlights">Highlights</string>
+    <string name="daily_review">Daily review</string>
+    <string name="daily_review_text">A few highlights to read again, different every day.</string>
+    <string name="library_highlights">All highlights</string>
+    <string name="cannot_load_highlights">Cannot load the highlights: %1$s</string>
+    <string name="refresh">Refresh</string>
+    <string name="show_more">Show more</string>
+    <string name="unknown_book">Unknown book</string>
+    <string name="only_this_book">Show only this book</string>
+    <string name="share_highlight">Share highlight</string>
 </resources>

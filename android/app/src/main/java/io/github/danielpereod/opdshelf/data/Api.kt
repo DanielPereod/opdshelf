@@ -119,6 +119,19 @@ class Api(private val settings: Settings) {
         }
     }
 
+    /** Every highlight of the library, newest first. */
+    suspend fun allHighlights(): List<LibraryHighlight> = getHighlights("/api/highlights")
+
+    /** The day's review: a few highlights, the same all day on every device. [day] is YYYY-MM-DD. */
+    suspend fun dailyReview(day: String): List<LibraryHighlight> = getHighlights("/api/highlights/review?date=$day")
+
+    private suspend fun getHighlights(path: String): List<LibraryHighlight> = withContext(Dispatchers.IO) {
+        client.newCall(Request.Builder().url(url(path)).build()).execute().use {
+            if (!it.isSuccessful) throw HttpError(it.code, "${it.code} ${it.message}")
+            json.decodeFromString(HighlightsResponse.serializer(), it.body!!.string()).highlights
+        }
+    }
+
     /** Checks the address and login. */
     suspend fun check() {
         feed(url("/"))

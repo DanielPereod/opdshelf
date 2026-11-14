@@ -1,5 +1,6 @@
 /*
- * OPDShelf web panel. Black, white and greys only: the covers are the only colour.
+ * OPDShelf web panel. Black, white and greys: the covers are the colour. The only
+ * others are red for actions that delete and green for what is connected now.
  * Plain CSS; `npm run build:css` minifies it into app.css.
  */
 
@@ -17,6 +18,8 @@
   /* The one colour of the panel, for actions that delete */
   --danger: #b42318;
   --on-danger: #ffffff;
+  /* Connected now: the live feed, a device syncing. 4.5:1 or more on --pane and --bg */
+  --ok: #067647;
   --soft: #f1f1f1;
   --inverse: #ffffff;
   --shadow: 0 16px 40px rgb(0 0 0 / 0.12);
@@ -70,6 +73,7 @@
   --line-input: #6b6b6b;
   --danger: #f97066;
   --on-danger: #1a0505;
+  --ok: #47cd89;
   --fg: #ececec;
   --muted: #9a9a9a;
   --soft: #222222;
@@ -454,32 +458,9 @@ input[type="checkbox"] {
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-2);
-  padding: var(--sp-3);
-  border-top: 1px solid var(--line);
-}
-
-.opds-box {
-  font-size: var(--fs-xs);
-}
-
-.opds-box p {
-  margin: 0 0 var(--sp-1);
-  color: var(--muted);
-}
-
-.opds-box .row {
-  display: flex;
-  align-items: center;
   gap: var(--sp-1);
-}
-
-.opds-box code {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding: var(--sp-2);
+  border-top: 1px solid var(--line);
 }
 
 .side-actions {
@@ -761,21 +742,6 @@ input[type="checkbox"] {
 
 .folder-empty-actions[hidden] {
   display: none;
-}
-
-.drop-hint {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-4);
-  flex: none;
-  border-top: 1px dashed var(--line-strong);
-  color: var(--muted);
-  font-size: var(--fs-sm);
-}
-
-.drop-hint strong {
-  color: var(--fg);
 }
 
 /* ------------------------------------------------------------- book listing */
@@ -2022,13 +1988,6 @@ dialog::backdrop {
   margin-left: auto;
 }
 
-.lang-btn {
-  font-family: var(--mono);
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
 a.nav-item {
   color: inherit;
 }
@@ -2044,9 +2003,9 @@ a.nav-item {
 
 .live-dot[data-on="true"],
 [data-live-state="on"] .live-dot {
-  background: var(--fg);
-  border-color: var(--fg);
-  box-shadow: 0 0 0 0 var(--fg);
+  background: var(--ok);
+  border-color: var(--ok);
+  box-shadow: 0 0 0 0 var(--ok);
   animation: pulse 2.4s ease-out infinite;
 }
 
@@ -2059,9 +2018,9 @@ a.nav-item {
 }
 
 @keyframes pulse {
-  0% { box-shadow: 0 0 0 0 rgb(127 127 127 / 0.6); }
-  70% { box-shadow: 0 0 0 6px rgb(127 127 127 / 0); }
-  100% { box-shadow: 0 0 0 0 rgb(127 127 127 / 0); }
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent); }
+  70% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--ok) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 0%, transparent); }
 }
 
 [data-live-state="on"] .off,
@@ -2083,7 +2042,12 @@ a.nav-item {
 }
 
 .live-pill[data-live-state="on"] {
-  color: var(--fg);
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line-strong));
+  color: var(--ok);
+}
+
+.live-text[data-live-state="on"] {
+  color: var(--ok);
 }
 
 /* Reading progress in the list and on the covers */
@@ -2537,18 +2501,19 @@ a.nav-item {
 }
 
 .device[data-status="live"] .status-dot {
-  background: var(--fg);
-  border-color: var(--fg);
+  background: var(--ok);
+  border-color: var(--ok);
   animation: pulse 2.4s ease-out infinite;
 }
 
 .device[data-status="active"] .status-dot {
-  background: var(--muted);
+  background: var(--ok);
+  border-color: var(--ok);
 }
 
 .device[data-status="live"] .device-name small,
 .device[data-status="active"] .device-name small {
-  color: var(--fg);
+  color: var(--ok);
   font-weight: 600;
 }
 
@@ -2771,20 +2736,19 @@ a.nav-item {
   to { background: transparent; }
 }
 
-.connect {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--pane);
+/* Apps and connections: a card for each way to read the library */
+.connect-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: var(--sp-3);
 }
 
 .connect-item {
-  padding: var(--sp-3) var(--sp-4);
-}
-
-.connect-item + .connect-item {
-  border-top: 1px solid var(--line);
+  min-width: 0;
+  padding: var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--pane);
 }
 
 .connect-item h3 {
@@ -2860,9 +2824,45 @@ a.nav-item {
 }
 
 .connect-note {
-  margin: 0;
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-xs);
+}
+
+.connect-item > :last-child {
+  margin-bottom: 0;
+}
+
+/* Devices: the way to the apps, in one line */
+.connect-link {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
-  border-top: 1px solid var(--line);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--pane);
+  font-size: var(--fs-sm);
+}
+
+.connect-link:hover {
+  background: var(--hover);
+  border-style: solid;
+}
+
+.connect-link > i {
+  color: var(--muted);
+}
+
+.connect-link > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connect-link > :last-child {
+  margin-left: auto;
   font-size: var(--fs-xs);
 }
 
@@ -3844,10 +3844,6 @@ a.nav-item {
     padding: 3px var(--sp-2);
   }
 
-  .drop-hint {
-    display: none;
-  }
-
   .toc {
     position: absolute;
     top: 48px;
@@ -3982,11 +3978,7 @@ a.nav-item {
   }
 }
 
-/* Maintenance page */
-.maint-page {
-  height: 100%;
-}
-
+/* Maintenance tab of the settings */
 .maint-group {
   display: flex;
   flex-direction: column;
@@ -4010,13 +4002,38 @@ a.nav-item {
 }
 
 .maint-group-head > :last-child,
-.maint-book > form,
 .maint-row > form {
   margin-left: auto;
 }
 
 .maint-book .thumb {
   width: 40px;
+  flex: none;
+}
+
+.maint-book-text {
+  flex: 1;
+}
+
+.maint-title {
+  font-weight: 600;
+  font-size: var(--fs-base);
+  text-decoration: underline dotted;
+  text-decoration-color: var(--muted);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.maint-title:hover {
+  text-decoration: underline solid;
+}
+
+.maint-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-left: auto;
+  flex: none;
 }
 
 .maint-book-text {
@@ -4037,5 +4054,206 @@ a.nav-item {
 @media (max-width: 520px) {
   .maint-book {
     flex-wrap: wrap;
+  }
+
+  .maint-book-text {
+    flex-basis: calc(100% - 52px);
+  }
+
+  .maint-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+/* An action that deletes, outlined so it does not take over the page */
+.btn-danger-outline {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line-strong));
+  color: var(--danger);
+}
+
+.btn-danger-outline:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--pane));
+}
+
+/* A count next to a section's title */
+.section-count {
+  margin-left: var(--sp-1);
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.section-text {
+  margin: calc(-1 * var(--sp-1)) 0 var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+/* The settings: tabs, each a link, over cards of rows */
+.settings-wrap {
+  max-width: 960px;
+}
+
+.settings-tabs {
+  flex: none;
+  gap: var(--sp-1);
+  min-width: 0;
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.settings-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.settings-tabs .tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: none;
+  white-space: nowrap;
+}
+
+.settings-tabs .tab i {
+  font-size: var(--fs-sm);
+}
+
+.settings-tabs .tab:hover {
+  color: var(--fg);
+}
+
+.settings-tabs .tab:focus-visible {
+  outline-offset: -2px;
+}
+
+#maintBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+#maintBody .maint-group:last-child {
+  margin-bottom: 0;
+}
+
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--pane);
+}
+
+.settings-card > * + * {
+  border-top: 1px solid var(--line);
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.setting-row > form,
+.setting-row > .segmented {
+  margin-left: auto;
+  flex: none;
+}
+
+.setting-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.setting-text .muted {
+  font-size: var(--fs-sm);
+}
+
+.setting-text code {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  padding: 0 3px;
+  border-radius: var(--r-sm);
+  background: var(--soft);
+  color: var(--fg);
+}
+
+.segmented.seg-text .icon-btn {
+  display: inline-flex;
+  gap: var(--sp-2);
+  width: auto;
+  padding: 0 var(--sp-3);
+  font-weight: 600;
+  font-size: var(--fs-sm);
+}
+
+.segmented.seg-text .icon-btn[aria-pressed="true"] {
+  background: var(--soft);
+  color: var(--fg);
+}
+
+.about-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+}
+
+.about-head img {
+  filter: grayscale(1);
+}
+
+.about-head strong {
+  font-size: var(--fs-md);
+}
+
+.settings-card > .kv {
+  padding: var(--sp-4);
+}
+
+.kv-wide {
+  grid-template-columns: minmax(120px, 200px) minmax(0, 1fr);
+}
+
+.about-links {
+  padding: var(--sp-3) var(--sp-4);
+}
+
+@media (max-width: 600px) {
+  .setting-row {
+    flex-wrap: wrap;
+    gap: var(--sp-3);
+  }
+
+  .setting-row > .segmented {
+    margin-left: 0;
+  }
+
+  .setting-row > .device-icon + .setting-text {
+    flex: 1;
+  }
+
+  .kv-wide {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .kv-wide dd + dt {
+    margin-top: var(--sp-2);
+  }
+
+  .connect-link > span {
+    display: none;
   }
 }

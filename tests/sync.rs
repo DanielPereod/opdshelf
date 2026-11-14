@@ -499,7 +499,7 @@ async fn the_panel_speaks_the_browsers_language() {
         async move {
             let response = app
                 .oneshot(
-                    Request::get("/admin/sync")
+                    Request::get("/admin/settings/apps")
                         .header(header::AUTHORIZATION, basic())
                         .header(header::ACCEPT_LANGUAGE, lang)
                         .body(Body::empty())
@@ -559,9 +559,9 @@ async fn reading_apps_download_from_the_panel() {
         headers[header::LOCATION],
         format!("{releases}/android-latest/opdshelf.apk").as_str()
     );
-    let sync = String::from_utf8(get(&app, "/admin/sync").await.2.to_vec()).unwrap();
-    assert!(sync.contains(r#"href="/apps/opdshelf.koplugin.zip""#) && sync.contains(r#"href="/apps/opdshelf.apk""#));
-    assert!(!sync.contains("beta channel"));
+    let apps = String::from_utf8(get(&app, "/admin/settings/apps").await.2.to_vec()).unwrap();
+    assert!(apps.contains(r#"href="/apps/opdshelf.koplugin.zip""#) && apps.contains(r#"href="/apps/opdshelf.apk""#));
+    assert!(!apps.contains("beta channel"));
 
     // A copy in DATA_DIR/apps is served instead
     let apps = app.dir.path().join("books/.opdshelf/apps");
@@ -575,7 +575,7 @@ async fn reading_apps_download_from_the_panel() {
         .unwrap()
         .contains("opdshelf.apk"));
     assert_eq!(&body[..], b"PK apk");
-    assert!(String::from_utf8(get(&app, "/admin/sync").await.2.to_vec())
+    assert!(String::from_utf8(get(&app, "/admin/settings/apps").await.2.to_vec())
         .unwrap()
         .contains("downloaded from this server"));
 
@@ -626,7 +626,7 @@ async fn reading_apps_download_from_the_panel() {
         headers[header::LOCATION],
         "http://127.0.0.1:9/apps/koreader-beta/opdshelf.koplugin.zip"
     );
-    assert!(String::from_utf8(get(&beta, "/admin/sync").await.2.to_vec())
+    assert!(String::from_utf8(get(&beta, "/admin/settings/apps").await.2.to_vec())
         .unwrap()
         .contains("beta channel"));
 }

@@ -2,7 +2,7 @@
   <header class="toolbar">
     <button type="button" class="icon-btn menu-btn" data-menu title="{{t "Shelves"}}" aria-label="{{t "Shelves"}}"><i
         class="fas fa-bars"></i></button>
-    <h1>{{t "Sync"}}</h1>
+    <h1>{{t "Devices"}}</h1>
     <span class="live-pill" data-live-state="off" id="livePill">
       <span class="live-dot"></span><span class="on">{{t "Live"}}</span><span class="off">{{t "Connecting…"}}</span>
     </span>
@@ -46,68 +46,21 @@
           <div class="skeleton"></div>
           <div class="skeleton"></div>
         </div>
+        <a class="connect-link" href="/admin/settings/apps" data-settings-tab="apps">
+          <i class="fas fa-plus" aria-hidden="true"></i>
+          <strong>{{t "Connect another device"}}</strong>
+          <span class="muted">{{t "Settings › Apps and connections"}}</span>
+          <i class="fas fa-chevron-right" aria-hidden="true"></i>
+        </a>
       </section>
 
-      <div class="sync-columns">
-        <section class="panel-section" aria-labelledby="activityTitle">
-          <div class="section-head">
-            <h2 id="activityTitle">{{t "Recent activity"}}</h2>
-            <small class="muted">{{t "Updates live"}}</small>
-          </div>
-          <ol class="activity" id="activity"></ol>
-        </section>
-
-        <section class="panel-section" aria-labelledby="connectTitle">
-          <div class="section-head">
-            <h2 id="connectTitle">{{t "Connect your apps"}}</h2>
-          </div>
-          <div class="connect">
-            <div class="connect-item">
-              <h3><i class="fas fa-book-atlas"></i>{{t "Reading apps (OPDS)"}}</h3>
-              <p>{{t "Add this catalog in KOReader, Moon+ Reader, Thorium, Panels or any OPDS app."}}</p>
-              <div class="copy-row"><code class="mono" id="connectOpds">{{baseUrl}}/</code>
-                <button type="button" class="icon-btn" data-copy="connectOpds" title="{{t "Copy address"}}"
-                  aria-label="{{t "Copy address"}}"><i class="far fa-copy"></i></button></div>
-            </div>
-            <div class="connect-item">
-              <h3><i class="fas fa-tablet-screen-button"></i>{{t "OPDShelf for KOReader"}}</h3>
-              <p>{{t "Live position sync and your library with covers, inside KOReader."}}</p>
-              <a class="btn btn-primary btn-small" href="/apps/opdshelf.koplugin.zip" download><i
-                  class="fas fa-download"></i>{{t "Download the plugin"}}</a>
-              <ol class="steps">
-                <li>{{{t "Unzip it into KOReader's {folder} folder (on a Kobo, {path})." folder="<code>plugins</code>" path="<code>.adds/koreader/plugins</code>"}}}</li>
-                <li>{{t "Restart KOReader and open Tools › OPDShelf."}}</li>
-              </ol>
-              <p class="muted">{{t "It comes set up with this server and your user, and updates itself. To set it up by hand, use this address:"}}</p>
-              <div class="copy-row"><code class="mono" id="connectKoreader">{{baseUrl}}</code>
-                <button type="button" class="icon-btn" data-copy="connectKoreader" title="{{t "Copy address"}}"
-                  aria-label="{{t "Copy address"}}"><i class="far fa-copy"></i></button></div>
-              {{#if username}}<p class="muted">{{t "User: {name}" name=username}}</p>{{/if}}
-            </div>
-            <div class="connect-item">
-              <h3><i class="fab fa-android"></i>{{t "OPDShelf for Android"}}</h3>
-              <p>{{t "Reads offline and syncs your position with every other device."}}</p>
-              <a class="btn btn-primary btn-small" href="/apps/opdshelf.apk" download><i
-                  class="fas fa-download"></i>{{t "Download the app"}}</a>
-              <p class="muted">{{t "Open the APK on the phone and allow installing apps from the browser if Android asks."}}</p>
-              <p>{{t "Use this server address when the app asks for it:"}}</p>
-              <div class="copy-row"><code class="mono" id="connectServer">{{baseUrl}}</code>
-                <button type="button" class="icon-btn" data-copy="connectServer" title="{{t "Copy address"}}"
-                  aria-label="{{t "Copy address"}}"><i class="far fa-copy"></i></button></div>
-              <details class="connect-qr" id="connectQr">
-                <summary>{{t "Connect with a QR code"}}</summary>
-                <img alt="{{t "QR code with this server and your user"}}" width="200" height="200">
-                <p class="muted">{{t "In the app, tap Scan QR code on the connect screen. It includes your password, so do not share it."}}</p>
-              </details>
-            </div>
-            <p class="connect-note muted">{{#if apkLocal}}{{t "The app is downloaded from this server."}}{{else}}{{t "The app and the plugin are downloaded from the latest release on GitHub, so they stay up to date without updating the server."}}{{/if}}{{#if appsBeta}} {{t "This server is on the beta channel, so it offers the beta builds."}}{{/if}}</p>
-            <div class="connect-item">
-              <h3><i class="fas fa-globe"></i>{{t "This browser"}}</h3>
-              <p id="thisBrowser">{{t "Books read here sync with your other devices."}}</p>
-            </div>
-          </div>
-        </section>
-      </div>
+      <section class="panel-section" aria-labelledby="activityTitle">
+        <div class="section-head">
+          <h2 id="activityTitle">{{t "Recent activity"}}</h2>
+          <small class="muted">{{t "Updates live"}}</small>
+        </div>
+        <ol class="activity" id="activity"></ol>
+      </section>
     </div>
   </div>
 </main>
@@ -115,12 +68,6 @@
 <script>
   (function () {
     const $ = (id) => document.getElementById(id);
-    // The QR code holds the password: only loaded when asked for
-    $('connectQr').addEventListener('toggle', (e) => {
-      const img = e.target.querySelector('img');
-      if (e.target.open) img.src = '/apps/connect.svg?' + Date.now();
-      else img.removeAttribute('src');
-    });
     const csrf = $('app').dataset.csrf;
     const me = storeGet('opdshelf:device-id');
     const ACTIVE = 5 * 60;

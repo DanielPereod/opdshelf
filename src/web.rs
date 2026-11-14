@@ -121,7 +121,12 @@ pub fn router(config: Config) -> Router {
             post(edit::save).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
         )
         .route("/admin/reset", post(edit::reset))
-        .route("/admin/maintenance", get(crate::maintenance::maintenance_page))
+        .route("/admin/settings", get(admin_settings).layer(CompressionLayer::new()))
+        .route(
+            "/admin/settings/{tab}",
+            get(admin_settings_tab).layer(CompressionLayer::new()),
+        )
+        .route("/admin/maintenance", get(crate::maintenance::old_page))
         .route("/admin/maintenance/delete", post(crate::maintenance::delete))
         .route("/admin/maintenance/dismiss", post(crate::maintenance::dismiss))
         .route("/admin/maintenance/undismiss", post(crate::maintenance::undismiss))
@@ -460,6 +465,29 @@ pub async fn library_data(state: &AppState, query: &AdminQuery) -> serde_json::V
         "apkLocal": apps::is_local(state, &apps::ANDROID),
         "pluginLocal": apps::is_local(state, &apps::KOREADER),
         "appsBeta": state.config.apps_channel == "beta",
+        "about": about_data(state),
+        "settingsTab": "general",
+        "generalTab": true,
+    })
+}
+
+/// The About tab of the settings: this server's version and folders.
+fn about_data(state: &AppState) -> serde_json::Value {
+    let config = &state.config;
+    let full = |path: &std::path::Path| {
+        std::fs::canonicalize(path)
+            .unwrap_or_else(|_| path.to_path_buf())
+            .display()
+            .to_string()
+    };
+    json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "channel": config.apps_channel,
+        "stable": config.apps_channel == "latest",
+        "booksDir": full(&config.books_dir),
+        "dataDir": full(&config.data_dir),
+        "watch": config.watch,
+        "scanMinutes": config.scan_interval_secs.div_ceil(60),
     })
 }
 
@@ -476,11 +504,66 @@ async fn admin(State(state): State<AppState>, headers: HeaderMap, Query(query): 
     page(&state, &headers, "admin", "OPDShelf", data)
 }
 
-/// The library page opened on reading sync: devices, live activity and how to connect apps.
+/// The library page opened on reading sync: devices and live activity.
 async fn admin_sync(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<AdminQuery>) -> Response {
     let mut data = library_data(&state, &query).await;
     data["syncView"] = json!(true);
-    page(&state, &headers, "admin", "Sync - OPDShelf", data)
+    data["shellPage"] = json!(true);
+    page(&state, &headers, "admin", "Devices - OPDShelf", data)
+}
+
+/// The tabs of the settings, each with its own address.
+const SETTINGS_TABS: [&str; 4] = ["general", "apps", "maintenance", "about"];
+
+async fn admin_settings(state: State<AppState>, headers: HeaderMap, query: Query<AdminQuery>) -> Response {
+    settings(state, headers, query, "general").await
+}
+
+async fn admin_settings_tab(
+    state: State<AppState>,
+    headers: HeaderMap,
+    Path(tab): Path<String>,
+    query: Query<AdminQuery>,
+) -> Response {
+    match SETTINGS_TABS.iter().find(|t| **t == tab && tab != "general") {
+        Some(tab) => settings(state, headers, query, tab).await,
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// The library page opened on its settings. The Maintenance tab is worked out
+/// only when it is asked for: on its own address, or as a fragment
+/// (`?panel=1`) when the tab is opened from another page of the panel.
+async fn settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<AdminQuery>,
+    tab: &str,
+) -> Response {
+    let maintenance = if tab == "maintenance" {
+        match crate::maintenance::tab_data(&state).await {
+            Ok(data) => Some(data),
+            Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        }
+    } else {
+        None
+    };
+    if query.wants_panel() {
+        return match maintenance {
+            Some(maint) => fragment(&state, &headers, "maintenance", json!({ "maint": maint })),
+            None => StatusCode::NOT_FOUND.into_response(),
+        };
+    }
+    let mut data = library_data(&state, &query).await;
+    data["settingsView"] = json!(true);
+    data["shellPage"] = json!(true);
+    data["settingsTab"] = json!(tab);
+    data["generalTab"] = json!(false);
+    data[format!("{tab}Tab")] = json!(true);
+    if let Some(maint) = maintenance {
+        data["maint"] = maint;
+    }
+    page(&state, &headers, "admin", "Settings - OPDShelf", data)
 }
 
 async fn admin_highlights(
@@ -490,12 +573,14 @@ async fn admin_highlights(
 ) -> Response {
     let mut data = library_data(&state, &query).await;
     data["highlightsView"] = json!(true);
+    data["shellPage"] = json!(true);
     page(&state, &headers, "admin", "Highlights - OPDShelf", data)
 }
 
 async fn admin_stats(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<AdminQuery>) -> Response {
     let mut data = library_data(&state, &query).await;
     data["statsView"] = json!(true);
+    data["shellPage"] = json!(true);
     page(&state, &headers, "admin", "Statistics - OPDShelf", data)
 }
 
@@ -1087,12 +1172,30 @@ async fn info(
         "infoTab": !notes,
         "notesTab": notes,
         "highlightCount": highlights,
+        // Only an ISBN is labelled ISBN; a uuid or another id is an identifier
+        "identifierIsIsbn": book.meta.identifier.as_deref().is_none_or(is_isbn),
     });
     if query.wants_panel() {
         return fragment(&state, &headers, "inspector", selection);
     }
     let data = with_selection(library_data(&state, &query).await, selection);
     page(&state, &headers, "admin", &format!("{} - OPDShelf", book.title), data)
+}
+
+/// Whether a book's identifier is an ISBN: 10 or 13 digits (an ISBN-10 may end
+/// in X), with or without hyphens, spaces or an `isbn:` prefix.
+pub fn is_isbn(identifier: &str) -> bool {
+    let lower = identifier.trim().to_ascii_lowercase();
+    let number = ["urn:isbn:", "isbn:", "isbn"]
+        .iter()
+        .find_map(|prefix| lower.strip_prefix(prefix))
+        .unwrap_or(&lower);
+    let chars: Vec<char> = number.chars().filter(|c| !matches!(c, '-' | ' ')).collect();
+    match chars.len() {
+        13 => chars.iter().all(char::is_ascii_digit),
+        10 => chars[..9].iter().all(char::is_ascii_digit) && (chars[9].is_ascii_digit() || chars[9] == 'x'),
+        _ => false,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1174,5 +1277,21 @@ async fn static_file(Path(path): Path<String>) -> Response {
                 .into_response()
         }
         None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_isbn;
+
+    #[test]
+    fn tells_isbns_from_other_identifiers() {
+        assert!(is_isbn("9780316769488"));
+        assert!(is_isbn("978-0-316-76948-8"));
+        assert!(is_isbn("urn:isbn:0-316-76948-X"));
+        assert!(is_isbn("ISBN 0316769487"));
+        assert!(!is_isbn("urn:uuid:8f1d4b3c-0e3a-4a6f-9c1e-2b7d5a9e6f10"));
+        assert!(!is_isbn("12345"));
+        assert!(!is_isbn("calibre:42"));
     }
 }

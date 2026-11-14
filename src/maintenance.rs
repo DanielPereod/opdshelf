@@ -1,9 +1,9 @@
-//! The panel's maintenance page: books that look duplicated, and saved data
+//! The Maintenance tab of the panel's settings: books that look duplicated, and saved data
 //! (edits, covers, positions, highlights, read marks) of books that are no
 //! longer in the library. Nothing is changed until it is asked for.
 
-use axum::extract::{Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::State;
+use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::Form;
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ use std::path::Path;
 
 use crate::library::{format_size, Book};
 use crate::paths;
-use crate::web::{page, AppState};
+use crate::web::AppState;
 
 /// Why the books of a group look like the same book.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -169,12 +169,6 @@ async fn orphans(state: &AppState, clean: &[&str]) -> std::io::Result<Orphans> {
     })
 }
 
-#[derive(Deserialize, Default)]
-pub struct PageQuery {
-    notice: Option<String>,
-    error: Option<String>,
-}
-
 fn book_json(book: &Book, ids: &HashMap<String, String>, state: &AppState) -> serde_json::Value {
     let progress = ids
         .get(&book.path)
@@ -186,24 +180,24 @@ fn book_json(book: &Book, ids: &HashMap<String, String>, state: &AppState) -> se
         "authors": book.author_line(),
         "format": book.format,
         "size": format_size(book.size),
-        "modified": book.modified.format("%Y-%m-%d").to_string(),
+        "bytes": book.size,
+        // Shown in the page's language by the browser
+        "modified": book.modified.to_rfc3339(),
+        "day": book.modified.format("%Y-%m-%d").to_string(),
         "folder": book.folder,
         "hasCover": book.has_cover,
         "coverVersion": crate::covers::version(book),
         "edited": book.edited,
+        "readable": book.readable,
         "progress": progress,
     })
 }
 
-pub async fn maintenance_page(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Query(query): Query<PageQuery>,
-) -> Response {
-    let counts = match orphans(&state, &[]).await {
-        Ok(counts) => counts,
-        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
-    };
+/// What the Maintenance tab of the settings shows: the groups of possible
+/// duplicates and the saved data of books that are gone. It reads every
+/// book's id and the saved data, so it is only worked out for that tab.
+pub async fn tab_data(state: &AppState) -> std::io::Result<serde_json::Value> {
+    let counts = orphans(state, &[]).await?;
     let snapshot = state.library.snapshot().await;
     let ids = state.documents.ids_by_path();
     let dismissed = dismissed(state.library.store().dir());
@@ -214,7 +208,7 @@ pub async fn maintenance_page(
             json!({
                 "same": g.kind == Kind::Same,
                 "key": g.key,
-                "books": g.books.iter().map(|b| book_json(b, &ids, &state)).collect::<Vec<_>>(),
+                "books": g.books.iter().map(|b| book_json(b, &ids, state)).collect::<Vec<_>>(),
             })
         })
         .collect();
@@ -226,27 +220,28 @@ pub async fn maintenance_page(
         ("marks", "Read marks", counts.marks),
     ];
     let orphan_total = rows.iter().map(|r| r.2).sum::<usize>();
-    page(
-        &state,
-        &headers,
-        "maintenance",
-        "Maintenance - OPDShelf",
-        json!({
-            "groups": groups,
-            "groupCount": groups.len(),
-            "dismissedCount": dismissed.len(),
-            "orphans": rows.iter().map(|(what, label, count)| json!({ "what": what, "label": label, "count": count })).collect::<Vec<_>>(),
-            "orphanTotal": orphan_total,
-            "emptyLibrary": snapshot.books.is_empty(),
-            "total": snapshot.books.len(),
-            "notice": query.notice,
-            "error": query.error,
-        }),
-    )
+    Ok(json!({
+        "oneGroup": groups.len() == 1,
+        "groupCount": groups.len(),
+        "groups": groups,
+        "dismissedCount": dismissed.len(),
+        "orphans": rows.iter().map(|(what, label, count)| json!({ "what": what, "label": label, "count": count })).collect::<Vec<_>>(),
+        "orphanTotal": orphan_total,
+        "oneOrphan": orphan_total == 1,
+        "emptyLibrary": snapshot.books.is_empty(),
+    }))
 }
 
+/// The old address of the maintenance page: it is a tab of the settings now.
+pub async fn old_page(uri: Uri) -> Response {
+    let query = uri.query().map(|q| format!("?{q}")).unwrap_or_default();
+    Redirect::to(&format!("{TAB}{query}")).into_response()
+}
+
+const TAB: &str = "/admin/settings/maintenance";
+
 fn redirect(notice: Option<&str>, error: Option<&str>) -> Response {
-    let mut url = String::from("/admin/maintenance");
+    let mut url = String::from(TAB);
     if let Some(n) = notice {
         url.push_str(&format!("?notice={}", paths::url_encode(n)));
     } else if let Some(e) = error {

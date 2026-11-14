@@ -1,0 +1,240 @@
+<main class="main sync-page" id="settingsView" tabindex="-1" data-tab="{{settingsTab}}" {{#unless settingsView}}hidden{{/unless}}>
+  <header class="toolbar">
+    <button type="button" class="icon-btn menu-btn" data-menu title="{{t "Shelves"}}" aria-label="{{t "Shelves"}}"><i
+        class="fas fa-bars"></i></button>
+    <h1>{{t "Settings"}}</h1>
+  </header>
+
+  {{#if settingsView}}
+  {{#if notice}}
+  <div class="notice" role="status">
+    <i class="fas fa-check"></i>{{notice}}
+    <button type="button" class="icon-btn" data-dismiss title="{{t "Dismiss"}}" aria-label="{{t "Dismiss"}}"><i class="fas fa-xmark"></i></button>
+  </div>
+  {{/if}}
+  {{#if error}}
+  <div class="notice error" role="alert">
+    <i class="fas fa-circle-exclamation"></i>{{error}}
+    <button type="button" class="icon-btn" data-dismiss title="{{t "Dismiss"}}" aria-label="{{t "Dismiss"}}"><i class="fas fa-xmark"></i></button>
+  </div>
+  {{/if}}
+  {{/if}}
+
+  <div class="sync-scroll">
+    <div class="sync-wrap settings-wrap">
+      <nav class="tabs settings-tabs" aria-label="{{t "Settings"}}">
+        <a class="tab" href="/admin/settings" data-settings-tab="general" {{#if generalTab}}aria-current="page"{{/if}}><i
+            class="fas fa-sliders" aria-hidden="true"></i>{{t "General"}}</a>
+        <a class="tab" href="/admin/settings/apps" data-settings-tab="apps" {{#if appsTab}}aria-current="page"{{/if}}><i
+            class="fas fa-tablet-screen-button" aria-hidden="true"></i>{{t "Apps and connections"}}</a>
+        <a class="tab" href="/admin/settings/maintenance" data-settings-tab="maintenance" {{#if maintenanceTab}}aria-current="page"{{/if}}><i
+            class="fas fa-broom" aria-hidden="true"></i>{{t "Maintenance"}}</a>
+        <a class="tab" href="/admin/settings/about" data-settings-tab="about" {{#if aboutTab}}aria-current="page"{{/if}}><i
+            class="fas fa-circle-info" aria-hidden="true"></i>{{t "About"}}</a>
+      </nav>
+
+      <div class="settings-panel" data-settings-panel="general" {{#unless generalTab}}hidden{{/unless}}>
+        <section class="panel-section" aria-labelledby="setAppearance">
+          <div class="section-head"><h2 id="setAppearance">{{t "Appearance"}}</h2></div>
+          <div class="settings-card">
+            <div class="setting-row">
+              <div class="setting-text">
+                <strong id="themeLabel">{{t "Theme"}}</strong>
+                <span class="muted">{{t "System follows the light or dark mode of this device. Saved in this browser."}}</span>
+              </div>
+              <div class="segmented seg-text" role="group" aria-labelledby="themeLabel">
+                <button type="button" class="icon-btn" data-theme-set="system" aria-pressed="false"><i
+                    class="fas fa-circle-half-stroke" aria-hidden="true"></i>{{t "System"}}</button>
+                <button type="button" class="icon-btn" data-theme-set="light" aria-pressed="false"><i class="far fa-sun"
+                    aria-hidden="true"></i>{{t "Light"}}</button>
+                <button type="button" class="icon-btn" data-theme-set="dark" aria-pressed="false"><i class="far fa-moon"
+                    aria-hidden="true"></i>{{t "Dark"}}</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-text">
+                <strong id="langLabel">{{t "Language"}}</strong>
+                <span class="muted">{{t "The language of the panel and the web reader. Saved in this browser."}}</span>
+              </div>
+              <div class="segmented seg-text" role="group" aria-labelledby="langLabel">
+                <button type="button" class="icon-btn" data-lang-set="en" lang="en" aria-pressed="{{#if (eq lang "en")}}true{{else}}false{{/if}}">English</button>
+                <button type="button" class="icon-btn" data-lang-set="es" lang="es" aria-pressed="{{#if (eq lang "es")}}true{{else}}false{{/if}}">Español</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel-section" aria-labelledby="setAccount">
+          <div class="section-head"><h2 id="setAccount">{{t "Account"}}</h2></div>
+          <div class="settings-card">
+            {{#if authEnabled}}
+            <div class="setting-row">
+              <span class="device-icon" aria-hidden="true"><i class="far fa-user"></i></span>
+              <div class="setting-text">
+                <strong>{{username}}</strong>
+                <span class="muted">{{t "Signed in. Reading apps use the same user and password."}}</span>
+              </div>
+              <form action="/user/logout" method="post">
+                <input type="hidden" name="csrf" value="{{csrf}}">
+                <button type="submit" class="btn"><i class="fas fa-arrow-right-from-bracket"></i>{{t "Sign out"}}</button>
+              </form>
+            </div>
+            {{else}}
+            <div class="setting-row">
+              <span class="device-icon" aria-hidden="true"><i class="fas fa-lock-open"></i></span>
+              <div class="setting-text">
+                <strong>{{t "No sign-in"}}</strong>
+                <span class="muted">{{{t "The panel is open to anyone who can reach this server, because no username and password are set. To ask for them, set {user} and {password} and restart the server." user="<code>ADMIN_USERNAME</code>" password="<code>ADMIN_PASSWORD</code>"}}}</span>
+              </div>
+            </div>
+            {{/if}}
+          </div>
+        </section>
+      </div>
+
+      <div class="settings-panel" data-settings-panel="apps" {{#unless appsTab}}hidden{{/unless}}>
+        <section class="panel-section" aria-labelledby="connectTitle">
+          <div class="section-head">
+            <h2 id="connectTitle">{{t "Connect your apps"}}</h2>
+          </div>
+          <div class="connect-grid">
+            <div class="connect-item">
+              <h3><i class="fas fa-book-atlas"></i>{{t "Reading apps (OPDS)"}}</h3>
+              <p>{{t "Add this catalog in KOReader, Moon+ Reader, Thorium, Panels or any OPDS app."}}</p>
+              <div class="copy-row"><code class="mono" id="connectOpds">{{baseUrl}}/</code>
+                <button type="button" class="icon-btn" data-copy="connectOpds" title="{{t "Copy address"}}"
+                  aria-label="{{t "Copy address"}}"><i class="far fa-copy"></i></button></div>
+              {{#if username}}<p class="muted">{{t "User: {name}" name=username}}</p>{{/if}}
+            </div>
+            <div class="connect-item">
+              <h3><i class="fas fa-tablet-screen-button"></i>{{t "OPDShelf for KOReader"}}</h3>
+              <p>{{t "Live position sync and your library with covers, inside KOReader."}}</p>
+              <a class="btn btn-primary btn-small" href="/apps/opdshelf.koplugin.zip" download><i
+                  class="fas fa-download"></i>{{t "Download the plugin"}}</a>
+              <ol class="steps">
+                <li>{{{t "Unzip it into KOReader's {folder} folder (on a Kobo, {path})." folder="<code>plugins</code>" path="<code>.adds/koreader/plugins</code>"}}}</li>
+                <li>{{t "Restart KOReader and open Tools › OPDShelf."}}</li>
+              </ol>
+              <p class="muted">{{t "It comes set up with this server and your user, and updates itself. To set it up by hand, use this address:"}}</p>
+              <div class="copy-row"><code class="mono" id="connectKoreader">{{baseUrl}}</code>
+                <button type="button" class="icon-btn" data-copy="connectKoreader" title="{{t "Copy address"}}"
+                  aria-label="{{t "Copy address"}}"><i class="far fa-copy"></i></button></div>
+            </div>
+            <div class="connect-item">
+              <h3><i class="fab fa-android"></i>{{t "OPDShelf for Android"}}</h3>
+              <p>{{t "Reads offline and syncs your position with every other device."}}</p>
+              <a class="btn btn-primary btn-small" href="/apps/opdshelf.apk" download><i
+                  class="fas fa-download"></i>{{t "Download the app"}}</a>
+              <p class="muted">{{t "Open the APK on the phone and allow installing apps from the browser if Android asks."}}</p>
+              <p>{{t "Use this server address when the app asks for it:"}}</p>
+              <div class="copy-row"><code class="mono" id="connectServer">{{baseUrl}}</code>
+                <button type="button" class="icon-btn" data-copy="connectServer" title="{{t "Copy address"}}"
+                  aria-label="{{t "Copy address"}}"><i class="far fa-copy"></i></button></div>
+              <details class="connect-qr" id="connectQr">
+                <summary>{{t "Connect with a QR code"}}</summary>
+                <img alt="{{t "QR code with this server and your user"}}" width="200" height="200">
+                <p class="muted">{{t "In the app, tap Scan QR code on the connect screen. It includes your password, so do not share it."}}</p>
+              </details>
+            </div>
+            <div class="connect-item">
+              <h3><i class="fas fa-globe"></i>{{t "This browser"}}</h3>
+              <p>{{t "Books read here sync with your other devices."}}</p>
+              <p class="muted">{{t "Open a book with Read and its position is saved on the server, like in the apps."}}</p>
+            </div>
+          </div>
+          <p class="connect-note muted">{{#if apkLocal}}{{t "The app is downloaded from this server."}}{{else}}{{t "The app and the plugin are downloaded from the latest release on GitHub, so they stay up to date without updating the server."}}{{/if}}{{#if appsBeta}} {{t "This server is on the beta channel, so it offers the beta builds."}}{{/if}}</p>
+        </section>
+      </div>
+
+      <div class="settings-panel" data-settings-panel="maintenance" {{#unless maintenanceTab}}hidden{{/unless}}>
+        <div id="maintBody" {{#if maint}}data-loaded{{/if}}>
+          {{#if maint}}{{> maintenance}}{{else}}<div class="skeleton"></div>{{/if}}
+        </div>
+      </div>
+
+      <div class="settings-panel" data-settings-panel="about" {{#unless aboutTab}}hidden{{/unless}}>
+        <section class="panel-section" aria-labelledby="aboutTitle">
+          <div class="section-head"><h2 id="aboutTitle">{{t "This server"}}</h2></div>
+          <div class="settings-card">
+            <div class="about-head">
+              <img src="/static/icon.png" alt="" width="40" height="40">
+              <div class="setting-text">
+                <strong>OPDShelf</strong>
+                <span class="muted">{{t "Version {version}" version=about.version}}</span>
+              </div>
+            </div>
+            <dl class="kv kv-wide">
+              <dt>{{t "Version"}}</dt>
+              <dd class="mono">{{about.version}}</dd>
+              <dt>{{t "Release channel"}}</dt>
+              <dd>{{#if about.stable}}{{t "Stable"}}{{else if appsBeta}}{{t "Beta"}}{{else}}{{about.channel}}{{/if}}</dd>
+              <dt>{{t "Books"}}</dt>
+              <dd>{{total}}</dd>
+              <dt>{{t "Books folder"}}</dt>
+              <dd class="mono">{{about.booksDir}}</dd>
+              <dt>{{t "Data folder"}}</dt>
+              <dd class="mono">{{about.dataDir}}</dd>
+              <dt>{{t "Folder watching"}}</dt>
+              <dd>{{#if about.watch}}{{t "On: changes show up at once, with a full scan every {n} min" n=about.scanMinutes}}{{else}}{{t "Off: the books folder is read again each time the library is opened"}}{{/if}}</dd>
+            </dl>
+            <div class="link-row about-links">
+              <a class="btn" href="https://github.com/DanielPereod/opdshelf" target="_blank" rel="noopener"><i
+                  class="fab fa-github"></i>{{t "Project on GitHub"}}</a>
+              <a class="btn" href="https://github.com/DanielPereod/opdshelf/tree/main/docs" target="_blank" rel="noopener"><i
+                  class="fas fa-book"></i>{{t "Documentation"}}</a>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  (function () {
+    const $ = (id) => document.getElementById(id);
+    // The QR code holds the password: only loaded when asked for
+    $('connectQr').addEventListener('toggle', (e) => {
+      const img = e.target.querySelector('img');
+      if (e.target.open) img.src = '/apps/connect.svg?' + Date.now();
+      else img.removeAttribute('src');
+    });
+
+    // Theme: the same choice as the button of the sidebar
+    document.querySelectorAll('[data-theme-set]').forEach((b) => b.addEventListener('click', () => {
+      storeSet('theme', b.dataset.themeSet);
+      applyTheme();
+    }));
+    applyTheme();
+
+    document.querySelectorAll('[data-lang-set]').forEach((b) => b.addEventListener('click', () => {
+      if (b.dataset.langSet === document.documentElement.lang) return;
+      document.cookie = 'opdshelf_lang=' + b.dataset.langSet + '; path=/; max-age=31536000; samesite=lax';
+      location.reload();
+    }));
+
+    // The Maintenance tab reads the whole library, so it is loaded when it is opened
+    async function loadMaintenance() {
+      const box = $('maintBody');
+      try {
+        const response = await fetch('/admin/settings/maintenance?panel=1');
+        if (!response.ok) throw new Error(response.statusText);
+        box.innerHTML = await response.text();
+        localizeFields(box);
+      } catch {
+        box.innerHTML = '';
+        const p = document.createElement('p');
+        p.className = 'notice error';
+        p.textContent = t('Cannot load the maintenance data.');
+        box.append(p);
+      }
+    }
+    document.addEventListener('pagechange', (e) => {
+      if (e.detail.page !== 'settings' || e.detail.tab !== 'maintenance') return;
+      if (e.detail.changed || !$('maintBody').hasAttribute('data-loaded')) {
+        $('maintBody').setAttribute('data-loaded', '');
+        loadMaintenance();
+      }
+    });
+  })();
+</script>

@@ -12,6 +12,9 @@
       <button type="button" class="nav-item" data-shelf="finished">
         <i class="far fa-circle-check"></i><span class="label">{{t "Finished"}}</span><span class="count" id="finishedCount"></span>
       </button>
+      <button type="button" class="nav-item" data-shelf="notstarted">
+        <i class="far fa-bookmark"></i><span class="label">{{t "Not started"}}</span><span class="count" id="notStartedCount"></span>
+      </button>
       <button type="button" class="nav-item" data-shelf="recent">
         <i class="far fa-clock"></i><span class="label">{{t "Added this week"}}</span><span class="count" id="recentCount"></span>
       </button>
@@ -20,7 +23,7 @@
         <span class="count{{#if incompleteCount}} strong{{/if}}">{{incompleteCount}}</span>
       </button>
 
-      <h2>{{t "Sync"}}</h2>
+      <h2>{{t "Activity"}}</h2>
       <a class="nav-item" href="/admin/sync" data-page="sync" {{#if syncView}}aria-current="true"{{/if}}>
         <i class="fas fa-tablet-screen-button"></i><span class="label">{{t "Devices"}}</span>
         <span class="live-dot" id="navLive" title="{{t "Connecting…"}}"></span>
@@ -31,9 +34,6 @@
       </a>
       <a class="nav-item" href="/admin/stats" data-page="stats" {{#if statsView}}aria-current="true"{{/if}}>
         <i class="fas fa-chart-column"></i><span class="label">{{t "Statistics"}}</span>
-      </a>
-      <a class="nav-item" href="/admin/maintenance">
-        <i class="fas fa-broom"></i><span class="label">{{t "Maintenance"}}</span>
       </a>
 
       <details class="nav-group" id="authorsGroup" hidden>
@@ -72,21 +72,14 @@
     </nav>
 
     <div class="side-foot">
-      <div class="opds-box">
-        <p>{{t "OPDS catalog for reader apps"}}</p>
-        <div class="row">
-          <code class="mono" id="opdsUrl">{{baseUrl}}/</code>
-          <button type="button" class="icon-btn" data-copy="opdsUrl" title="{{t "Copy address"}}"
-            aria-label="{{t "Copy address"}}"><i class="far fa-copy"></i></button>
-        </div>
-      </div>
+      <a class="nav-item" href="/admin/settings" data-page="settings" {{#if settingsView}}aria-current="true"{{/if}}>
+        <i class="fas fa-gear"></i><span class="label">{{t "Settings"}}</span>
+      </a>
       <div class="side-actions">
         <button type="button" class="icon-btn" data-theme-btn onclick="toggleTheme()" title="{{t "Light or dark"}}"
           aria-label="{{t "Light or dark"}}">
           <i class="fas fa-circle-half-stroke"></i>
         </button>
-        <button type="button" class="icon-btn lang-btn" id="langBtn" title="{{t "Language"}}"
-          aria-label="{{t "Language"}}">{{lang}}</button>
         {{#if authEnabled}}
         <form action="/user/logout" method="post" class="push">
           <input type="hidden" name="csrf" value="{{csrf}}">
@@ -99,7 +92,7 @@
   </aside>
   <div class="scrim" id="scrim"></div>
 
-  <main class="main" id="libraryView" tabindex="-1" {{#if syncView}}hidden{{else if highlightsView}}hidden{{else if statsView}}hidden{{/if}}>
+  <main class="main" id="libraryView" tabindex="-1" {{#if shellPage}}hidden{{/if}}>
     <header class="toolbar">
       <button type="button" class="icon-btn menu-btn" data-menu title="{{t "Shelves"}}" aria-label="{{t "Shelves"}}"><i
           class="fas fa-bars"></i></button>
@@ -140,6 +133,7 @@
       </button>
     </header>
 
+    {{#unless shellPage}}
     {{#if notice}}
     <div class="notice" role="status">
       <i class="fas fa-check"></i>{{notice}}
@@ -152,6 +146,7 @@
       <button type="button" class="icon-btn" data-dismiss title="{{t "Dismiss"}}" aria-label="{{t "Dismiss"}}"><i class="fas fa-xmark"></i></button>
     </div>
     {{/if}}
+    {{/unless}}
 
     <form class="bulk" id="bulkForm" action="/admin/bulk" method="post" hidden>
       <input type="hidden" name="csrf" value="{{csrf}}">
@@ -220,15 +215,13 @@
       </div>
       {{/if}}
     </div>
-
-    <div class="drop-hint"><i class="fas fa-inbox"></i>{{t "Drop files anywhere to upload them to"}} <strong
-        id="dropTarget">{{t "the library root"}}</strong></div>
   </main>
 
   {{> sync}}
   {{> highlights}}
 
   {{> stats}}
+  {{> settings}}
 
   <aside class="insp" id="insp" aria-label="{{t "Book"}}" {{#unless book}}hidden{{/unless}}>
     {{#if book}}{{> inspector}}{{/if}}
@@ -418,6 +411,7 @@
     const FINISHED = 0.98;
     const isReading = (p) => p && p.percentage > 0 && p.percentage < FINISHED;
     const isFinished = (p) => p && p.percentage >= FINISHED;
+    const isNotStarted = (p) => !p || !(p.percentage > 0);
 
     // Dates and sizes in the page's language, and drawn covers for books without one
     const pageLang = document.documentElement.lang || undefined;
@@ -542,7 +536,6 @@
     fillList('authorOptions', rows.flatMap(authorsOf));
     fillList('seriesOptions', rows.map((r) => r.dataset.series).filter(Boolean));
     buildShelves($('seriesGroup'), $('seriesShelves'), 'series', rows.map((r) => r.dataset.series).filter(Boolean));
-    $('dropTarget').textContent = libraryRoot;
     $('dropOverlayTarget').textContent = libraryRoot;
 
     // ------------------------------------------------------------ toasts and confirmations
@@ -563,11 +556,14 @@
       $('toasts').append(el);
       setTimeout(() => el.remove(), action ? 8000 : 4000);
     };
-    window.confirmAction = function (title, text, ok) {
+    // `danger` shows the button of actions that delete in red
+    window.confirmAction = function (title, text, ok, danger) {
       const dialog = $('confirmDialog');
       $('confirmTitle').textContent = title;
       $('confirmText').textContent = text;
+      $('confirmText').hidden = !text;
       $('confirmOk').textContent = ok;
+      $('confirmOk').className = danger ? 'btn btn-danger' : 'btn btn-primary';
       dialog.returnValue = '';
       dialog.showModal();
       return new Promise((resolve) => {
@@ -582,6 +578,7 @@
       switch (state.shelf) {
         case 'reading': return isReading(p);
         case 'finished': return isFinished(p);
+        case 'notstarted': return isNotStarted(p);
         case 'recent': return Date.parse(d.added) > weekAgo;
         case 'incomplete': return d.incomplete === '1';
         case 'folder': return d.folder === state.value || d.folder.startsWith(state.value + '/');
@@ -595,6 +592,7 @@
     const emptyTexts = {
       reading: [t('Nothing in progress'), t('Books you start on any device show up here.')],
       finished: [t('No finished books yet'), t('Books read to the end on any device show up here.')],
+      notstarted: [t('Every book is started'), t('Books that no device has opened yet show up here.')],
     };
 
     function refresh(keepPage) {
@@ -689,11 +687,10 @@
       state.value = button.dataset.value || '';
       $('shelfTitle').textContent = button.querySelector('.label').textContent;
       const folder = state.shelf === 'folder' ? state.value : '';
-      $('dropTarget').textContent = folder || libraryRoot;
       $('dropOverlayTarget').textContent = folder || libraryRoot;
       $('uploadFolder').value = folder;
       const url = new URL(location.href);
-      if (['/admin/sync', '/admin/highlights', '/admin/stats'].includes(url.pathname)) url.pathname = '/admin';
+      if (pageFromPath(url.pathname).page !== 'library') url.pathname = '/admin';
       if (folder && url.pathname === '/admin') url.searchParams.set('folder', folder);
       else url.searchParams.delete('folder');
       history.replaceState(history.state, '', url);
@@ -787,6 +784,7 @@
       const all = Array.from(progress.entries()).filter(([path]) => byPath.has(path));
       $('readingCount').textContent = all.filter(([, p]) => isReading(p)).length || '';
       $('finishedCount').textContent = all.filter(([, p]) => isFinished(p)).length || '';
+      $('notStartedCount').textContent = rows.filter((r) => isNotStarted(progress.get(r.dataset.path))).length || '';
     }
 
     function renderContinue() {
@@ -869,25 +867,54 @@
     document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
     setView(storeGet('opdshelf:view') === 'grid' ? 'grid' : 'list');
 
-    // ------------------------------------------------------------ library or sync page
-    const PAGES = { sync: 'syncView', highlights: 'highlightsView', stats: 'statsView' };
-    const TITLES = { sync: () => t('Sync - OPDShelf'), highlights: () => t('Highlights - OPDShelf'), stats: () => t('Statistics - OPDShelf') };
-    // The page shown: library, sync, highlights or stats
+    // ------------------------------------------------------------ library or another page of the panel
+    const PAGES = { sync: 'syncView', highlights: 'highlightsView', stats: 'statsView', settings: 'settingsView' };
+    const TITLES = {
+      sync: () => t('Devices - OPDShelf'),
+      highlights: () => t('Highlights - OPDShelf'),
+      stats: () => t('Statistics - OPDShelf'),
+      settings: () => t('Settings - OPDShelf'),
+    };
+    // The settings have a tab each with its own address: /admin/settings, /admin/settings/apps…
+    const SETTINGS_TABS = ['general', 'apps', 'maintenance', 'about'];
+    let settingsTab = $('settingsView').dataset.tab || 'general';
+    // The page shown: library, sync, highlights, stats or settings
     function currentPage() {
       return Object.keys(PAGES).find((p) => !$(PAGES[p]).hidden) || 'library';
     }
-    function pageUrl(page) {
-      return page === 'library' ? '/admin' : '/admin/' + page;
+    function pageFromPath(path) {
+      const tab = path.match(/^\/admin\/settings(?:\/([a-z]+))?\/?$/);
+      if (tab && (!tab[1] || SETTINGS_TABS.includes(tab[1]))) return { page: 'settings', tab: tab[1] || 'general' };
+      return { page: Object.keys(PAGES).find((p) => path === '/admin/' + p) || 'library' };
     }
-    function showPage(page) {
+    function pageUrl(page, tab) {
+      if (page === 'library') return '/admin';
+      if (page === 'settings') {
+        const which = tab || settingsTab;
+        return '/admin/settings' + (which === 'general' ? '' : '/' + which);
+      }
+      return '/admin/' + page;
+    }
+    function showPage(page, tab) {
+      const before = currentPage();
+      const beforeTab = settingsTab;
+      if (page === 'settings' && tab) settingsTab = tab;
       $('libraryView').hidden = page !== 'library';
       Object.entries(PAGES).forEach(([name, id]) => {
         $(id).hidden = name !== page;
         document.querySelector(`[data-page="${name}"]`).setAttribute('aria-current', name === page);
       });
       if (page !== 'library') document.querySelectorAll('[data-shelf]').forEach((b) => b.setAttribute('aria-current', false));
+      document.querySelectorAll('[data-settings-panel]').forEach((p) => { p.hidden = p.dataset.settingsPanel !== settingsTab; });
+      document.querySelectorAll('.settings-tabs [data-settings-tab]').forEach((a) => {
+        if (a.dataset.settingsTab !== settingsTab) { a.removeAttribute('aria-current'); return; }
+        a.setAttribute('aria-current', 'page');
+        // On a phone the tabs scroll sideways: the one shown is always in view
+        if (page === 'settings') a.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      });
       document.title = TITLES[page] ? TITLES[page]() : 'OPDShelf';
-      document.dispatchEvent(new CustomEvent('pagechange', { detail: { page } }));
+      const changed = page !== before || (page === 'settings' && settingsTab !== beforeTab);
+      document.dispatchEvent(new CustomEvent('pagechange', { detail: { page, tab: settingsTab, changed } }));
     }
     window.showPage = showPage;
     $('skipLink').addEventListener('click', (e) => {
@@ -899,10 +926,24 @@
       if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
       e.preventDefault();
       closePanel(false);
-      showPage(page);
+      showPage(page, page === 'settings' ? 'general' : undefined);
       history.pushState({ page }, '', pageUrl(page));
       closeMenu();
     }));
+    // The tabs of the settings, and links to one of them from other pages
+    document.addEventListener('click', (e) => {
+      const link = e.target.closest('[data-settings-tab]');
+      if (!link || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      e.preventDefault();
+      const tab = link.dataset.settingsTab;
+      if (currentPage() === 'settings' && settingsTab === tab) return;
+      closePanel(false);
+      showPage('settings', tab);
+      history.pushState({ page: 'settings', tab }, '', pageUrl('settings', tab));
+      closeMenu();
+      if (link.closest('.settings-tabs')) link.focus();
+      else $('settingsView').focus();
+    });
 
     // ------------------------------------------------------------ selection
     function picked() {
@@ -989,6 +1030,7 @@
         if (!response.ok) throw new Error(response.statusText);
         insp.innerHTML = await response.text();
         insp.hidden = false;
+        localizeFields(insp);
         const path = insp.querySelector('[data-delete]').dataset.delete;
         markSelected(path);
         paintReading();
@@ -1181,7 +1223,8 @@
       if (path.startsWith('/info/') || path.startsWith('/admin/edit/')) openPanel(path + location.search, false);
       else {
         closePanel(false);
-        showPage(Object.keys(PAGES).find((p) => path === pageUrl(p)) || 'library');
+        const { page, tab } = pageFromPath(path);
+        showPage(page, tab);
       }
     });
     document.addEventListener('keydown', (e) => {
@@ -1358,7 +1401,7 @@
     $('deleteFolderBtn').addEventListener('click', async () => {
       const folder = currentFolder();
       const ok = await confirmAction(t('Delete the folder {name}?', { name: folder }),
-        t('It is empty, so no book is lost.'), t('Delete'));
+        t('It is empty, so no book is lost.'), t('Delete'), true);
       if (!ok) return;
       $('deleteFolderPath').value = folder;
       $('deleteFolderForm').submit();
@@ -1498,10 +1541,14 @@
       }
     }
 
-    $('langBtn').addEventListener('click', () => {
-      const next = document.documentElement.lang === 'es' ? 'en' : 'es';
-      document.cookie = 'opdshelf_lang=' + next + '; path=/; max-age=31536000; samesite=lax';
-      location.reload();
+    // Forms that delete or remove something ask first, in the panel's own dialog
+    document.addEventListener('submit', async (e) => {
+      const form = e.target.closest('form[data-confirm]');
+      if (!form) return;
+      e.preventDefault();
+      const ok = await confirmAction(form.dataset.confirm, form.dataset.confirmText || '',
+        form.dataset.confirmOk || t('Delete'), form.hasAttribute('data-danger'));
+      if (ok) form.submit();
     });
 
     // ------------------------------------------------------------ live changes from other devices
@@ -1543,7 +1590,8 @@
     })();
 
     const initial = document.querySelector('[data-initial]');
-    if (currentPage() !== 'library') { showPage(currentPage()); refresh(); }
+    localizeFields(document);
+    if (currentPage() !== 'library') { showPage(currentPage(), settingsTab); refresh(); }
     else if (initial) selectShelf(initial);
     else refresh();
     loadProgress();

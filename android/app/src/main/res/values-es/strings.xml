@@ -230,4 +230,34 @@
     <string name="mark_selected_finished">Marcar como terminados</string>
     <string name="loading">Cargando…</string>
     <plurals name="selected_count"><item quantity="one">%1$d seleccionado</item><item quantity="many">%1$d seleccionados</item><item quantity="other">%1$d seleccionados</item></plurals>
+    <string name="highlight">Subrayar</string>
+    <string name="add_note">Nota</string>
+    <string name="highlights">Subrayados</string>
+    <string name="highlights_and_notes">Subrayados y notas</string>
+    <string name="no_highlights">Aún no hay subrayados</string>
+    <string name="no_highlights_text">Selecciona texto mientras lees para subrayarlo o añadir una nota. Los subrayados hechos en la web o en KOReader también aparecen aquí.</string>
+    <string name="note_hint">Escribe una nota…</string>
+    <string name="edit_note">Editar la nota</string>
+    <string name="new_note">Nueva nota</string>
+    <string name="delete_highlight">Borrar el subrayado</string>
+    <string name="highlight_deleted">Subrayado borrado</string>
+    <string name="highlight_added">Subrayado</string>
+    <string name="share_highlights">Compartir subrayados</string>
+    <string name="search_highlights">Buscar en subrayados y notas</string>
+    <string name="with_note">Con nota</string>
+    <string name="all_highlights">Todos</string>
+    <string name="no_chapter">Sin capítulo</string>
+    <string name="nothing_matches">Nada coincide.</string>
+    <string name="go_to_highlight">Ir al subrayado</string>
+    <string name="color_yellow">Amarillo</string>
+    <string name="color_green">Verde</string>
+    <string name="color_blue">Azul</string>
+    <string name="color_red">Rojo</string>
+    <string name="color_purple">Morado</string>
+    <string name="color_orange">Naranja</string>
+    <string name="color_cyan">Cian</string>
+    <string name="color_olive">Oliva</string>
+    <string name="color_gray">Gris</string>
+    <string name="highlight_color">Color</string>
+    <plurals name="highlights_count"><item quantity="one">%1$d subrayado · %2$d con nota</item><item quantity="other">%1$d subrayados · %2$d con nota</item></plurals>
 </resources>

@@ -38,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -220,6 +221,49 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
                         )
                     }
                 }
+            }
+        }
+
+        if (local != null) {
+            // Highlights and notes made on any device
+            val allNotes by context.app.store.annotations.collectAsState()
+            val notes = allNotes[local.document]?.visible().orEmpty()
+            var editing by remember { mutableStateOf<io.github.danielpereod.opdshelf.data.Annotation?>(null) }
+            LaunchedEffect(local.document) { context.app.sync.refreshAnnotations(local.document) }
+            Spacer(Modifier.height(Space.xxl))
+            SectionTitle(stringResource(R.string.highlights_and_notes))
+            AnnotationList(
+                notes,
+                onOpen = {
+                    context.startActivity(
+                        android.content.Intent(context, io.github.danielpereod.opdshelf.reader.ReaderActivity::class.java)
+                            .putExtra(io.github.danielpereod.opdshelf.reader.ReaderActivity.EXTRA_BOOK_ID, local.id)
+                            .putExtra(io.github.danielpereod.opdshelf.reader.ReaderActivity.EXTRA_ANNOTATION, it.id)
+                    )
+                },
+                onEdit = { editing = it },
+                onDelete = { context.app.sync.annotate(local.document, it.copy(deleted = true)) },
+                onShare = {
+                    val text = io.github.danielpereod.opdshelf.data.annotationsMarkdown(
+                        local.title, local.authors.joinToString(", "), notes, context.getString(R.string.no_chapter),
+                    )
+                    context.startActivity(
+                        android.content.Intent.createChooser(
+                            android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+                                .putExtra(android.content.Intent.EXTRA_SUBJECT, local.title)
+                                .putExtra(android.content.Intent.EXTRA_TEXT, text),
+                            context.getString(R.string.share_highlights),
+                        )
+                    )
+                },
+            )
+            editing?.let { a ->
+                AnnotationEditor(
+                    a, isNew = false,
+                    onSave = { editing = null; context.app.sync.annotate(local.document, it) },
+                    onDelete = { editing = null; context.app.sync.annotate(local.document, a.copy(deleted = true)) },
+                    onDismiss = { editing = null },
+                )
             }
         }
 

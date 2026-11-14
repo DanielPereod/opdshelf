@@ -96,6 +96,29 @@ class Api(private val settings: Settings) {
         }
     }
 
+    suspend fun getAnnotations(document: String): List<Annotation> = withContext(Dispatchers.IO) {
+        client.newCall(Request.Builder().url(url("/api/annotations/$document")).build()).execute().use {
+            if (!it.isSuccessful) throw HttpError(it.code, "${it.code} ${it.message}")
+            json.decodeFromString(AnnotationsResponse.serializer(), it.body!!.string()).annotations
+        }
+    }
+
+    /** Sends highlights changed here; answers every highlight of the book. */
+    suspend fun putAnnotations(document: String, list: List<Annotation>): List<Annotation> = withContext(Dispatchers.IO) {
+        val body = JsonObject(
+            mapOf(
+                "device" to JsonPrimitive(settings.deviceName),
+                "device_id" to JsonPrimitive(settings.deviceId),
+                "sent_at" to JsonPrimitive(System.currentTimeMillis() / 1000),
+                "annotations" to json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(Annotation.serializer()), list),
+            )
+        ).toString().toRequestBody("application/json".toMediaType())
+        client.newCall(Request.Builder().url(url("/api/annotations/$document")).put(body).build()).execute().use {
+            if (!it.isSuccessful) throw HttpError(it.code, "${it.code} ${it.message}")
+            json.decodeFromString(AnnotationsResponse.serializer(), it.body!!.string()).annotations
+        }
+    }
+
     /** Checks the address and login. */
     suspend fun check() {
         feed(url("/"))

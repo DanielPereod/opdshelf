@@ -2,6 +2,7 @@
   <button type="button" id="tocBtn" class="icon-btn" title="{{t "Contents"}}" aria-label="{{t "Contents"}}"><i class="fas fa-list-ul"></i></button>
   <button type="button" id="smaller" class="icon-btn" title="{{t "Smaller text"}}" aria-label="{{t "Smaller text"}}"><i class="fas fa-minus"></i></button>
   <button type="button" id="larger" class="icon-btn" title="{{t "Larger text"}}" aria-label="{{t "Larger text"}}"><i class="fas fa-plus"></i></button>
+  <button type="button" id="notesBtn" class="icon-btn notes-btn" title="{{t "Highlights and notes"}}" aria-label="{{t "Highlights and notes"}}" aria-pressed="false"><i class="fas fa-highlighter"></i><span id="notesCount" class="notes-count" hidden></span></button>
 </div>
 
 <nav class="toc" id="toc" aria-label="{{t "Contents"}}" hidden>
@@ -14,9 +15,36 @@
   <div id="viewer" class="epub-viewer"></div>
   <button type="button" id="prev" class="page-turn prev" title="{{t "Previous page"}}" aria-label="{{t "Previous page"}}"><i class="fas fa-chevron-left"></i></button>
   <button type="button" id="next" class="page-turn next" title="{{t "Next page"}}" aria-label="{{t "Next page"}}"><i class="fas fa-chevron-right"></i></button>
-  <button type="button" id="markBtn" class="mark-point" hidden><i class="fas fa-location-dot"></i> {{t "Set as last position"}}</button>
+  <div id="selBar" class="sel-bar" role="toolbar" aria-label="{{t "Selected text"}}" hidden>
+    <button type="button" id="selNote" class="sel-action"><i class="far fa-note-sticky"></i><span>{{t "Note"}}</span></button>
+    <button type="button" id="selCopy" class="sel-action" title="{{t "Copy"}}" aria-label="{{t "Copy"}}"><i class="far fa-copy"></i></button>
+    <button type="button" id="markBtn" class="sel-action" title="{{t "Set as last position"}}"><i class="fas fa-location-dot"></i><span>{{t "Last position"}}</span></button>
+  </div>
+  <aside class="notes-panel" id="notesPanel" aria-label="{{t "Highlights and notes"}}" hidden>
+    <header>
+      <h2>{{t "Highlights and notes"}}</h2>
+      <button type="button" id="notesClose" class="icon-btn" title="{{t "Close"}}" aria-label="{{t "Close"}}"><i class="fas fa-xmark"></i></button>
+    </header>
+    <div id="notesList"></div>
+  </aside>
   <div id="status" class="loading"><span><i class="fas fa-spinner fa-spin"></i> {{t "Loading…"}}</span></div>
 </main>
+
+<dialog class="note-dialog" id="noteDialog" aria-labelledby="noteTitle">
+  <form id="noteForm">
+    <h2 id="noteTitle">{{t "Note"}}</h2>
+    <blockquote id="noteQuote"></blockquote>
+    <textarea id="noteText" class="input" rows="5" placeholder="{{t "Write a note…"}}" aria-label="{{t "Note"}}"></textarea>
+    <div class="note-row">
+      <div id="noteColors"></div>
+      <button type="button" id="noteDelete" class="icon-btn" title="{{t "Delete"}}" aria-label="{{t "Delete"}}"><i class="far fa-trash-can"></i></button>
+    </div>
+    <div class="note-actions">
+      <button type="button" id="noteCancel" class="btn">{{t "Cancel"}}</button>
+      <button type="submit" class="btn btn-primary">{{t "Save"}}</button>
+    </div>
+  </form>
+</dialog>
 
 <footer class="reader-foot">
   <span id="chapter"></span>
@@ -28,6 +56,8 @@
 <script src="/static/vendor/epubjs/epub.min.js"></script>
 <script src="/static/reader/xpointer.js"></script>
 <script src="/static/reader/typography.js?v={{v}}"></script>
+<script src="/static/app/notes.js?v={{v}}"></script>
+<script src="/static/reader/highlights.js?v={{v}}"></script>
 <script data-url="/download/{{urlPath book.path}}?inline=1" data-key="{{book.path}}" data-document="{{document}}">
   (function () {
     const { url, key, document: documentId } = document.currentScript.dataset;
@@ -40,6 +70,7 @@
     const toc = document.getElementById('toc');
     const tocList = document.getElementById('tocList');
     const markBtn = document.getElementById('markBtn');
+    const notes = Notes.store(documentId);
 
     const book = ePub(url, { openAs: 'epub' });
     // Two pages side by side from 600px, so wide margins keep the spread
@@ -149,6 +180,25 @@
       if (!tocButtons.length) tocList.textContent = t('This book has no table of contents.');
     });
     const baseHref = (href) => (href || '').split('#')[0].split('/').pop();
+    // The name of the chapter a spine item belongs to: the first contents entry
+    // of the closest spine item at or before it
+    function spineIndexOf(href) {
+      const base = baseHref(href);
+      let found = -1;
+      book.spine.each((item) => { if (found < 0 && baseHref(item.href) === base) found = item.index; });
+      return found;
+    }
+    function chapterOf(href) {
+      const index = spineIndexOf(href);
+      if (index < 0) return '';
+      let best = null;
+      let bestIndex = -1;
+      tocButtons.forEach((b) => {
+        const i = spineIndexOf(b.dataset.href);
+        if (i >= 0 && i <= index && i > bestIndex) { best = b; bestIndex = i; }
+      });
+      return best ? best.textContent : '';
+    }
     function markChapter(href) {
       let current = null;
       tocButtons.forEach((b) => {
@@ -200,7 +250,6 @@
       atEnd = Boolean(location.atEnd);
       showProgress(location.start.cfi);
       markChapter(location.start.href);
-      markBtn.hidden = true;
       if (!moved) return;
       const contents = rendition.getContents().find((c) => c.sectionIndex === location.start.index);
       if (!contents) return;
@@ -211,23 +260,21 @@
       }
     });
 
-    // Select some text to make it the last position, exactly, on every device
-    let selection = null;
-    rendition.on('selected', (cfiRange, contents) => {
-      selection = { cfiRange, contents };
-      markBtn.hidden = false;
+    // Highlights and notes; selecting text also offers to make it the last position, exactly, on every device
+    const highlights = ReaderHighlights.mount({
+      book, rendition, notes, chapterOf,
+      percentageOf: (cfi, index) => { try { return percentage(cfi, index); } catch { return index / Math.max(1, book.spine.length); } },
+      onJump: () => { moved = true; },
     });
-    rendition.on('click', () => { if (selection) setTimeout(() => { selection = null; markBtn.hidden = true; }, 300); });
     markBtn.onclick = () => {
+      const selection = highlights.selection();
       if (!selection) return;
       const { cfiRange, contents } = selection;
       const range = contents.range(cfiRange);
       const pos = position(contents, range);
       pos.context.selected = range.toString().replace(/\s+/g, ' ').trim().slice(0, 200);
       pos.manual = true;
-      contents.window.getSelection().removeAllRanges();
-      selection = null;
-      markBtn.hidden = true;
+      highlights.clearSelection();
       sync.save(pos).then(() => ReaderSync.toast(t('Last position set. Other devices will open the book here.')));
     };
 
@@ -286,6 +333,8 @@
       }
       await rendition.display(start ? start.cfi : undefined).catch(() => rendition.display());
       status.remove();
+      // Highlights made on other devices, and one to open from the book's page (#note=<id>)
+      notes.load().then(() => highlights.openFromHash());
       if (start && start.highlight) {
         rendition.annotations.highlight(start.highlight, {}, null, 'sync-mark');
         setTimeout(() => rendition.annotations.remove(start.highlight, 'highlight'), 6000);
@@ -306,7 +355,7 @@
           rendition.annotations.highlight(goal.highlight, {}, null, 'sync-mark');
           setTimeout(() => rendition.annotations.remove(goal.highlight, 'highlight'), 6000);
         }
-      }));
+      }), { annotations: (list) => notes.applyRemote(list), resync: () => notes.load() });
     }
     book.ready.then(open).catch((err) => { status.textContent = t('Cannot open this book: {reason}', { reason: err }); });
   })();

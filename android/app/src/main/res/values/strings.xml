@@ -231,4 +231,34 @@
     <string name="mark_selected_finished">Mark as finished</string>
     <string name="loading">Loading…</string>
     <plurals name="selected_count"><item quantity="one">%1$d selected</item><item quantity="other">%1$d selected</item></plurals>
+    <string name="highlight">Highlight</string>
+    <string name="add_note">Note</string>
+    <string name="highlights">Highlights</string>
+    <string name="highlights_and_notes">Highlights and notes</string>
+    <string name="no_highlights">No highlights yet</string>
+    <string name="no_highlights_text">Select text while reading to highlight it or add a note. Highlights made on the web or in KOReader show up here too.</string>
+    <string name="note_hint">Write a note…</string>
+    <string name="edit_note">Edit note</string>
+    <string name="new_note">New note</string>
+    <string name="delete_highlight">Delete highlight</string>
+    <string name="highlight_deleted">Highlight deleted</string>
+    <string name="highlight_added">Highlighted</string>
+    <string name="share_highlights">Share highlights</string>
+    <string name="search_highlights">Search highlights and notes</string>
+    <string name="with_note">With a note</string>
+    <string name="all_highlights">All</string>
+    <string name="no_chapter">No chapter</string>
+    <string name="nothing_matches">Nothing matches.</string>
+    <string name="go_to_highlight">Go to the highlight</string>
+    <string name="color_yellow">Yellow</string>
+    <string name="color_green">Green</string>
+    <string name="color_blue">Blue</string>
+    <string name="color_red">Red</string>
+    <string name="color_purple">Purple</string>
+    <string name="color_orange">Orange</string>
+    <string name="color_cyan">Cyan</string>
+    <string name="color_olive">Olive</string>
+    <string name="color_gray">Gray</string>
+    <string name="highlight_color">Colour</string>
+    <plurals name="highlights_count"><item quantity="one">%1$d highlight · %2$d with a note</item><item quantity="other">%1$d highlights · %2$d with a note</item></plurals>
 </resources>

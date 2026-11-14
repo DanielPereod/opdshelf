@@ -125,6 +125,14 @@ function Client:putProgress(document, record)
     return self:json_request("PUT", "/api/progress/" .. document, record)
 end
 
+function Client:getAnnotations(document)
+    return self:json_request("GET", "/api/annotations/" .. document)
+end
+
+function Client:putAnnotations(document, batch)
+    return self:json_request("PUT", "/api/annotations/" .. document, batch)
+end
+
 --- Fetches a text resource (a feed). Returns code, body, headers.
 function Client:fetch(url)
     return self:raw("GET", url, nil, { ["Accept"] = "application/atom+xml, application/xml;q=0.9, */*;q=0.5" })

@@ -131,6 +131,11 @@ ui = {
         getLastPercent = function() return page_first / #words end,
     },
     highlight = { addToHighlightDialog = function(_, id, fn) highlight_buttons[id] = fn end },
+    annotation = { annotations = {}, addItem = function(self, item)
+        item.datetime = "1999-01-01 00:00:00" -- KOReader stamps new items with now
+        table.insert(self.annotations, item)
+        return #self.annotations
+    end },
     handleEvent = function(_, e)
         events[#events+1] = e
         note("event", e.name, e.args[1])
@@ -169,6 +174,8 @@ check(state():readSetting("username") == "admin", "and its username")
 check(not p:ready(), "but needs the password")
 state():saveSetting("password", "secret")
 state():saveSetting("live", false)
+-- Highlights are tested on their own, further down
+state():saveSetting("sync_notes", false)
 p:makeClient()
 check(p:ready(), "ready with a password")
 
@@ -308,7 +315,90 @@ p:onSuspend()
 check(p.stream == nil, "closes it when the device sleeps")
 p:onCloseDocument()
 
--- 10. The home screen as KOReader's start screen
+
+-- 11. Highlights and notes
+state():saveSetting("live", false)
+state():saveSetting("sync_notes", nil)
+local annotations = ui.annotation.annotations
+p = open()
+respond(200, { current = remote("KOBO-ID", 50) })
+local web_note = { id = "web1", text = "w30 w31 w32", note = "From the browser", color = "green", style = "lighten",
+    pos0 = xp(30), pos1 = xp(33), chapter = "One", percentage = 0.075, created = os.time() - 100, updated = os.time() - 50,
+    cfi = "epubcfi(/6/2!/4/2,/1:0,/1:9)", device = "Firefox", device_id = "web" }
+respond(200, { annotations = { web_note, { id = "gone", deleted = true, updated = os.time() } } })
+runScheduled()
+check(last().method == "GET" and last().url == "https://books.example/api/annotations/DOCHASH", "gets the book's highlights after opening it")
+check(#annotations == 1 and annotations[1].opdshelf_id == "web1" and annotations[1].note == "From the browser"
+    and annotations[1].color == "green" and annotations[1].pos0 == xp(30), "adds the highlight made in the browser")
+check(annotations[1].datetime ~= "1999-01-01 00:00:00", "keeping when it was made")
+check(events[#events].name == "AnnotationsModified", "and tells KOReader")
+local n3 = #requests
+p:onAnnotationsModified()
+runScheduled()
+check(#requests == n3, "a highlight that came from the server is not sent back")
+
+-- Highlighted here
+annotations[2] = { datetime = os.date("%Y-%m-%d %H:%M:%S"), text = "w50 w51", pos0 = xp(50), pos1 = xp(52),
+    color = "red", drawer = "underscore", chapter = "Two", page = xp(50) }
+p:onAnnotationsModified()
+check(scheduled[#scheduled].s == 2, "sends new highlights a moment later")
+respond(200, { annotations = { web_note, { id = "placeholder" } } })
+runScheduled()
+local sent = last().body
+check(last().method == "PUT" and last().url == "https://books.example/api/annotations/DOCHASH", "PUTs them")
+check(#sent.annotations == 1 and sent.annotations[1].id:match("^kKOBOID") and sent.annotations[1].color == "red"
+    and sent.annotations[1].style == "underscore" and sent.annotations[1].pos0 == xp(50) and sent.annotations[1].percentage == 0.25,
+    "with an id of their own, colour, style, place and how far in the book")
+check(sent.device_id == "KOBO-ID" and sent.sent_at, "saying which device sends them, and when")
+local mine = sent.annotations[1]
+mine.updated = os.time()
+
+-- A note added to the browser's highlight
+annotations[1].note = "Added on the Kobo"
+p:onAnnotationsModified()
+mine.created = mine.created or os.time()
+respond(200, { annotations = { web_note, mine } })
+runScheduled()
+local function sentById(id) for _, a in ipairs(last().body.annotations) do if a.id == id then return a end end end
+check(sentById("web1") and sentById("web1").note == "Added on the Kobo", "sends a changed note")
+check(sentById("web1").cfi == web_note.cfi, "keeping what the web reader needs to find it")
+check(sentById(mine.id), "and again what the server did not confirm")
+
+-- Deleted here, while offline
+online = false
+table.remove(annotations, 1)
+p:onAnnotationsModified()
+runScheduled()
+online = true
+respond(200, { current = remote("KOBO-ID", 50) })
+respond(200, { annotations = { web_note, mine } })
+respond(200, { annotations = { mine } })
+p:onNetworkConnected(); runScheduled()
+local put = last().body.annotations
+check(last().method == "PUT" and #put == 1 and put[1].id == "web1" and put[1].deleted == true,
+    "a deletion made offline goes out once online, and the server's copy does not bring it back")
+check(#annotations == 1, "so it stays deleted here")
+
+-- Live: changed and deleted on another device
+p:onStreamEvent("annotations", cjson.encode({ document = "DOCHASH", annotations = {
+    { id = mine.id, text = mine.text, pos0 = mine.pos0, pos1 = mine.pos1, color = "blue", style = "lighten",
+      note = "Edited on the phone", updated = os.time() + 10, device_id = "phone" } } }))
+check(annotations[1].color == "blue" and annotations[1].note == "Edited on the phone" and annotations[1].drawer == "lighten",
+    "a change made on another device arrives live")
+local new_one = { id = "phone2", text = "w70 w71", pos0 = xp(70), pos1 = xp(72), color = "yellow", updated = os.time(), device_id = "phone" }
+p:onStreamEvent("annotations", cjson.encode({ document = "DOCHASH", annotations = { new_one } }))
+check(#annotations == 2 and shown[#shown].text:match("A highlight arrived"), "and so does a new one, with a note on screen")
+local lost = { id = "lost", text = "not in this book", pos0 = "/body/DocFragment[9]/p", pos1 = "/body/DocFragment[9]/p[2]", updated = os.time() }
+p:onStreamEvent("annotations", cjson.encode({ document = "DOCHASH", annotations = { lost } }))
+check(#annotations == 2, "a highlight whose text is not in this copy is left out")
+p:onStreamEvent("annotations", cjson.encode({ document = "DOCHASH", annotations = { { id = "phone2", deleted = true, updated = os.time() + 20 } } }))
+check(#annotations == 1 and annotations[1].opdshelf_id == mine.id, "a deletion made elsewhere removes it here")
+n3 = #requests
+p:onAnnotationsModified(); runScheduled()
+check(#requests == n3, "nothing to send back after applying them")
+p:onCloseDocument()
+
+-- 12. The home screen as KOReader's start screen
 local start_with = { sub_item_table = { { text = "file browser" } }, text_func = function() return "Start with: file browser" end }
 local menu_items = { start_with = start_with }
 p:addToMainMenu(menu_items)

@@ -340,6 +340,7 @@
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
+<script src="/static/app/notes.js?v={{v}}"></script>
 <script data-accept="{{accept}}">
   (function () {
     const $ = (id) => document.getElementById(id);
@@ -832,6 +833,7 @@
         const path = insp.querySelector('[data-delete]').dataset.delete;
         markSelected(path);
         paintReading();
+        paintNotes();
         if (push) history.pushState({ panel: href }, '', href);
         insp.querySelector('.tab[aria-current="page"]')?.focus({ preventScroll: true });
       } catch (err) {
@@ -940,6 +942,31 @@
       body.replaceChildren(head, bar, devices, actions);
     }
 
+    // Highlights and notes of the book in the panel, on their own tab
+    let panelNotes = null;
+    function paintNotes() {
+      panelNotes = null;
+      const box = insp.querySelector('[data-notes]');
+      if (!box || !box.dataset.notes) return;
+      const notes = Notes.store(box.dataset.notes);
+      const readable = box.dataset.readable === 'true';
+      const path = box.dataset.path;
+      Notes.view(box, notes, {
+        open: readable ? (a) => { location.href = '/read/' + encodePath(path) + '#note=' + encodeURIComponent(a.id); } : null,
+        toast: (message, action) => showToast(message, action),
+      });
+      notes.onChange(() => {
+        const count = insp.querySelector('.tab[aria-current="page"] .tab-count');
+        const n = notes.list().length;
+        if (count) count.textContent = n || '';
+      });
+      notes.load();
+      panelNotes = notes;
+    }
+    document.addEventListener('remoteannotations', (e) => {
+      if (panelNotes && e.detail.document === panelNotes.documentId) panelNotes.applyRemote(e.detail.annotations || []);
+    });
+
     // Marks books as read or unread in the panel; positions are not changed
     async function markBooks(paths, markState) {
       try {
@@ -989,7 +1016,7 @@
     window.addEventListener('popstate', () => {
       const path = location.pathname;
       editDirty = false;
-      if (path.startsWith('/info/') || path.startsWith('/admin/edit/')) openPanel(path, false);
+      if (path.startsWith('/info/') || path.startsWith('/admin/edit/')) openPanel(path + location.search, false);
       else {
         closePanel(false);
         showPage(path === '/admin/sync' ? 'sync' : 'library');
@@ -1248,7 +1275,10 @@
           clearTimeout(pending);
           pending = setTimeout(loadProgress, 300);
         });
-        source.addEventListener('resync', () => loadProgress());
+        source.addEventListener('annotations', (e) => {
+          document.dispatchEvent(new CustomEvent('remoteannotations', { detail: JSON.parse(e.data) }));
+        });
+        source.addEventListener('resync', () => { loadProgress(); if (panelNotes) panelNotes.load(); });
         source.onerror = () => {
           source.close();
           setLive('off');
@@ -1264,6 +1294,7 @@
     else if (initial) selectShelf(initial);
     else refresh();
     loadProgress();
+    paintNotes();
     liveSync.connect();
     // Times such as "5 minutes ago" move on by themselves
     setInterval(() => { paintProgress(); renderContinue(); }, 60000);

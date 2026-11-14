@@ -1,3 +1,4 @@
+pub mod annotations;
 pub mod apps;
 pub mod archive;
 pub mod auth;

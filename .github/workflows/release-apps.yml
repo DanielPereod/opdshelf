@@ -61,9 +61,10 @@ jobs:
           echo "APP_VERSION_CODE=$(( (stamp - 1700000000) / 60 ))" >> "$GITHUB_ENV"
           echo "APP_VERSION_NAME=$(date -u -d "@$stamp" +%Y.%m.%d)-$CHANNEL.${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
 
-      # Signed with the release key when the repository has it (see the
-      # README), else with the test key kept in android/app. Either way every
-      # build uses the same key, so updates install without uninstalling.
+      # Signed with the release key when the repository has it (see
+      # docs/android.md), so every build updates the installed app in place.
+      # Without it the build uses the test key kept in android/app and comes
+      # out as the separate "OPDShelf test" app, which can't block updates.
       - name: Release key
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}

@@ -222,6 +222,9 @@ class ReaderActivity : AppCompatActivity() {
         ui.showHint = kind == Kind.EPUB && !app.settings.markHintShown
         lifecycleScope.launch {
             nav.currentLocator.collect { locator ->
+                // Each chapter is its own web page: our script (which also steadies text selection) goes into
+                // the one on screen; once there, this only checks that it is
+                if (kind == Kind.EPUB) launch { js("0") }
                 ui.chapter = locator.title ?: chapterOf(locator.href.toString())
                 ui.progression = (locator.locations.totalProgression ?: 0.0).toFloat().coerceIn(0f, 1f)
                 ui.page = locator.locations.position

@@ -177,42 +177,24 @@
         <span class="c-added num"><button type="button" data-sort="date">{{t "Added"}}</button></span>
         <span class="c-read"></span>
       </div>
-      <div class="list" id="bookList">
-        {{#each books}}
-        <div class="book{{#if (eq path ../book.path)}} selected{{/if}}" data-path="{{path}}" data-title="{{title}}"
-          data-authors="{{authors}}" data-author-list="{{authorList}}" data-folder="{{folder}}" data-format="{{format}}" data-added="{{modified}}"
-          data-bytes="{{bytes}}" data-series="{{series}}" data-index="{{seriesIndex}}"
-          data-incomplete="{{#if incomplete}}1{{/if}}" data-readable="{{#if readable}}1{{/if}}"
-          data-cover="{{#if hasCover}}/thumb/{{urlPath path}}?v={{coverVersion}}{{/if}}">
-          <label class="pick"><input type="checkbox" name="path" value="{{path}}" form="bulkForm"
-              aria-label="{{t "Select {title}" title=title}}"></label>
-          <a class="book-link" href="/info/{{urlPath path}}">
-            <span class="thumb">
-              <span>{{format}}</span>
-              {{#if hasCover}}
-              <img src="/thumb/{{urlPath path}}?v={{coverVersion}}" alt="" loading="lazy" onerror="this.remove()">
-              {{/if}}
-              <i class="thumb-bar"></i>
-            </span>
-            <span class="book-name">
-              <b title="{{title}}">{{title}}</b>
-              <span class="book-meta">{{#if noAuthors}}<em class="flag"><i class="fas fa-circle-exclamation"></i>{{t "No author"}}</em>{{else}}{{authors}}{{/if}}{{#if series}} · {{series}}{{#if seriesIndex}} #{{seriesIndex}}{{/if}}{{/if}}{{#unless noAuthors}}{{#unless hasCover}} <em class="flag" title="{{t "No cover"}}"><i class="far fa-image"></i><span class="visually-hidden">{{t "No cover"}}</span></em>{{/unless}}{{/unless}}</span>
-            </span>
+      <div class="list" id="bookList" data-selected="{{book.path}}"></div>
+      <button type="button" class="btn btn-wide more-books" id="moreBooks" hidden></button>
+      <script type="application/json" id="booksData">{{{booksJson}}}</script>
+      <template id="bookRow">
+        <div class="book">
+          <label class="pick"><input type="checkbox"></label>
+          <a class="book-link">
+            <span class="thumb"><span></span><i class="thumb-bar"></i></span>
+            <span class="book-name"><b></b><span class="book-meta"></span></span>
           </a>
-          <span class="c-folder" title="{{folder}}">{{folder}}</span>
-          <span class="c-fmt"><span class="badge">{{format}}</span></span>
+          <span class="c-folder"></span>
+          <span class="c-fmt"><span class="badge"></span></span>
           <span class="c-prog" data-progress><span class="muted">—</span></span>
-          <span class="c-size c-num num">{{size}}</span>
+          <span class="c-size c-num num"></span>
           <span class="c-added c-num num" data-date></span>
-          <span class="c-read">
-            {{#if readable}}
-            <a class="icon-btn" href="/read/{{urlPath path}}" title="{{t "Read"}}" aria-label="{{t "Read"}}"><i
-                class="fas fa-book-open"></i></a>
-            {{/if}}
-          </span>
+          <span class="c-read"></span>
         </div>
-        {{/each}}
-      </div>
+      </template>
       <div class="empty" id="noMatches" hidden>
         <i class="fas fa-magnifying-glass"></i>
         <strong id="noMatchesTitle">{{t "No books match"}}</strong>
@@ -350,8 +332,16 @@
     const accepted = document.currentScript.dataset.accept.split(',');
     const csrf = $('app').dataset.csrf;
     const list = $('bookList');
-    const rows = list ? Array.from(list.querySelectorAll('.book')) : [];
+    // Every book, as data. Only the rows shown are built, a page at a time,
+    // so a library of thousands of books opens quickly.
+    const PAGE = 100;
+    const booksData = $('booksData');
+    const rows = (list && booksData ? JSON.parse(booksData.textContent) : [])
+      .map((d) => ({ dataset: d, hidden: false, checked: false, el: null }));
     const byPath = new Map(rows.map((r) => [r.dataset.path, r]));
+    window.bookByPath = (path) => byPath.get(path)?.dataset;
+    let selectedPath = list ? list.dataset.selected : '';
+    let limit = PAGE;
     const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
     const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
     const state = { shelf: 'all', value: '', sort: 'date', dir: 'desc', query: '' };
@@ -366,14 +356,76 @@
     const pageLang = document.documentElement.lang || undefined;
     const thisYear = new Intl.DateTimeFormat(pageLang, { day: 'numeric', month: 'short' });
     const otherYear = new Intl.DateTimeFormat(pageLang, { month: 'short', year: 'numeric' });
-    rows.forEach((row) => {
-      const date = new Date(row.dataset.added);
-      const cell = row.querySelector('[data-date]');
+    function rowEl(row) {
+      if (row.el) return row.el;
+      const d = row.dataset;
+      const el = $('bookRow').content.firstElementChild.cloneNode(true);
+      Object.entries(d).forEach(([key, value]) => { el.dataset[key] = value; });
+      el._row = row;
+      const box = el.querySelector('.pick input');
+      box.value = d.path;
+      box.checked = row.checked;
+      box.setAttribute('aria-label', t('Select {title}', { title: d.title }));
+      el.querySelector('.book-link').href = '/info/' + encodePath(d.path);
+      const thumb = el.querySelector('.thumb');
+      thumb.firstElementChild.textContent = d.format;
+      if (d.cover) {
+        const img = document.createElement('img');
+        img.src = d.cover; img.alt = ''; img.loading = 'lazy';
+        img.onerror = () => img.remove();
+        thumb.insertBefore(img, thumb.querySelector('.thumb-bar'));
+      }
+      placeholderCover(thumb, d.title, d.authors);
+      const name = el.querySelector('.book-name b');
+      name.textContent = d.title;
+      name.title = d.title;
+      const meta = el.querySelector('.book-meta');
+      const flag = (icon, text, hidden) => {
+        const em = document.createElement('em');
+        em.className = 'flag';
+        em.innerHTML = `<i class="${icon}"></i>`;
+        const label = document.createElement('span');
+        label.textContent = text;
+        if (hidden) { label.className = 'visually-hidden'; em.title = text; }
+        em.append(label);
+        return em;
+      };
+      if (d.authors) meta.textContent = d.authors;
+      else meta.append(flag('fas fa-circle-exclamation', t('No author')));
+      if (d.series) meta.append(' · ' + d.series + (d.index ? ' #' + d.index : ''));
+      if (d.authors && !d.cover) meta.append(' ', flag('far fa-image', t('No cover'), true));
+      const folder = el.querySelector('.c-folder');
+      folder.textContent = d.folder;
+      folder.title = d.folder;
+      el.querySelector('.badge').textContent = d.format;
+      el.querySelector('.c-size').textContent = formatBytes(d.bytes);
+      const date = new Date(d.added);
+      const cell = el.querySelector('[data-date]');
       cell.textContent = (date.getFullYear() === new Date().getFullYear() ? thisYear : otherYear).format(date);
       cell.title = date.toLocaleString(pageLang);
-      row.querySelector('.c-size').textContent = formatBytes(row.dataset.bytes);
-      placeholderCover(row.querySelector('.thumb'), row.dataset.title, row.dataset.authors);
-    });
+      if (d.readable) {
+        const read = document.createElement('a');
+        read.className = 'icon-btn';
+        read.href = '/read/' + encodePath(d.path);
+        read.title = t('Read');
+        read.setAttribute('aria-label', t('Read'));
+        read.innerHTML = '<i class="fas fa-book-open"></i>';
+        el.querySelector('.c-read').append(read);
+      }
+      el.classList.toggle('selected', d.path === selectedPath);
+      row.el = el;
+      paintRow(row);
+      return el;
+    }
+    function renderRows() {
+      if (!list) return;
+      const visible = rows.filter((r) => !r.hidden);
+      list.replaceChildren(...visible.slice(0, limit).map(rowEl));
+      const left = visible.length - limit;
+      $('moreBooks').hidden = left <= 0;
+      $('moreBooks').textContent = t('Show {n} more', { n: Math.min(left, PAGE) });
+    }
+    if ($('moreBooks')) $('moreBooks').addEventListener('click', () => { limit += PAGE; renderRows(); });
     $('recentCount').textContent = rows.filter((r) => Date.parse(r.dataset.added) > weekAgo).length;
 
     // Authors and series shelves, from the books on the page
@@ -477,7 +529,7 @@
       finished: [t('No finished books yet'), t('Books read to the end on any device show up here.')],
     };
 
-    function refresh() {
+    function refresh(keepPage) {
       const query = state.query.toLowerCase().trim();
       let shown = 0;
       rows.forEach((row) => {
@@ -486,7 +538,7 @@
         const visible = inShelf(row) && (!query || text.includes(query));
         row.hidden = !visible;
         if (visible) shown++;
-        else row.querySelector('.pick input').checked = false;
+        else setChecked(row, false);
       });
       // A series sorts under its name, and its books in volume order
       const titleKey = (row) => row.dataset.series || row.dataset.title;
@@ -516,7 +568,8 @@
         ? (a, b) => lastRead(b) - lastRead(a)
         : (a, b) => sign * compare(a, b);
       rows.sort(sorter);
-      rows.forEach((row) => list.appendChild(row));
+      if (!keepPage) limit = PAGE;
+      renderRows();
       $('shownCount').textContent = shown;
       if ($('noMatches')) {
         $('noMatches').hidden = shown > 0 || rows.length === 0;
@@ -640,16 +693,18 @@
       cell.title = t('{pct}% on {device}, {when}', { pct: pct(p), device: p.device || t('another device'), when: timeAgo(p.timestamp) });
       return cell;
     }
+    function paintRow(row) {
+      const el = row.el;
+      const p = progress.get(row.dataset.path);
+      const cell = el.querySelector('[data-progress]');
+      el.classList.toggle('done', Boolean(isFinished(p)));
+      el.style.setProperty('--read', p ? pct(p) + '%' : '0%');
+      el.classList.toggle('started', Boolean(p));
+      if (p) cell.replaceChildren(progressCell(p));
+      else cell.innerHTML = '<span class="muted">—</span>';
+    }
     function paintProgress() {
-      rows.forEach((row) => {
-        const p = progress.get(row.dataset.path);
-        const cell = row.querySelector('[data-progress]');
-        row.classList.toggle('done', Boolean(isFinished(p)));
-        row.style.setProperty('--read', p ? pct(p) + '%' : '0%');
-        row.classList.toggle('started', Boolean(p));
-        if (p) cell.replaceChildren(progressCell(p));
-        else cell.innerHTML = '<span class="muted">—</span>';
-      });
+      rows.forEach((row) => { if (row.el) paintRow(row); });
       const all = Array.from(progress.entries()).filter(([path]) => byPath.has(path));
       $('readingCount').textContent = all.filter(([, p]) => isReading(p)).length || '';
       $('finishedCount').textContent = all.filter(([, p]) => isFinished(p)).length || '';
@@ -719,7 +774,7 @@
           }
         });
         paintProgress();
-        refresh();
+        refresh(true);
         document.dispatchEvent(new CustomEvent('progresschange'));
       } catch {
         // The library works without positions
@@ -762,7 +817,11 @@
 
     // ------------------------------------------------------------ selection
     function picked() {
-      return rows.filter((r) => !r.hidden && r.querySelector('.pick input').checked);
+      return rows.filter((r) => !r.hidden && r.checked);
+    }
+    function setChecked(row, checked) {
+      row.checked = checked;
+      if (row.el) row.el.querySelector('.pick input').checked = checked;
     }
     function updateBulk() {
       const count = picked().length;
@@ -775,9 +834,22 @@
         $('pickAll').indeterminate = count > 0 && count < shown;
       }
     }
-    if (list) list.addEventListener('change', (e) => { if (e.target.matches('.pick input')) updateBulk(); });
+    if (list) list.addEventListener('change', (e) => {
+      if (!e.target.matches('.pick input')) return;
+      e.target.closest('.book')._row.checked = e.target.checked;
+      updateBulk();
+    });
+    // The rows shown are only a page of the books: the ones picked are sent as fields
+    $('bulkForm').addEventListener('submit', () => {
+      $('bulkForm').querySelectorAll('input[data-picked]').forEach((i) => i.remove());
+      picked().forEach((r) => {
+        const input = document.createElement('input');
+        input.type = 'hidden'; input.name = 'path'; input.value = r.dataset.path; input.dataset.picked = '';
+        $('bulkForm').append(input);
+      });
+    });
     if ($('pickAll')) $('pickAll').addEventListener('change', (e) => {
-      rows.forEach((r) => { if (!r.hidden) r.querySelector('.pick input').checked = e.target.checked; });
+      rows.forEach((r) => { if (!r.hidden) setChecked(r, e.target.checked); });
       updateBulk();
     });
     // Touch screens have no hover and phones hide the boxes: a button turns
@@ -785,7 +857,7 @@
     function setSelecting(on) {
       $('books').classList.toggle('selecting', on);
       if ($('selectBtn')) $('selectBtn').setAttribute('aria-pressed', on);
-      if (!on) rows.forEach((r) => { r.querySelector('.pick input').checked = false; });
+      if (!on) rows.forEach((r) => setChecked(r, false));
       updateBulk();
     }
     if ($('selectBtn')) $('selectBtn').addEventListener('click', () => setSelecting(!$('books').classList.contains('selecting')));
@@ -795,8 +867,7 @@
       if (!row || e.target.closest('.pick')) return;
       e.preventDefault();
       e.stopPropagation();
-      const box = row.querySelector('.pick input');
-      box.checked = !box.checked;
+      setChecked(row._row, !row._row.checked);
       updateBulk();
     }, true);
     $('bulkClear').addEventListener('click', () => setSelecting(false));
@@ -816,7 +887,8 @@
     const insp = $('insp');
     let editDirty = false;
     function markSelected(path) {
-      rows.forEach((r) => r.classList.toggle('selected', r.dataset.path === path));
+      selectedPath = path;
+      rows.forEach((r) => { if (r.el) r.el.classList.toggle('selected', r.dataset.path === path); });
     }
     async function leaveEdit() {
       if (!editDirty) return true;

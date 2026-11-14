@@ -390,7 +390,8 @@ async fn web_reader() {
     let (_, headers, _) = t.get("/download/b.epub?inline=1").await;
     assert!(headers["content-disposition"].starts_with("inline"));
     let admin = t.text("/admin").await;
-    assert!(admin.contains("/read/b.epub") && !admin.contains("/read/m.mobi"));
+    assert!(admin.contains(r#""path":"b.epub","readable":"1""#));
+    assert!(admin.contains(r#""path":"m.mobi","readable":"""#));
 }
 
 #[tokio::test]
@@ -488,7 +489,7 @@ async fn series_from_edits_in_volume_order() {
     assert_eq!(t.get("/opds/series/Nada").await.0, StatusCode::NOT_FOUND);
 
     let info = t.text("/info/Ultimo.txt").await;
-    assert!(info.contains("La saga #10"));
+    assert!(info.contains("La saga</button> #10"));
     let edit = t.text("/admin/edit/Ultimo.txt").await;
     assert!(edit.contains(r#"name="series_index" id="f-series-index" value="10""#));
 }

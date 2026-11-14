@@ -218,6 +218,7 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("Folder…", "Carpeta…"),
     ("Clear search", "Borrar búsqueda"),
     ("Show all ({n})", "Ver todos ({n})"),
+    ("Show {n} more", "Mostrar {n} más"),
     ("Show fewer", "Ver menos"),
     ("Theme: {name}", "Tema: {name}"),
     ("System", "Sistema"),

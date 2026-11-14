@@ -68,6 +68,12 @@ class LocalStore(private val dir: File) {
     val books: StateFlow<List<LocalBook>> = _books.asStateFlow()
     private var positions: Map<String, LocalPosition> = read(positionsFile, positionsSerializer) ?: emptyMap()
 
+    private val annotationsFile = File(dir, "annotations.json")
+    private val annotationsSerializer = MapSerializer(String.serializer(), LocalAnnotations.serializer())
+    private val _annotations = MutableStateFlow(read(annotationsFile, annotationsSerializer) ?: emptyMap())
+    /** Highlights of each book (by document id), as they change. */
+    val annotations: StateFlow<Map<String, LocalAnnotations>> = _annotations.asStateFlow()
+
     fun book(id: String): LocalBook? = _books.value.firstOrNull { it.id == id }
 
     fun file(book: LocalBook): File = File(booksDir, book.fileName)
@@ -136,6 +142,21 @@ class LocalStore(private val dir: File) {
     @Synchronized
     fun pending(): Map<String, Position> =
         positions.filterValues { it.pending }.mapValues { it.value.position }
+
+    @Synchronized
+    fun annotations(document: String): LocalAnnotations = _annotations.value[document] ?: LocalAnnotations()
+
+    @Synchronized
+    fun updateAnnotations(document: String, change: (LocalAnnotations) -> LocalAnnotations) {
+        val next = change(annotations(document))
+        _annotations.value = _annotations.value + (document to next)
+        write(annotationsFile, annotationsSerializer, _annotations.value)
+    }
+
+    /** Highlight changes not sent yet, by book. */
+    @Synchronized
+    fun pendingAnnotations(): Map<String, List<Annotation>> =
+        _annotations.value.mapValues { it.value.pending.values.toList() }.filterValues { it.isNotEmpty() }
 
     private fun <T> read(file: File, serializer: kotlinx.serialization.KSerializer<T>): T? =
         runCatching { json.decodeFromString(serializer, file.readText()) }.getOrNull()

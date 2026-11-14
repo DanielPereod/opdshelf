@@ -9,6 +9,11 @@ shows the English text.
 local gettext = require("gettext")
 
 local es = {
+    ["Highlights and notes"] = "Subrayados y notas",
+    ["The highlights and notes of this book, from every device. They sync with the web reader and the Android app."] = "Los subrayados y notas de este libro, de todos los dispositivos. Se sincronizan con el lector web y la app de Android.",
+    ["Sync highlights and notes"] = "Sincronizar subrayados y notas",
+    ["A highlight arrived from another device"] = "Ha llegado un subrayado de otro dispositivo",
+    ["%1 highlights arrived from other devices"] = "Han llegado %1 subrayados de otros dispositivos",
     ["All books by title"] = "Todos los libros por título",
     ["All books"] = "Todos los libros",
     ["Folders"] = "Carpetas",

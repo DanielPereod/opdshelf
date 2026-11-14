@@ -10,6 +10,8 @@ OPDShelf for KOReader.
   they last agreed (for example one of them offline) it lets you choose.
 - "Set as last position" in the text selection menu sends the exact
   sentence, so every device opens the book right there.
+- Highlights and notes sync with the web reader and the Android app, live
+  while the book is open: made, changed or deleted on any device.
 - A library browser for the server's OPDS catalog, with covers as a list or
   a grid, search, book details and downloads.
 - A home screen that can replace KOReader's start screen: the book to
@@ -38,6 +40,7 @@ local logger = require("logger")
 local util = require("util")
 local Client = require("opdshelf_client")
 local Stream = require("opdshelf_stream")
+local Notes = require("opdshelf_notes")
 local Sync = require("opdshelf_sync")
 local T = require("ffi/util").template
 local _ = require("opdshelf_i18n")
@@ -50,6 +53,8 @@ local HIGHLIGHT_SECONDS = 6
 local PUSH_DELAY = 3
 -- How often the live connection is read while a book is open
 local STREAM_POLL = 2
+-- Seconds after changing highlights before they are sent
+local NOTES_DELAY = 2
 -- Waits before reconnecting the live connection, in seconds
 local RETRY = { 5, 15, 30, 60, 120, 300 }
 
@@ -728,7 +733,10 @@ function OPDShelf:startStream()
         on_open = function()
             self.stream_failures = 0
             -- Catch up with what changed while disconnected
-            if reconnecting then self:pull("live") end
+            if reconnecting then
+                self:pull("live")
+                self:pullNotes()
+            end
         end,
         on_event = function(name, data)
             self:onStreamEvent(name, data)
@@ -774,8 +782,14 @@ function OPDShelf:onStreamEvent(name, data)
         if ok and type(change) == "table" and change.document == self.document then
             self:handleRemote(change.current, "live")
         end
+    elseif name == "annotations" then
+        local ok, change = pcall(JSON.decode, data)
+        if ok and type(change) == "table" and change.document == self.document then
+            self:receiveNotes(change.annotations, true)
+        end
     elseif name == "resync" then
         self:pull("live")
+        self:pullNotes()
     end
 end
 
@@ -797,6 +811,7 @@ function OPDShelf:onReaderReady()
         self:offerToStopProgressSync()
         if NetworkMgr:isOnline() then
             self:syncNow("open")
+            self:pullNotes()
             self:startStream()
         end
     end)
@@ -856,6 +871,7 @@ function OPDShelf:onNetworkConnected()
         self:flush(false)
         if self:hasBook() then
             self:pull("open")
+            self:pullNotes()
             self:startStream()
         end
     end)
@@ -876,17 +892,210 @@ function OPDShelf:onResume()
     UIManager:scheduleIn(2, function()
         if self.closed or not NetworkMgr:isOnline() then return end
         self:syncNow("open")
+        self:pullNotes()
         self:startStream()
     end)
 end
 
 function OPDShelf:onCloseDocument()
     self:pushNow()
+    if self.notes_task then UIManager:unschedule(self.notes_task) end
+    if self:hasBook() and NetworkMgr:isOnline() then self:pushNotes() end
     self.closed = true
     self:stopStream()
     self:closePrompt()
     if self.push_task then UIManager:unschedule(self.push_task) end
     if self.clear_task then UIManager:unschedule(self.clear_task) end
+end
+
+-- ---------------------------------------------------------------------------
+-- Highlights and notes
+
+function OPDShelf:notesEnabled()
+    return self.state:readSetting("sync_notes") ~= false
+        and self.ui.annotation ~= nil and type(self.ui.annotation.annotations) == "table"
+end
+
+function OPDShelf:notesSnapshot()
+    if not self.notes_snapshot then
+        self.notes_snapshot = self.ui.doc_settings:readSetting("opdshelf_notes") or {}
+    end
+    return self.notes_snapshot
+end
+
+function OPDShelf:saveNotesSnapshot()
+    self.ui.doc_settings:saveSetting("opdshelf_notes", self.notes_snapshot)
+end
+
+-- Gives new highlights an id and notes when highlights changed here
+function OPDShelf:trackNotes()
+    if not self:notesEnabled() then return false end
+    local changed = Notes.track(self.ui.annotation.annotations, self:notesSnapshot(), os.time(), function(item)
+        return Notes.newId(self.device_id, item)
+    end)
+    if changed then self:saveNotesSnapshot() end
+    return changed
+end
+
+function OPDShelf:notePercentage(item)
+    local doc = self.ui.document
+    if type(item.pos0) == "table" then
+        local count = doc.getPageCount and doc:getPageCount() or 0
+        return count > 0 and math.min(1, (item.pos0.page or 0) / count) or 0
+    end
+    return self:percentageAt(item.pos0)
+end
+
+function OPDShelf:notesExtra(item)
+    return {
+        percentage = item and self:notePercentage(item) or nil,
+        device = self:deviceName(),
+        device_id = self.device_id,
+    }
+end
+
+-- KOReader says the highlights changed: they are sent a moment later
+function OPDShelf:onAnnotationsModified()
+    if self.applying_notes or not self.started or self.closed or not self:notesEnabled() then return end
+    self:trackNotes()
+    self.notes_task = self.notes_task or function() self:pushNotes() end
+    UIManager:unschedule(self.notes_task)
+    UIManager:scheduleIn(NOTES_DELAY, self.notes_task)
+end
+
+--- Sends highlights changed or deleted here.
+function OPDShelf:pushNotes()
+    if not self:hasBook() or not self:ready() or not self:notesEnabled() or not NetworkMgr:isOnline() then return end
+    self:trackNotes()
+    local snapshot = self:notesSnapshot()
+    local out = Notes.outgoing(self.ui.annotation.annotations, snapshot, function(item) return self:notesExtra(item) end)
+    if #out == 0 then return end
+    local code, body = self.client:putAnnotations(self.document, {
+        device = self:deviceName(), device_id = self.device_id, sent_at = os.time(), annotations = out,
+    })
+    if code ~= 200 or type(body) ~= "table" then
+        logger.dbg("OPDShelf: highlights not sent:", code)
+        return
+    end
+    self:noteServerTime(body)
+    Notes.agree(snapshot, out, body.annotations)
+    self:saveNotesSnapshot()
+    -- Changes made elsewhere meanwhile
+    self:receiveNotes(body.annotations, false)
+end
+
+--- Gets the book's highlights from the server, then sends what changed here.
+function OPDShelf:pullNotes()
+    if not self:hasBook() or not self:ready() or not self:notesEnabled() or not NetworkMgr:isOnline() then return end
+    local code, body = self.client:getAnnotations(self.document)
+    if code ~= 200 or type(body) ~= "table" then return end
+    self:receiveNotes(body.annotations, false)
+    self:pushNotes()
+end
+
+-- Where a highlight from another device is in this book: its xpointers, or
+-- else where its text is found
+function OPDShelf:placeNote(item)
+    local doc = self.ui.document
+    local function squeeze(s) return ((s or ""):gsub("%s+", "")) end
+    local want = squeeze(item.text)
+    if self:validXPointer(item.pos0) and self:validXPointer(item.pos1) then
+        local ok, got = pcall(doc.getTextFromXPointers, doc, item.pos0, item.pos1)
+        got = ok and squeeze(got) or ""
+        if want == "" or got == want or got:sub(1, 16) == want:sub(1, 16) then return true end
+    end
+    if want == "" or not doc.findAllText then return false end
+    local text = util.cleanupSelectedText and util.cleanupSelectedText(item.text) or item.text
+    local ok, found = pcall(doc.findAllText, doc, text:sub(1, 200), false, 0, 50, false)
+    if not ok or type(found) ~= "table" or #found == 0 then return false end
+    local hit = found[1]
+    local near = self:percentageAt(item.pos0 or "")
+    local best = math.huge
+    for _, f in ipairs(found) do
+        local d = math.abs(self:percentageAt(f.start) - near)
+        if d < best then best, hit = d, f end
+    end
+    item.pos0, item.pos1, item.page = hit.start, hit["end"], hit.start
+    return true
+end
+
+--- Applies highlights from the server: new ones, changed ones and deletions.
+function OPDShelf:receiveNotes(list, live)
+    if type(list) ~= "table" or not self:hasBook() or not self:notesEnabled() then return end
+    local doc = self.ui.document
+    if doc.info.has_pages then
+        -- Highlights of PDFs and comics go to the server, but are drawn only where they were made
+        self:trackNotes()
+        Notes.merge({}, {}, self:notesSnapshot())
+        return
+    end
+    self:trackNotes()
+    local items = self.ui.annotation.annotations
+    local actions = Notes.merge(items, list, self:notesSnapshot())
+    local count = #actions.add + #actions.update + #actions.remove
+    if count == 0 then
+        self:saveNotesSnapshot()
+        return
+    end
+    self.applying_notes = true
+    local added = 0
+    for _, server in ipairs(actions.add) do
+        local item = Notes.fromServer(server)
+        if self:placeNote(item) then
+            local datetime = item.datetime
+            if doc.getPageFromXPointer then
+                local ok, page = pcall(doc.getPageFromXPointer, doc, item.pos0)
+                if ok then item.pageno = page end
+            end
+            if not item.chapter and self.ui.toc and self.ui.toc.getTocTitleByPage then
+                local ok, title = pcall(self.ui.toc.getTocTitleByPage, self.ui.toc, item.pos0)
+                if ok and title ~= "" then item.chapter = title end
+            end
+            local index
+            if self.ui.annotation.addItem then
+                index = self.ui.annotation:addItem(item)
+            else
+                table.insert(items, item)
+                index = #items
+            end
+            item.datetime = datetime
+            item.opdshelf_sig = Notes.signature(item)
+            added = added + 1
+            self.ui:handleEvent(Event:new("AnnotationsModified", { item, nb_highlights_added = 1, index_modified = index }))
+        else
+            -- Its text is not in this copy of the book: forget it here, keep it on the server
+            self:notesSnapshot()[server.id] = nil
+        end
+    end
+    for _, pair in ipairs(actions.update) do
+        local item, server = pair[1], pair[2]
+        local had_note = item.note ~= nil and item.note ~= ""
+        local fresh = Notes.fromServer(server)
+        item.note, item.color, item.drawer = fresh.note, fresh.color, fresh.drawer
+        item.datetime_updated = fresh.datetime_updated
+        item.opdshelf_updated = server.updated
+        item.opdshelf_server = fresh.opdshelf_server
+        item.opdshelf_sig = Notes.signature(item)
+        local has_note = item.note ~= nil
+        self.ui:handleEvent(Event:new("AnnotationsModified", { item,
+            nb_notes_added = (has_note and not had_note) and 1 or ((had_note and not has_note) and -1 or nil) }))
+    end
+    for _, item in ipairs(actions.remove) do
+        for i = #items, 1, -1 do
+            if items[i] == item then
+                table.remove(items, i)
+                self.ui:handleEvent(Event:new("AnnotationsModified", { item, nb_highlights_added = -1, index_modified = -i }))
+                break
+            end
+        end
+    end
+    self.applying_notes = false
+    self:saveNotesSnapshot()
+    UIManager:setDirty(self.dialog, "ui")
+    if live and added > 0 then
+        Notification:notify(added == 1 and _("A highlight arrived from another device")
+            or T(_("%1 highlights arrived from other devices"), added), Notification.SOURCE_ALWAYS_SHOW)
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -1136,6 +1345,12 @@ function OPDShelf:menuItems()
             callback = function() self:onOPDShelfSync() end,
         },
         {
+            text = _("Highlights and notes"),
+            help_text = _("The highlights and notes of this book, from every device. They sync with the web reader and the Android app."),
+            enabled_func = function() return in_book end,
+            callback = function() self.ui:handleEvent(Event:new("ShowBookmark")) end,
+        },
+        {
             text = _("Go to where another device left it"),
             enabled_func = function() return in_book and self:ready() end,
             callback = function() self:showPositions() end,
@@ -1149,6 +1364,15 @@ function OPDShelf:menuItems()
                 self.state:saveSetting("live", not self:liveEnabled())
                 self.state:flush()
                 if self:liveEnabled() then self:startStream() else self:stopStream() end
+            end,
+        },
+        {
+            text = _("Sync highlights and notes"),
+            checked_func = function() return self.state:readSetting("sync_notes") ~= false end,
+            callback = function()
+                self.state:saveSetting("sync_notes", self.state:readSetting("sync_notes") == false)
+                self.state:flush()
+                if self:notesEnabled() then self:pullNotes() end
             end,
         },
         {

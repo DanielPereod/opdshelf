@@ -6,29 +6,6 @@
 // done meanwhile on another device. While a book is open, positions saved on
 // other devices arrive live through /api/progress/events.
 (function () {
-  function deviceId() {
-    let id = storeGet('opdshelf:device-id');
-    if (!id) {
-      id = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now()).replace(/-/g, '');
-      storeSet('opdshelf:device-id', id);
-    }
-    return id;
-  }
-
-  function deviceName() {
-    const ua = navigator.userAgent;
-    const browser = /Edg\//.test(ua) ? 'Edge'
-      : /Firefox\//.test(ua) ? 'Firefox'
-        : /Chrome\//.test(ua) ? 'Chrome'
-          : /Safari\//.test(ua) ? 'Safari' : 'Browser';
-    const os = /Android/.test(ua) ? 'Android'
-      : /iPhone|iPad/.test(ua) ? 'iOS'
-        : /Mac OS X/.test(ua) ? 'macOS'
-          : /Windows/.test(ua) ? 'Windows'
-            : /Linux/.test(ua) ? 'Linux' : '';
-    return os ? `${browser} on ${os}` : browser;
-  }
-
   function toast(message, action) {
     document.querySelectorAll('.reader-toast').forEach((t) => t.remove());
     const el = document.createElement('div');
@@ -71,8 +48,7 @@
   }
 
   function create(documentId) {
-    const me = deviceId();
-    const device = deviceName();
+    const { id: me, name: device } = opdshelfDevice();
     const localKey = 'opdshelf:position:' + documentId;
     let timer = null;
     let following = false;
@@ -158,10 +134,12 @@
       return Promise.resolve();
     }
 
-    // Calls `onRemote(record)` when another device moves this book on.
-    function follow(onRemote) {
+    // Calls `onRemote(record)` when another device moves this book on, and
+    // `extra.annotations(list)` when highlights of the book change elsewhere.
+    function follow(onRemote, extra = {}) {
       if (!documentId || !window.EventSource) return;
       let retry = 2000;
+      let reconnecting = false;
       const query = new URLSearchParams({ documents: documentId, device_id: me, device });
       const connect = () => {
         const source = new EventSource('/api/progress/events?' + query);
@@ -169,6 +147,9 @@
           retry = 2000;
           following = true;
           if (!(readLocal() || {}).pending) showState('live');
+          // Catch up with highlights changed while disconnected
+          if (reconnecting && extra.resync) extra.resync();
+          reconnecting = true;
         });
         source.addEventListener('progress', (e) => {
           const change = JSON.parse(e.data);
@@ -177,7 +158,12 @@
           writeLocal({ record, pending: false });
           onRemote(record);
         });
+        source.addEventListener('annotations', (e) => {
+          const change = JSON.parse(e.data);
+          if (extra.annotations && change.document === documentId) extra.annotations(change.annotations || []);
+        });
         source.addEventListener('resync', async () => {
+          if (extra.resync) extra.resync();
           try {
             const record = (await request('GET')).current;
             if (record && record.device_id !== me) onRemote(record);

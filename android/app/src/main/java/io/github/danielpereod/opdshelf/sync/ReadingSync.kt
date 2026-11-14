@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.github.danielpereod.opdshelf.app
+import io.github.danielpereod.opdshelf.data.Annotation
 import io.github.danielpereod.opdshelf.data.Api
 import io.github.danielpereod.opdshelf.data.HttpError
 import io.github.danielpereod.opdshelf.data.LocalPosition
@@ -43,7 +44,9 @@ class ReadingSync(
     private val api: Api,
     private val store: LocalStore,
 ) {
-    private val _status = MutableStateFlow(SyncStatus(pending = store.pending().size, lastSync = settings.lastSync))
+    private val _status = MutableStateFlow(SyncStatus(pending = pendingCount(), lastSync = settings.lastSync))
+
+    private fun pendingCount() = store.pending().size + store.pendingAnnotations().values.sumOf { it.size }
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
 
     /** Where to open a book: the newest of this device's position and the server's. */
@@ -70,14 +73,52 @@ class ReadingSync(
         )
         store.savePosition(document, LocalPosition(stamped, pending = true, locator = locator))
         store.setPercentage(document, stamped.percentage)
-        _status.update { it.copy(pending = store.pending().size) }
+        _status.update { it.copy(pending = pendingCount()) }
         schedule(if (now) 0 else 2)
     }
+
+    /** Saves a new or changed highlight (or a deletion) and sends it when possible. */
+    fun annotate(document: String, annotation: Annotation): Annotation {
+        val now = System.currentTimeMillis() / 1000
+        val before = store.annotations(document).find(annotation.id)
+        val stamped = annotation.copy(
+            updated = maxOf(now, before?.updated ?: 0),
+            created = annotation.created.takeIf { it > 0 } ?: before?.created ?: now,
+            device = settings.deviceName,
+            deviceId = settings.deviceId,
+        )
+        store.updateAnnotations(document) { it.copy(pending = it.pending + (stamped.id to stamped)) }
+        _status.update { it.copy(pending = pendingCount()) }
+        schedule(1)
+        return stamped
+    }
+
+    /** Gets a book's highlights from the server, keeping changes not sent yet. */
+    suspend fun refreshAnnotations(document: String): Boolean = runCatching {
+        val server = api.getAnnotations(document)
+        store.updateAnnotations(document) { it.adopt(server) }
+        if (store.annotations(document).pending.isNotEmpty()) schedule(0)
+        true
+    }.getOrDefault(false)
 
     /** Sends every pending position now. Returns false if some could not be sent. */
     suspend fun flush(): Boolean {
         _status.update { it.copy(syncing = true) }
         var ok = true
+        for ((document, batch) in store.pendingAnnotations()) {
+            try {
+                val answer = api.putAnnotations(document, batch)
+                store.updateAnnotations(document) { it.sent(batch).adopt(answer) }
+            } catch (e: HttpError) {
+                if (e.code in 400..499 && e.code != 401 && e.code != 408 && e.code != 429) {
+                    store.updateAnnotations(document) { it.sent(batch) }
+                } else {
+                    ok = false
+                }
+            } catch (e: Exception) {
+                ok = false
+            }
+        }
         for ((document, position) in store.pending()) {
             try {
                 api.putProgress(document, position)
@@ -94,7 +135,7 @@ class ReadingSync(
             }
         }
         if (ok) settings.lastSync = System.currentTimeMillis()
-        _status.value = SyncStatus(store.pending().size, settings.lastSync, syncing = false, failing = !ok)
+        _status.value = SyncStatus(pendingCount(), settings.lastSync, syncing = false, failing = !ok)
         return ok
     }
 

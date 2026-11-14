@@ -12,7 +12,7 @@
 
 use axum::body::Body;
 use axum::extract::{Request, State};
-use axum::http::{header, HeaderValue, StatusCode};
+use axum::http::{header, HeaderValue};
 use axum::response::{IntoResponse, Redirect, Response};
 use std::path::PathBuf;
 use tower::ServiceExt;
@@ -64,10 +64,9 @@ async fn serve(state: &AppState, app: &App, request: Request) -> Response {
         return Redirect::temporary(&release_url(state, app)).into_response();
     };
     let mime = app.mime.parse().expect("valid mime");
-    let mut response = match ServeFile::new_with_mime(&path, &mime).oneshot(request).await {
-        Ok(response) => response.map(Body::new),
-        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
-    };
+    // Serving a file never fails: errors become responses (the error type is Infallible)
+    let Ok(response) = ServeFile::new_with_mime(&path, &mime).oneshot(request).await;
+    let mut response = response.map(Body::new);
     let headers = response.headers_mut();
     if let Ok(value) = HeaderValue::from_str(&format!("attachment; filename=\"{}\"", app.file)) {
         headers.insert(header::CONTENT_DISPOSITION, value);

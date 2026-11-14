@@ -9,6 +9,19 @@ Which position wins:
 - A device that sends again the position it already had (readers do this when they close or sleep) has not moved, so it does not undo reading done meanwhile on another device.
 - The last 30 positions of each book are kept.
 
+## Highlights and notes
+
+Highlights and notes sync between the web reader, the Android app and KOReader, in both directions:
+
+- **Web reader**: select text to pick a colour (it highlights at once), add a **Note**, copy it or make it the last position. Click a highlight to change its note or colour, or delete it. The highlighter button in the bar opens the book's highlights beside the page.
+- **Android app**: select text and choose **Highlight** or **Note**; tap a highlight to edit it. The contents sheet has a **Highlights** tab, and the book's page lists them too.
+- **KOReader**: highlight as usual; the plugin sends new, changed and deleted highlights a couple of seconds later and draws the ones made elsewhere. They show in KOReader's own bookmarks list (**Tools → OPDShelf → Highlights and notes**). **Sync highlights and notes** in the same menu turns it off.
+- **The book's page** in the web panel has a **Highlights** tab: grouped by chapter in reading order, with search, filters by colour and "with a note", editing, a link that opens the reader right at each highlight, and export to Markdown or JSON.
+
+Each highlight has an id made where it was created, so every device edits the same one; the most recent change of each highlight wins and deletions reach devices that were offline. While a book is open, changes arrive live in the web reader and KOReader (the Android app checks every 30 seconds). Highlights are kept in `DATA_DIR/annotations.json`.
+
+A highlight is stored with KOReader's xpointers of its start and end, the text, the words around it and, from the web, the EPUB CFI. When a device cannot follow the xpointers (another copy of the book, or a reader that splits the text differently) it finds the text instead. Highlights in PDFs and comics sync and are listed everywhere, but only drawn in the reader they were made in.
+
 ## KOReader
 
 Install the OPDShelf plugin from [`koreader/opdshelf.koplugin`](../koreader/opdshelf.koplugin): copy the `opdshelf.koplugin` folder into KOReader's `plugins` folder (`.adds/koreader/plugins` on Kobo, `koreader/plugins` on Kindle and in Android's storage) and restart KOReader. Then in **Tools → OPDShelf → Server** enter the server address and OPDShelf's username and password. If Progress sync already pointed to `…/kosync`, the address and username are filled in.
@@ -48,9 +61,13 @@ KOReader's own **Progress sync** also works without the plugin: set its custom s
 | `GET` | `/api/progress/<document>` | `current` position and `history` of a book |
 | `PUT` | `/api/progress/<document>` | Save a position: `progress`, `percentage` (0–1), `device`, `device_id`, and optionally `cfi`, `context` (`before`, `after`, `selected`), `manual`, `timestamp` (Unix seconds, when it was read) and `sent_at` (the device's clock when sending, to correct a wrong clock). Answers the `current` position, whether yours was `accepted` (false when a newer one from another device won) and `server_time` |
 | `GET` | `/api/progress` | The `current` position of every book that has one, newest first, with the `path` and `title` of the book (`null` when the file is not in the library) |
-| `GET` | `/api/progress/events` | Server-sent events: `hello` (`server_time`), then `progress` (`document`, `current`) on every change of a book's current position, and `resync` if some were missed. `?documents=<id>,<id>` limits it to those books. Adding `&device_id=<id>&device=<name>` shows the device as connected in the web panel while the stream is open |
+| `GET` | `/api/progress/events` | Server-sent events: `hello` (`server_time`), then `progress` (`document`, `current`) on every change of a book's current position, `annotations` (`document`, `annotations`) with the highlights that changed, and `resync` if some were missed. `?documents=<id>,<id>` limits it to those books. Adding `&device_id=<id>&device=<name>` shows the device as connected in the web panel while the stream is open |
 | `GET` | `/api/devices` | Every device that saved a position or is listening: `device_id`, `device`, `last_seen`, `live`, `connections`, number of `books` and `positions`, and its `recent` books with their percentage |
 | `DELETE` | `/api/devices/<device_id>` | Forget a device: removes its positions. Needs the panel's `X-CSRF-Token` header |
+| `GET` | `/api/annotations/<document>` | Every highlight of a book in reading order: `id`, `text`, `note`, `color` (`yellow`, `orange`, `red`, `purple`, `blue`, `cyan`, `green`, `olive`, `gray`), `style` (`lighten`, `underscore`, `strikeout`, `invert`), `pos0`, `pos1`, `cfi`, `context`, `chapter`, `page`, `percentage`, `created`, `updated`, `device`, `device_id`. Deleted ones come as `{id, deleted: true, updated}` |
+| `PUT` | `/api/annotations/<document>` | Send new, changed or deleted highlights: `annotations`, `device`, `device_id`, `sent_at`. The newest change of each one wins. Answers every highlight of the book |
+| `GET` | `/api/annotations` | Books with highlights: `highlights`, `notes`, last `updated`, `path` and `title` |
+| `GET` | `/api/annotations/<document>/export` | The highlights as a file: Markdown by chapter, or JSON with `?format=json` |
 | `*` | `/kosync/...` | KOReader sync protocol (`users/auth`, `syncs/progress`) |
 
 `<document>` is KOReader's partial MD5 of the file. `progress` is an xpointer for reflowable books and the page number (from 1) for PDFs and comics.

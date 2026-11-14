@@ -35,6 +35,9 @@ import io.github.danielpereod.opdshelf.ui.readerPalette
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -64,6 +67,15 @@ import org.readium.r2.shared.publication.services.positions
 import org.readium.r2.shared.util.getOrElse
 import org.readium.r2.shared.util.mediatype.MediaType
 
+/** What the bridge script returns for the selected text. */
+@Serializable
+private data class SelectedRange(
+    val pos0: String,
+    val pos1: String,
+    val text: String = "",
+    val context: PositionContext = PositionContext(),
+)
+
 /** What the bridge script returns for a point of an EPUB chapter. */
 @Serializable
 private data class Point(val progress: String, val context: PositionContext = PositionContext())
@@ -80,6 +92,11 @@ private enum class Kind { EPUB, PDF, IMAGES }
 class ReaderActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_BOOK_ID = "book_id"
+        /** A highlight to open the book at. */
+        const val EXTRA_ANNOTATION = "annotation"
+        private const val HIGHLIGHTS = "highlights"
+        private const val HIGHLIGHT_ITEM = 3
+        private const val NOTE_ITEM = 4
         private const val TAG = "navigator"
         private const val MARK_ITEM = 1
         private const val COPY_ITEM = 2
@@ -199,11 +216,15 @@ class ReaderActivity : AppCompatActivity() {
         ui.toc = flatten(pub.tableOfContents)
         ui.searchable = pub.isSearchable
         val positions = pub.positions()
+        positionsCache = positions
         positionCount = positions.size
         ui.pages = positions.size.takeIf { it > 0 }
         ui.showHint = kind == Kind.EPUB && !app.settings.markHintShown
         lifecycleScope.launch {
             nav.currentLocator.collect { locator ->
+                // Each chapter is its own web page: our script (which also steadies text selection) goes into
+                // the one on screen; once there, this only checks that it is
+                if (kind == Kind.EPUB) launch { js("0") }
                 ui.chapter = locator.title ?: chapterOf(locator.href.toString())
                 ui.progression = (locator.locations.totalProgression ?: 0.0).toFloat().coerceIn(0f, 1f)
                 ui.page = locator.locations.position
@@ -221,10 +242,114 @@ class ReaderActivity : AppCompatActivity() {
         start.fromDevice?.let {
             Snackbar.make(root, getString(R.string.continuing_from, it), Snackbar.LENGTH_LONG).show()
         }
+        watchAnnotations()
+        intent.getStringExtra(EXTRA_ANNOTATION)?.let { id ->
+            app.sync.refreshAnnotations(book.document)
+            app.store.annotations(book.document).find(id)?.takeUnless { it.deleted }?.let { goToAnnotation(it) }
+        }
         delay(800)
         baseline = nav.currentLocator.value
         ready = true
         watchPosition(nav)
+    }
+
+    // -----------------------------------------------------------------------
+    // Highlights and notes, shared with the web reader and KOReader
+
+    private fun watchAnnotations() {
+        (navigator as? org.readium.r2.navigator.DecorableNavigator)?.addDecorationListener(
+            HIGHLIGHTS,
+            object : org.readium.r2.navigator.DecorableNavigator.Listener {
+                override fun onDecorationActivated(event: org.readium.r2.navigator.DecorableNavigator.OnActivatedEvent): Boolean {
+                    val a = ui.annotations.firstOrNull { it.id == event.decoration.id } ?: return false
+                    ui.editingNew = false
+                    ui.editing = a
+                    return true
+                }
+            },
+        )
+        lifecycleScope.launch {
+            app.store.annotations
+                .map { it[book.document]?.visible().orEmpty() }
+                .distinctUntilChanged()
+                .collect { list ->
+                    ui.annotations = list
+                    decorate(list)
+                }
+        }
+        // Highlights made on other devices: when opening, and every little while
+        lifecycleScope.launch {
+            repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                while (true) {
+                    app.sync.refreshAnnotations(book.document)
+                    delay(30_000)
+                }
+            }
+        }
+    }
+
+    /** Where a highlight is, for Readium: its chapter and its words, found in the page by the text around them. */
+    private fun locatorOf(a: io.github.danielpereod.opdshelf.data.Annotation): Locator? {
+        val pub = publication ?: return null
+        if (kind != Kind.EPUB) {
+            val page = a.page ?: a.pos0.toIntOrNull() ?: return null
+            return positionsCache?.getOrNull(page - 1)
+        }
+        val link = pub.readingOrder.getOrNull(spineIndex(a.pos0)) ?: return null
+        return Locator(
+            href = link.url(),
+            mediaType = link.mediaType ?: MediaType.XHTML,
+            locations = Locator.Locations(totalProgression = a.percentage),
+            text = Locator.Text(before = a.context?.before, highlight = a.text.ifBlank { null }, after = a.context?.after),
+        )
+    }
+
+    private var positionsCache: List<Locator>? = null
+
+    private suspend fun decorate(list: List<io.github.danielpereod.opdshelf.data.Annotation>) {
+        val nav = navigator as? EpubNavigatorFragment ?: return
+        val decorations = list.mapNotNull { a ->
+            val locator = locatorOf(a)?.takeIf { a.text.isNotBlank() } ?: return@mapNotNull null
+            val tint = io.github.danielpereod.opdshelf.data.Annotation.argb(a.color)
+            val style = if (a.style == "underscore" || a.style == "strikeout") org.readium.r2.navigator.Decoration.Style.Underline(tint)
+            else org.readium.r2.navigator.Decoration.Style.Highlight(tint)
+            org.readium.r2.navigator.Decoration(id = a.id, locator = locator, style = style)
+        }
+        nav.applyDecorations(decorations, HIGHLIGHTS)
+    }
+
+    private fun goToAnnotation(a: io.github.danielpereod.opdshelf.data.Annotation) {
+        val locator = locatorOf(a) ?: return
+        navigator?.go(locator)
+    }
+
+    private suspend fun highlightSelection(withNote: Boolean) {
+        val epub = navigator as? EpubNavigatorFragment ?: return
+        val selection = epub.currentSelection() ?: return
+        val locator = selection.locator
+        val index = publication?.readingOrder?.indexOfFirstWithHref(locator.href) ?: return
+        val range = js("OPDShelf.selectionRange($index)")
+            ?.let { runCatching { json.decodeFromString<SelectedRange>(it) }.getOrNull() } ?: return
+        epub.clearSelection()
+        val annotation = io.github.danielpereod.opdshelf.data.Annotation(
+            id = io.github.danielpereod.opdshelf.data.Annotation.newId(),
+            text = range.text.ifBlank { locator.text.highlight.orEmpty() }.take(8000),
+            color = prefs.getString("highlight_color", "yellow") ?: "yellow",
+            pos0 = range.pos0,
+            pos1 = range.pos1,
+            context = range.context,
+            chapter = ui.chapter.orEmpty(),
+            percentage = (locator.locations.totalProgression ?: ui.progression.toDouble()).coerceIn(0.0, 1.0),
+        )
+        if (withNote) {
+            ui.editingNew = true
+            ui.editing = annotation
+        } else {
+            app.sync.annotate(book.document, annotation)
+            Snackbar.make(root, R.string.highlight_added, Snackbar.LENGTH_SHORT)
+                .setAction(R.string.add_note) { ui.editingNew = false; ui.editing = app.store.annotations(book.document).find(annotation.id) }
+                .show()
+        }
     }
 
     private fun fail() {
@@ -321,12 +446,14 @@ class ReaderActivity : AppCompatActivity() {
     }
 
     // -----------------------------------------------------------------------
-    // "Set as last position" from the text selection
+    // The text selection: highlight, note, "Set as last position", copy
 
     private val selectionCallback = object : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
-            menu.add(Menu.NONE, MARK_ITEM, 0, R.string.set_last_position)
-            menu.add(Menu.NONE, COPY_ITEM, 1, android.R.string.copy)
+            menu.add(Menu.NONE, HIGHLIGHT_ITEM, 0, R.string.highlight)
+            menu.add(Menu.NONE, NOTE_ITEM, 1, R.string.add_note)
+            menu.add(Menu.NONE, MARK_ITEM, 2, R.string.set_last_position)
+            menu.add(Menu.NONE, COPY_ITEM, 3, android.R.string.copy)
             return true
         }
 
@@ -334,6 +461,10 @@ class ReaderActivity : AppCompatActivity() {
 
         override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
             when (item.itemId) {
+                HIGHLIGHT_ITEM, NOTE_ITEM -> lifecycleScope.launch {
+                    highlightSelection(withNote = item.itemId == NOTE_ITEM)
+                    mode.finish()
+                }
                 MARK_ITEM -> lifecycleScope.launch {
                     markSelection()
                     mode.finish()
@@ -541,6 +672,35 @@ class ReaderActivity : AppCompatActivity() {
 
         override fun goTo(hit: SearchHit) {
             navigator?.go(hit.locator)
+        }
+
+        override fun goTo(annotation: io.github.danielpereod.opdshelf.data.Annotation) = goToAnnotation(annotation)
+
+        override fun save(annotation: io.github.danielpereod.opdshelf.data.Annotation) {
+            prefs.edit().putString("highlight_color", annotation.color).apply()
+            app.sync.annotate(book.document, annotation)
+        }
+
+        override fun delete(annotation: io.github.danielpereod.opdshelf.data.Annotation) {
+            app.sync.annotate(book.document, annotation.copy(deleted = true))
+            Snackbar.make(root, R.string.highlight_deleted, Snackbar.LENGTH_LONG)
+                .setAction(R.string.undo) { app.sync.annotate(book.document, annotation.copy(deleted = false)) }
+                .show()
+        }
+
+        override fun shareAnnotations() {
+            val text = io.github.danielpereod.opdshelf.data.annotationsMarkdown(
+                book.title, book.authors.joinToString(", "), ui.annotations, getString(R.string.no_chapter),
+            )
+            startActivity(
+                android.content.Intent.createChooser(
+                    android.content.Intent(android.content.Intent.ACTION_SEND)
+                        .setType("text/plain")
+                        .putExtra(android.content.Intent.EXTRA_SUBJECT, book.title)
+                        .putExtra(android.content.Intent.EXTRA_TEXT, text),
+                    getString(R.string.share_highlights),
+                )
+            )
         }
     }
 

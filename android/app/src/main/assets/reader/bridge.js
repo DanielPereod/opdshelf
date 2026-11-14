@@ -57,6 +57,26 @@
     return result;
   }
 
+  // The selected range as a highlight: xpointers of its start and end, its text and the words around it
+  function selectionRange(spine) {
+    const s = window.getSelection();
+    if (!s || s.rangeCount === 0) return null;
+    const range = s.getRangeAt(0);
+    if (range.collapsed) return null;
+    const pos0 = XPointer.fromNode(range.startContainer, range.startOffset, spine);
+    const pos1 = XPointer.fromNode(range.endContainer, range.endOffset, spine);
+    if (!pos0 || !pos1) return null;
+    return {
+      pos0,
+      pos1,
+      text: s.toString().replace(/\s+/g, ' ').trim().slice(0, 8000),
+      context: {
+        before: XPointer.contextAt(document, range.startContainer, range.startOffset).before || '',
+        after: XPointer.contextAt(document, range.endContainer, range.endOffset).after || '',
+      },
+    };
+  }
+
   // Where an xpointer is, falling back to the saved text around it
   function locate(xpointer, context) {
     let point = XPointer.resolve(xpointer, document);
@@ -127,5 +147,33 @@
     return true;
   }
 
-  window.OPDShelf = { firstVisible, selection, progression, highlight };
+  // Android's WebView scrolls the page sideways while a selection handle is dragged in
+  // paginated (multi-column) books, so the selection jumps to another page and grabs text
+  // the reader never meant (readium/kotlin-toolkit#325, a Chromium bug). While the selection
+  // is changing, the page is kept where it was; programmatic page turns later are not affected.
+  (function keepPageWhileSelecting() {
+    const root = () => document.scrollingElement || document.documentElement;
+    let anchor = null;
+    let changed = 0;
+    document.addEventListener('selectionchange', () => {
+      const s = window.getSelection();
+      if (!s || s.isCollapsed) {
+        anchor = null;
+        return;
+      }
+      if (anchor === null) anchor = { left: root().scrollLeft, top: root().scrollTop };
+      changed = Date.now();
+    });
+    window.addEventListener('scroll', () => {
+      if (anchor === null || Date.now() - changed > 400) {
+        if (anchor !== null) anchor = { left: root().scrollLeft, top: root().scrollTop };
+        return;
+      }
+      const el = root();
+      // Only sideways: scrolled books move up and down on purpose
+      if (el.scrollWidth > window.innerWidth + 1 && el.scrollLeft !== anchor.left) el.scrollLeft = anchor.left;
+    }, true);
+  })();
+
+  window.OPDShelf = { firstVisible, selection, selectionRange, progression, highlight };
 })();

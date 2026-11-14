@@ -48,6 +48,7 @@ Your reading position follows you between the browser, the Android app and KORea
 - Reading offline is fine: the position is kept and sent once back online, with the time it was read, so newer reading done elsewhere always wins.
 - When another device is further ahead, the reader goes there and says from where; when it is behind, or both read separately, it asks.
 - **Set as last position**: select a sentence on any device and the others open the book exactly there.
+- **Highlights and notes** sync too, in colour, between the browser, the app and KOReader. Each book has a Highlights tab in the panel, by chapter, with search, filters, a jump into the reader and export to Markdown or JSON.
 - Books are matched by content, so a position follows a renamed or moved file. Finished books show 100 % everywhere.
 
 Details, conflict handling and the API: [docs/sync.md](docs/sync.md).

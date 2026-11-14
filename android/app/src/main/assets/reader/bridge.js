@@ -57,6 +57,26 @@
     return result;
   }
 
+  // The selected range as a highlight: xpointers of its start and end, its text and the words around it
+  function selectionRange(spine) {
+    const s = window.getSelection();
+    if (!s || s.rangeCount === 0) return null;
+    const range = s.getRangeAt(0);
+    if (range.collapsed) return null;
+    const pos0 = XPointer.fromNode(range.startContainer, range.startOffset, spine);
+    const pos1 = XPointer.fromNode(range.endContainer, range.endOffset, spine);
+    if (!pos0 || !pos1) return null;
+    return {
+      pos0,
+      pos1,
+      text: s.toString().replace(/\s+/g, ' ').trim().slice(0, 8000),
+      context: {
+        before: XPointer.contextAt(document, range.startContainer, range.startOffset).before || '',
+        after: XPointer.contextAt(document, range.endContainer, range.endOffset).after || '',
+      },
+    };
+  }
+
   // Where an xpointer is, falling back to the saved text around it
   function locate(xpointer, context) {
     let point = XPointer.resolve(xpointer, document);
@@ -127,5 +147,5 @@
     return true;
   }
 
-  window.OPDShelf = { firstVisible, selection, progression, highlight };
+  window.OPDShelf = { firstVisible, selection, selectionRange, progression, highlight };
 })();

@@ -151,6 +151,14 @@ class ReaderUi {
     /** The bookmark just removed, while it can still be put back. */
     var removedBookmark by mutableStateOf<io.github.danielpereod.opdshelf.data.Bookmark?>(null)
 
+    /** Highlights and notes of the book, in reading order. */
+    var annotations by mutableStateOf<List<io.github.danielpereod.opdshelf.data.Annotation>>(emptyList())
+    /** The highlight whose note is being written or changed, if any. */
+    var editing by mutableStateOf<io.github.danielpereod.opdshelf.data.Annotation?>(null)
+    var editingNew by mutableStateOf(false)
+    /** Which tab the contents sheet opens on: 0 contents, 1 bookmarks, 2 highlights. */
+    var contentsTab by mutableStateOf<Int?>(null)
+
     enum class Sheet { Toc, Text, Search }
 }
 
@@ -166,6 +174,10 @@ interface ReaderActions {
     fun restore(bookmark: io.github.danielpereod.opdshelf.data.Bookmark) {}
     fun search(query: String) {}
     fun goTo(hit: SearchHit) {}
+    fun goTo(annotation: io.github.danielpereod.opdshelf.data.Annotation) {}
+    fun save(annotation: io.github.danielpereod.opdshelf.data.Annotation) {}
+    fun delete(annotation: io.github.danielpereod.opdshelf.data.Annotation) {}
+    fun shareAnnotations() {}
 }
 
 /** Controls over the book: shown and hidden with a tap in the middle of the page. */
@@ -204,6 +216,15 @@ fun ReaderOverlay(ui: ReaderUi, actions: ReaderActions) {
         }
         null -> {}
     }
+
+    ui.editing?.let { a ->
+        io.github.danielpereod.opdshelf.ui.AnnotationEditor(
+            a, ui.editingNew,
+            onSave = { ui.editing = null; actions.save(it) },
+            onDelete = { ui.editing = null; actions.delete(a) },
+            onDismiss = { ui.editing = null },
+        )
+    }
 }
 
 @Composable
@@ -231,7 +252,7 @@ private fun TopBar(ui: ReaderUi, actions: ReaderActions) {
                     stringResource(if (marked) R.string.remove_bookmark else R.string.add_bookmark), tint = shelf.fg,
                 )
             }
-            if (ui.toc.isNotEmpty() || ui.bookmarks.isNotEmpty()) {
+            if (ui.toc.isNotEmpty() || ui.bookmarks.isNotEmpty() || ui.reflowable || ui.annotations.isNotEmpty()) {
                 IconButton(onClick = { ui.sheet = ReaderUi.Sheet.Toc }) {
                     Icon(Icons.AutoMirrored.Outlined.List, stringResource(R.string.contents), tint = shelf.fg)
                 }
@@ -524,7 +545,7 @@ private fun ToggleRow(title: String, help: String?, checked: Boolean, onChange: 
 /** Contents and bookmarks, as two tabs of one sheet. */
 @Composable
 internal fun ContentsSheet(ui: ReaderUi, actions: ReaderActions) {
-    var tab by remember { mutableStateOf(if (ui.toc.isEmpty()) 1 else 0) }
+    var tab by remember { mutableStateOf(ui.contentsTab ?: if (ui.toc.isEmpty()) 1 else 0) }
     Column {
         androidx.compose.material3.PrimaryTabRow(
             selectedTabIndex = tab, containerColor = shelf.pane, contentColor = shelf.fg,
@@ -535,12 +556,16 @@ internal fun ContentsSheet(ui: ReaderUi, actions: ReaderActions) {
             },
             divider = { HorizontalDivider(color = shelf.line) },
         ) {
-            listOf(R.string.contents, R.string.bookmarks).forEachIndexed { i, label ->
+            listOf(R.string.contents, R.string.bookmarks, R.string.highlights).forEachIndexed { i, label ->
                 androidx.compose.material3.Tab(
                     selected = tab == i, onClick = { tab = i },
                     selectedContentColor = shelf.fg, unselectedContentColor = shelf.muted,
                     text = {
-                        val n = if (i == 1 && ui.bookmarks.isNotEmpty()) " ${ui.bookmarks.size}" else ""
+                        val n = when {
+                            i == 1 && ui.bookmarks.isNotEmpty() -> " ${ui.bookmarks.size}"
+                            i == 2 && ui.annotations.isNotEmpty() -> " ${ui.annotations.size}"
+                            else -> ""
+                        }
                         Text(stringResource(label) + n, fontSize = TextSize.bodySmall, fontWeight = FontWeight.SemiBold)
                     },
                 )
@@ -551,8 +576,18 @@ internal fun ContentsSheet(ui: ReaderUi, actions: ReaderActions) {
                 ui.sheet = null
                 actions.goTo(it)
             }
-        } else {
+        } else if (tab == 1) {
             BookmarksList(ui, actions)
+        } else {
+            io.github.danielpereod.opdshelf.ui.AnnotationList(
+                ui.annotations,
+                onOpen = { ui.sheet = null; actions.goTo(it) },
+                onEdit = { ui.editingNew = false; ui.editing = it },
+                onDelete = actions::delete,
+                onShare = actions::shareAnnotations,
+                modifier = Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())
+                    .padding(horizontal = Space.l, vertical = Space.s),
+            )
         }
     }
 }

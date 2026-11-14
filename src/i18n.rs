@@ -276,7 +276,16 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("Download the plugin", "Descargar el plugin"),
     ("Unzip it into KOReader's {folder} folder (on a Kobo, {path}).", "Descomprímelo en la carpeta {folder} de KOReader (en un Kobo, {path})."),
     ("Restart KOReader and open Tools › OPDShelf.", "Reinicia KOReader y abre Herramientas › OPDShelf."),
-    ("Enter this server's address and your OPDShelf user:", "Escribe la dirección de este servidor y tu usuario de OPDShelf:"),
+    (
+        "It comes set up with this server and your user, and updates itself. To set it up by hand, use this address:",
+        "Viene configurado con este servidor y tu usuario, y se actualiza solo. Para configurarlo a mano, usa esta dirección:",
+    ),
+    ("Connect with a QR code", "Conectar con un código QR"),
+    ("QR code with this server and your user", "Código QR con este servidor y tu usuario"),
+    (
+        "In the app, tap Scan QR code on the connect screen. It includes your password, so do not share it.",
+        "En la app, toca Escanear código QR en la pantalla de conexión. Incluye tu contraseña, así que no lo compartas.",
+    ),
     ("Reads offline and syncs your position with every other device.", "Lee sin conexión y sincroniza tu posición con el resto de dispositivos."),
     ("Download the app", "Descargar la app"),
     ("Open the APK on the phone and allow installing apps from the browser if Android asks.", "Abre el APK en el móvil y permite instalar apps desde el navegador si Android te lo pide."),

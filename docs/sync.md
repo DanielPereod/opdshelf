@@ -24,7 +24,7 @@ A highlight is stored with KOReader's xpointers of its start and end, the text, 
 
 ## KOReader
 
-Install the OPDShelf plugin from [`koreader/opdshelf.koplugin`](../koreader/opdshelf.koplugin): copy the `opdshelf.koplugin` folder into KOReader's `plugins` folder (`.adds/koreader/plugins` on Kobo, `koreader/plugins` on Kindle and in Android's storage) and restart KOReader. Then in **Tools → OPDShelf → Server** enter the server address and OPDShelf's username and password. If Progress sync already pointed to `…/kosync`, the address and username are filled in.
+Install the OPDShelf plugin from [`koreader/opdshelf.koplugin`](../koreader/opdshelf.koplugin): copy the `opdshelf.koplugin` folder into KOReader's `plugins` folder (`.adds/koreader/plugins` on Kobo, `koreader/plugins` on Kindle and in Android's storage) and restart KOReader. The zip downloaded from the panel (**Sync → Connect your apps**) comes set up with the server's address and login, read once and deleted on the first start. Otherwise, in **Tools → OPDShelf → Server** enter the server address and OPDShelf's username and password. If Progress sync already pointed to `…/kosync`, the address and username are filled in.
 
 **Live sync.** The plugin syncs with its own protocol, not KOReader's Progress sync (which it offers to turn off):
 

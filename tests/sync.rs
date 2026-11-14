@@ -543,13 +543,15 @@ async fn reading_apps_download_from_the_panel() {
     }
     let releases = "https://github.com/DanielPereod/opdshelf/releases/download";
 
-    // By default both come from the latest GitHub releases
+    // By default both come from the latest GitHub releases; the server keeps a copy of the
+    // plugin, and sends the browser there when it cannot get one
     let app = app();
-    let (status, headers, _) = get(&app, "/apps/opdshelf.koplugin.zip").await;
+    let offline = app_with(&[("APPS_URL", "http://127.0.0.1:9")]);
+    let (status, headers, _) = get(&offline, "/apps/opdshelf.koplugin.zip").await;
     assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
     assert_eq!(
         headers[header::LOCATION],
-        format!("{releases}/koreader-latest/opdshelf.koplugin.zip").as_str()
+        "http://127.0.0.1:9/koreader-latest/opdshelf.koplugin.zip"
     );
     let (status, headers, _) = get(&app, "/apps/opdshelf.apk").await;
     assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
@@ -577,17 +579,52 @@ async fn reading_apps_download_from_the_panel() {
         .unwrap()
         .contains("downloaded from this server"));
 
+    // The plugin comes with this server's address and login, and says its version
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, text) in [
+        ("opdshelf.koplugin/main.lua", "return {}"),
+        (
+            "opdshelf.koplugin/_meta.lua",
+            "return {\n    version = 202611141233,\n}",
+        ),
+    ] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        std::io::Write::write_all(&mut zip, text.as_bytes()).unwrap();
+    }
+    std::fs::write(apps.join("opdshelf.koplugin.zip"), zip.finish().unwrap().into_inner()).unwrap();
+    let (status, headers, body) = get(&app, "/apps/opdshelf.koplugin.zip").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    let mut plugin = zip::ZipArchive::new(std::io::Cursor::new(body.to_vec())).unwrap();
+    let mut setup = String::new();
+    std::io::Read::read_to_string(
+        &mut plugin.by_name("opdshelf.koplugin/opdshelf_setup.json").unwrap(),
+        &mut setup,
+    )
+    .unwrap();
+    let setup: Value = serde_json::from_str(&setup).unwrap();
+    assert_eq!(
+        setup,
+        json!({ "server": "http://localhost", "username": USER, "password": PASS })
+    );
+    let (_, versions) = app.api("GET", "/apps/versions.json", None).await;
+    assert_eq!(versions, json!({ "koreader": { "version": 202611141233u64 } }));
+    let (status, headers, body) = get(&app, "/apps/connect.svg").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "image/svg+xml");
+    assert!(body.starts_with(b"<?xml"));
+
     // A beta server offers the beta releases, from wherever APPS_URL says
-    let beta = app_with(&[("APPS_CHANNEL", "beta"), ("APPS_URL", "https://example.com/apps/")]);
+    let beta = app_with(&[("APPS_CHANNEL", "beta"), ("APPS_URL", "http://127.0.0.1:9/apps/")]);
     let (_, headers, _) = get(&beta, "/apps/opdshelf.apk").await;
     assert_eq!(
         headers[header::LOCATION],
-        "https://example.com/apps/android-beta/opdshelf.apk"
+        "http://127.0.0.1:9/apps/android-beta/opdshelf.apk"
     );
     let (_, headers, _) = get(&beta, "/apps/opdshelf.koplugin.zip").await;
     assert_eq!(
         headers[header::LOCATION],
-        "https://example.com/apps/koreader-beta/opdshelf.koplugin.zip"
+        "http://127.0.0.1:9/apps/koreader-beta/opdshelf.koplugin.zip"
     );
     assert!(String::from_utf8(get(&beta, "/admin/sync").await.2.to_vec())
         .unwrap()

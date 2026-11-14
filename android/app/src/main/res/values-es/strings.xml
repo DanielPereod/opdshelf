@@ -260,4 +260,7 @@
     <string name="color_gray">Gris</string>
     <string name="highlight_color">Color</string>
     <plurals name="highlights_count"><item quantity="one">%1$d subrayado · %2$d con nota</item><item quantity="other">%1$d subrayados · %2$d con nota</item></plurals>
+    <string name="scan_qr">Escanear código QR</string>
+    <string name="scan_not_opdshelf">Este código QR no es de OPDShelf. Escanea el que hay en Sincronización › Conecta tus apps del panel web.</string>
+    <string name="scan_unavailable">Este dispositivo no puede escanear códigos. Abre el código QR con la app de la cámara o escribe los datos.</string>
 </resources>

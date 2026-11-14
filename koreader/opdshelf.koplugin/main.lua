@@ -16,6 +16,8 @@ OPDShelf for KOReader.
   a grid, search, book details and downloads.
 - A home screen that can replace KOReader's start screen: the book to
   continue, the newest books on the server and the last ones read here.
+- Comes set up when downloaded from the server's panel, updates itself from
+  the server, and has a status screen with what is waiting to be sent.
 
 @module koplugin.opdshelf
 --]]
@@ -42,6 +44,7 @@ local Client = require("opdshelf_client")
 local Stream = require("opdshelf_stream")
 local Notes = require("opdshelf_notes")
 local Sync = require("opdshelf_sync")
+local Update = require("opdshelf_update")
 local T = require("ffi/util").template
 local _ = require("opdshelf_i18n")
 
@@ -77,6 +80,10 @@ end
 
 -- Set when the home screen is asked for from a book, to show it in the file browser that follows
 local home_requested = false
+-- Updates are looked for once each time KOReader starts
+local update_checked = false
+-- Seconds after starting before looking for an update
+local UPDATE_DELAY = 10
 
 local function urlEncode(s)
     return (tostring(s):gsub("[^%w%-%._~]", function(c) return string.format("%%%02X", c:byte()) end))
@@ -90,6 +97,7 @@ function OPDShelf:init()
     OPDShelf.instance = self
     self.state = LuaSettings:open(DataStorage:getSettingsDir() .. "/opdshelf.lua")
     self.device_id = G_reader_settings:readSetting("device_id")
+    self:applySetup()
     self:migrateAccount()
     self:makeClient()
     self:onDispatcherRegisterActions()
@@ -107,6 +115,12 @@ function OPDShelf:init()
                 self:showHome()
             end
         end)
+        if not update_checked then
+            update_checked = true
+            UIManager:scheduleIn(UPDATE_DELAY, function()
+                if NetworkMgr:isOnline() then self:checkForUpdate(false) end
+            end)
+        end
     end
     if self.ui.highlight and self.ui.document then
         self.ui.highlight:addToHighlightDialog("12_opdshelf_last_position", function(highlight)
@@ -139,6 +153,39 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Account
+
+-- The plugin's folder
+function OPDShelf:pluginDir()
+    if self.path then return self.path end
+    return (debug.getinfo(1, "S").source or ""):match("^@(.*)/[^/]*$")
+end
+
+-- A plugin downloaded from the server's panel comes with its address and login
+function OPDShelf:applySetup()
+    local dir = self:pluginDir()
+    local path = dir and dir .. "/opdshelf_setup.json"
+    local file = path and io.open(path, "r")
+    if not file then return end
+    local text = file:read("*a")
+    file:close()
+    -- It holds the password: read once
+    os.remove(path)
+    local ok, setup = pcall(JSON.decode, text)
+    if not ok or type(setup) ~= "table" or type(setup.server) ~= "string" then return end
+    -- An account that is already set up stays
+    if (self.state:readSetting("server") or "") ~= "" and (self.state:readSetting("password") or "") ~= "" then return end
+    local function text_or_nil(v) return type(v) == "string" and v or nil end
+    self.state:saveSetting("server", setup.server)
+    self.state:saveSetting("username", text_or_nil(setup.username))
+    self.state:saveSetting("password", text_or_nil(setup.password))
+    self.state:flush()
+end
+
+-- Kept for the status screen
+function OPDShelf:noteError(text)
+    self.state:saveSetting("last_error", { text = text, time = os.time() })
+    self.state:flush()
+end
 
 -- The first time, take the server and user from Progress sync if it pointed to OPDShelf
 function OPDShelf:migrateAccount()
@@ -230,6 +277,7 @@ function OPDShelf:checkAccount(done)
     else
         text = T(_("Cannot reach the server: %1"), tostring(body))
     end
+    if code ~= 200 and code ~= 400 then self:noteError(text) end
     UIManager:show(InfoMessage:new{ text = text, timeout = 4 })
 end
 
@@ -543,7 +591,7 @@ function OPDShelf:flush(interactive)
     local pending = self.state:readSetting("pending") or {}
     if next(pending) == nil then return false end
     self.flushing = true
-    local sent, failed, rejected, answer = 0, false, false, nil
+    local sent, failed, rejected, answer, why = 0, false, false, nil, nil
     for document, item in pairs(pending) do
         item.sent_at = os.time()
         local code, body = self.client:putProgress(document, item)
@@ -561,6 +609,7 @@ function OPDShelf:flush(interactive)
             pending[document] = nil
         else
             failed = true
+            why = code and ("HTTP " .. code) or tostring(body)
             break
         end
     end
@@ -581,6 +630,11 @@ function OPDShelf:flush(interactive)
         end
     end
     if rejected then
+        self:noteError(_("The server did not accept the username or password."))
+    elseif failed then
+        self:noteError(T(_("Cannot reach the server: %1"), why))
+    end
+    if rejected then
         UIManager:show(InfoMessage:new{
             text = _("The OPDShelf server did not accept the username or password. Check them in OPDShelf → Server and account."),
         })
@@ -596,6 +650,10 @@ end
 function OPDShelf:pull(reason)
     if not self:hasBook() or not self:ready() or not NetworkMgr:isOnline() then return end
     local code, body = self.client:getProgress(self.document)
+    if code ~= 200 then
+        self:noteError(code == 401 and _("The server did not accept the username or password.")
+            or T(_("Cannot reach the server: %1"), code and ("HTTP " .. code) or tostring(body)))
+    end
     if code == 401 then
         if reason == "manual" then
             UIManager:show(InfoMessage:new{ text = _("The server did not accept the username or password.") })
@@ -975,6 +1033,7 @@ function OPDShelf:pushNotes()
     })
     if code ~= 200 or type(body) ~= "table" then
         logger.dbg("OPDShelf: highlights not sent:", code)
+        self:noteError(T(_("Highlights not sent: %1"), code and ("HTTP " .. code) or tostring(body)))
         return
     end
     self:noteServerTime(body)
@@ -1308,6 +1367,108 @@ local function choiceMenu(self, key, default, choices)
     return items
 end
 
+-- ---------------------------------------------------------------------------
+-- Updates and status
+
+function OPDShelf:version()
+    return Update.localVersion(self:pluginDir())
+end
+
+--- Asks the server for a newer plugin and offers it. `interactive` says when there is none.
+function OPDShelf:checkForUpdate(interactive)
+    local function say(text)
+        if interactive then UIManager:show(InfoMessage:new{ text = text, timeout = 4 }) end
+    end
+    local current = self:version()
+    if not current then
+        return say(_("This copy of the plugin does not update itself: it is not a release."))
+    end
+    if not self:ready() then
+        return say(_("Set up the server first."))
+    end
+    local latest, err = Update.latest(self.client)
+    if not latest then
+        if interactive then self:noteError(T(_("Cannot look for updates: %1"), err)) end
+        return say(T(_("Cannot look for updates: %1"), err))
+    end
+    if latest <= current then
+        return say(_("OPDShelf is up to date."))
+    end
+    UIManager:show(ConfirmBox:new{
+        text = T(_("A new version of OPDShelf is available (%1). Update now?"), Update.describe(latest)),
+        ok_text = _("Update"),
+        cancel_text = _("Later"),
+        ok_callback = function() self:installUpdate() end,
+    })
+end
+
+function OPDShelf:installUpdate()
+    local message = InfoMessage:new{ text = _("Downloading the update…") }
+    UIManager:show(message)
+    if UIManager.forceRePaint then UIManager:forceRePaint() end
+    local ok, err = Update.install(self.client, self:pluginDir(), Update.koreaderFs())
+    UIManager:close(message)
+    if not ok then
+        local text = T(_("The update failed: %1"), tostring(err))
+        self:noteError(text)
+        UIManager:show(InfoMessage:new{ text = text })
+        return
+    end
+    local text = _("OPDShelf has been updated. Restart KOReader to use the new version.")
+    if UIManager.askForRestart then
+        UIManager:askForRestart(text)
+    else
+        UIManager:show(InfoMessage:new{ text = text })
+    end
+end
+
+-- What the connection check says, in a few words
+function OPDShelf:connectionState()
+    if not self:ready() then return _("not set up") end
+    if not NetworkMgr:isOnline() then return _("offline") end
+    local code, body = self.client:json_request("GET", "/api/progress/0")
+    if code == 200 or code == 400 then return _("connected") end
+    if code == 401 then return _("wrong username or password") end
+    if code then return T(_("the server answered %1"), code) end
+    return T(_("cannot reach the server (%1)"), tostring(body))
+end
+
+function OPDShelf:showStatus()
+    local version = self:version()
+    local lines = {
+        T(_("Version: %1"), version and Update.describe(version) or _("development copy")),
+        T(_("Server: %1"), self.state:readSetting("server") or _("not set up")),
+        T(_("Connection: %1"), self:connectionState()),
+    }
+    local positions = 0
+    for _k in pairs(self.state:readSetting("pending") or {}) do positions = positions + 1 end
+    lines[#lines+1] = T(_("Positions waiting to be sent: %1"), positions)
+    if self:hasBook() and self:notesEnabled() then
+        self:trackNotes()
+        local out = Notes.outgoing(self.ui.annotation.annotations, self:notesSnapshot(), function() return {} end)
+        lines[#lines+1] = T(_("Highlights of this book waiting to be sent: %1"), #out)
+    end
+    local err = self.state:readSetting("last_error")
+    if type(err) == "table" and err.text then
+        lines[#lines+1] = T(_("Last error: %1 (%2)"), err.text, os.date("%Y-%m-%d %H:%M", err.time or 0))
+    else
+        lines[#lines+1] = _("Last error: none")
+    end
+    local dialog
+    dialog = ButtonDialog:new{
+        title = table.concat(lines, "\n"),
+        title_align = "left",
+        buttons = { {
+            { text = _("Check for updates"), callback = function()
+                UIManager:close(dialog)
+                NetworkMgr:runWhenOnline(function() self:checkForUpdate(true) end)
+            end },
+            { text = _("Close"), callback = function() UIManager:close(dialog) end },
+        } },
+    }
+    UIManager:show(dialog)
+end
+
 function OPDShelf:addToMainMenu(menu_items)
     self:addStartWith(menu_items)
     menu_items.opdshelf = {
@@ -1391,6 +1552,11 @@ function OPDShelf:menuItems()
                 { "ignore", _("Stay here") },
             }),
             separator = true,
+        },
+        {
+            text = _("Status and updates"),
+            help_text = _("The plugin's version, the connection to the server, what is waiting to be sent and the last error."),
+            callback = function() self:showStatus() end,
         },
         {
             text_func = function()

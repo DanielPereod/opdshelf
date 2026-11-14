@@ -98,6 +98,8 @@ pub fn router(config: Config) -> Router {
         .route("/admin/sync", get(admin_sync))
         .route("/apps/opdshelf.koplugin.zip", get(apps::koreader_plugin))
         .route("/apps/opdshelf.apk", get(apps::android_app))
+        .route("/apps/versions.json", get(apps::versions))
+        .route("/apps/connect.svg", get(apps::connect_qr))
         .route("/admin/upload", post(upload).layer(DefaultBodyLimit::max(upload_limit)))
         .route("/admin/delete", post(delete))
         .route("/admin/rename", post(rename))

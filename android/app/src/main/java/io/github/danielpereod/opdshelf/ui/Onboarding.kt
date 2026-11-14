@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.FormatQuote
+import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.WifiOff
@@ -108,12 +109,17 @@ private fun Feature(icon: ImageVector, title: Int, text: Int) {
  * Used on first run and in Settings.
  */
 @Composable
-fun ConnectForm(onConnected: () -> Unit, buttonText: String, modifier: Modifier = Modifier) {
+fun ConnectForm(
+    onConnected: () -> Unit,
+    buttonText: String,
+    modifier: Modifier = Modifier,
+    link: io.github.danielpereod.opdshelf.data.ConnectLink? = null,
+) {
     val context = LocalContext.current
     val settings = context.app.settings
-    var server by remember { mutableStateOf(settings.serverUrl) }
-    var username by remember { mutableStateOf(settings.username) }
-    var password by remember { mutableStateOf(settings.password) }
+    var server by remember { mutableStateOf(link?.server ?: settings.serverUrl) }
+    var username by remember { mutableStateOf(link?.username ?: settings.username) }
+    var password by remember { mutableStateOf(link?.password ?: settings.password) }
     var showPassword by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -149,7 +155,33 @@ fun ConnectForm(onConnected: () -> Unit, buttonText: String, modifier: Modifier 
         }
     }
 
+    // The panel's QR code fills in the form and connects
+    val scan = {
+        error = null
+        val options = com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions.Builder()
+            .setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE)
+            .build()
+        com.google.mlkit.vision.codescanner.GmsBarcodeScanning.getClient(context, options).startScan()
+            .addOnSuccessListener { code ->
+                val scanned = io.github.danielpereod.opdshelf.data.ConnectLink.parse(code.rawValue)
+                if (scanned == null) {
+                    error = context.getString(R.string.scan_not_opdshelf)
+                } else {
+                    server = scanned.server
+                    username = scanned.username
+                    password = scanned.password
+                    submit()
+                }
+            }
+            .addOnFailureListener { error = context.getString(R.string.scan_unavailable) }
+        Unit
+    }
+
     Column(modifier, verticalArrangement = Arrangement.spacedBy(Space.l)) {
+        SecondaryButton(
+            stringResource(R.string.scan_qr), scan, Modifier.fillMaxWidth(),
+            icon = Icons.Outlined.QrCodeScanner,
+        )
         LabeledField(
             stringResource(R.string.server), server, { server = it; error = null; badServer = false },
             placeholder = "192.168.1.10:3000", keyboardType = KeyboardType.Uri,
@@ -205,7 +237,12 @@ private fun PasswordToggle(visible: Boolean, onToggle: () -> Unit) {
 
 /** The connection step of the first run. */
 @Composable
-fun ConnectScreen(onConnected: () -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun ConnectScreen(
+    onConnected: () -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    link: io.github.danielpereod.opdshelf.data.ConnectLink? = null,
+) {
     Column(modifier.fillMaxSize().background(shelf.bg)) {
         Header(stringResource(R.string.connect_title), onBack = onBack)
         Column(
@@ -215,7 +252,7 @@ fun ConnectScreen(onConnected: () -> Unit, onBack: () -> Unit, modifier: Modifie
           Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = edgePadding, vertical = Space.xl)) {
             Text(stringResource(R.string.connect_text), color = shelf.muted, fontSize = TextSize.bodySmall, lineHeight = 20.sp)
             Spacer(Modifier.height(Space.xl))
-            ConnectForm(onConnected, stringResource(R.string.connect))
+            ConnectForm(onConnected, stringResource(R.string.connect), link = link)
           }
         }
     }

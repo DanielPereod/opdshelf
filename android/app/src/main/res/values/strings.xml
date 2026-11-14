@@ -261,4 +261,7 @@
     <string name="color_gray">Gray</string>
     <string name="highlight_color">Colour</string>
     <plurals name="highlights_count"><item quantity="one">%1$d highlight · %2$d with a note</item><item quantity="other">%1$d highlights · %2$d with a note</item></plurals>
+    <string name="scan_qr">Scan QR code</string>
+    <string name="scan_not_opdshelf">This QR code is not from OPDShelf. Scan the one under Sync › Connect your apps in the web panel.</string>
+    <string name="scan_unavailable">This device cannot scan codes. Open the QR code with the camera app, or type the details.</string>
 </resources>

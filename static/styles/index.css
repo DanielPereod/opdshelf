@@ -663,7 +663,7 @@ input[type="checkbox"] {
   color: var(--muted);
 }
 
-.dragging-books .nav-item[data-shelf="folder"] {
+.dragging .nav-item.drop-ok {
   outline: 1px dashed var(--line-strong);
   outline-offset: -1px;
 }
@@ -755,7 +755,7 @@ input[type="checkbox"] {
 .cols,
 .book {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) minmax(0, 180px) 72px 128px 80px 88px 44px;
+  grid-template-columns: 36px minmax(0, 1fr) minmax(0, 180px) 72px 128px 80px 88px 72px;
   align-items: center;
 }
 
@@ -1003,8 +1003,10 @@ input[type="checkbox"] {
 }
 
 .c-read {
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
 }
 
 .c-read a {
@@ -2977,14 +2979,14 @@ a.nav-item {
 @container main (min-width: 1400px) {
   .cols,
   .book {
-    grid-template-columns: 36px minmax(0, 1fr) minmax(0, 320px) 80px 180px 96px 112px 48px;
+    grid-template-columns: 36px minmax(0, 1fr) minmax(0, 320px) 80px 180px 96px 112px 76px;
   }
 }
 
 @container main (max-width: 960px) {
   .cols,
   .book {
-    grid-template-columns: 36px minmax(0, 1fr) 72px 128px 80px 44px;
+    grid-template-columns: 36px minmax(0, 1fr) 72px 128px 80px 72px;
   }
 
   .c-folder,
@@ -3093,7 +3095,7 @@ a.nav-item {
 @container main (max-width: 680px) {
   .cols,
   .book {
-    grid-template-columns: 36px minmax(0, 1fr) 112px 44px;
+    grid-template-columns: 36px minmax(0, 1fr) 112px 72px;
   }
 
   .c-fmt,
@@ -3733,7 +3735,7 @@ a.nav-item {
 
   .cols,
   .book {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
   }
 
   .cols {
@@ -3743,8 +3745,12 @@ a.nav-item {
   .pick,
   .c-fmt,
   .c-size,
-  .c-read {
+  .c-read a {
     display: none;
+  }
+
+  .c-read {
+    padding-left: 0;
   }
 
   .book > :first-child,
@@ -3782,7 +3788,7 @@ a.nav-item {
   }
 
   .books.selecting .book {
-    grid-template-columns: 48px minmax(0, 1fr) auto;
+    grid-template-columns: 48px minmax(0, 1fr) auto auto;
   }
 
   .books.selecting .book .pick {
@@ -4255,5 +4261,348 @@ a.nav-item {
 
   .connect-link > span {
     display: none;
+  }
+}
+
+/* ------------------------------------------------------- menus of actions */
+/* The panel's own menu (static/app/menu.js), for books and folders */
+.ctx-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 208px;
+  max-width: min(320px, calc(100vw - 16px));
+  overflow-y: auto;
+  padding: var(--sp-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background: var(--pane);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  font-size: var(--fs-base);
+  overscroll-behavior: contain;
+}
+
+.ctx-menu:focus {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ctx-menu {
+    animation: ctx-in 0.12s ease-out;
+  }
+}
+
+@keyframes ctx-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+.ctx-head {
+  padding: 6px 10px 6px;
+  margin-bottom: var(--sp-1);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 10px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ctx-item i {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.ctx-item:hover,
+.ctx-item:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+
+.ctx-item:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--fg);
+}
+
+.ctx-item.danger,
+.ctx-item.danger i {
+  color: var(--danger);
+}
+
+.ctx-item.danger:hover,
+.ctx-item.danger:focus-visible {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.ctx-item[aria-disabled="true"],
+.ctx-item[aria-disabled="true"] i {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.ctx-item[aria-disabled="true"]:hover {
+  background: transparent;
+}
+
+.ctx-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ctx-hint {
+  font-size: var(--fs-xs);
+  line-height: 1.3;
+  color: var(--muted);
+}
+
+.ctx-sep {
+  height: 1px;
+  margin: var(--sp-1) 0;
+  background: var(--line);
+}
+
+@media (pointer: coarse) {
+  .ctx-item {
+    min-height: 44px;
+  }
+}
+
+/* The ⋯ of each book: on a computer it shows on hover or with the focus */
+.more-btn {
+  width: 28px;
+  height: 28px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .book:not(:hover, :focus-within) .more-btn:not([aria-expanded="true"]) {
+    opacity: 0;
+  }
+}
+
+.books.grid .c-read {
+  display: block;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+}
+
+.books.grid .c-read a {
+  display: none;
+}
+
+.books.grid .more-btn {
+  background: var(--pane);
+  color: var(--fg);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
+}
+
+@media (pointer: coarse) {
+  .more-btn {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+/* The book with the keyboard focus, which the arrow keys move */
+.book {
+  scroll-margin-top: 44px;
+  scroll-margin-bottom: 8px;
+}
+
+.book-link:focus-visible {
+  outline: none;
+}
+
+.book:has(.book-link:focus-visible) {
+  box-shadow: inset 0 0 0 2px var(--fg);
+}
+
+.books.grid .book:has(.book-link:focus-visible) {
+  box-shadow: 0 0 0 2px var(--fg);
+}
+
+/* Folders of the sidebar: a chevron for the ones with subfolders and a ⋯ */
+.nav-folder {
+  position: relative;
+}
+
+.folder-tree.nested .nav-folder > .nav-item {
+  padding-left: calc(26px + var(--depth, 0) * 14px);
+}
+
+.nav-toggle {
+  position: absolute;
+  top: 50%;
+  left: calc(6px + var(--depth, 0) * 14px);
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  transform: translateY(-50%);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+}
+
+.nav-toggle:hover {
+  background: var(--line);
+  color: var(--fg);
+}
+
+.nav-toggle i {
+  font-size: 10px;
+  transition: transform 0.12s;
+}
+
+.nav-toggle[aria-expanded="true"] i {
+  transform: rotate(90deg);
+}
+
+.nav-more {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  transform: translateY(-50%);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .nav-folder:not(:hover, :focus-within) .nav-more:not([aria-expanded="true"]) {
+    opacity: 0;
+  }
+
+  .nav-folder:is(:hover, :focus-within) > .nav-item .count,
+  .nav-folder:has(.nav-more[aria-expanded="true"]) > .nav-item .count {
+    visibility: hidden;
+  }
+}
+
+@media not ((hover: hover) and (pointer: fine)) {
+  .nav-folder > .nav-item {
+    padding-right: 40px;
+  }
+
+  .nav-more {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+.dragging .nav-folder .nav-more,
+.dragging .nav-toggle {
+  visibility: hidden;
+}
+
+.folder-more {
+  margin-left: calc(var(--sp-2) * -1);
+}
+
+/* Dragging: "The library root" shows above the folders as a target, and
+   files from the computer can be dropped on a folder of the sidebar */
+.drop-root {
+  display: none;
+}
+
+.dragging .drop-root.drop-ok {
+  display: flex;
+}
+
+.dragging-files .side {
+  position: relative;
+  z-index: 61;
+}
+
+.drag-badge {
+  position: fixed;
+  top: -200px;
+  left: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  max-width: 280px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--fg);
+  color: var(--inverse);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.drag-badge span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The last shelves of the sidebar never end up half hidden behind its foot */
+.nav {
+  padding-bottom: var(--sp-6);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 16px), transparent);
+}
+
+/* Keyboard shortcuts */
+#shortcutsDialog {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.shortcuts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--sp-2) var(--sp-4);
+  align-items: baseline;
+  margin: var(--sp-3) 0 0;
+}
+
+.shortcuts dt {
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.shortcuts dd {
+  margin: 0;
+}
+
+.shortcuts kbd {
+  display: inline-block;
+  min-width: 22px;
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+  background: var(--soft);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  text-align: center;
+}
+
+@media (max-width: 520px) {
+  .shortcuts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .shortcuts dd {
+    margin-bottom: var(--sp-2);
   }
 }

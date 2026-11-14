@@ -16,6 +16,9 @@
         android:theme="@style/Theme.OPDShelf"
         android:usesCleartextTraffic="true">
 
+        <!-- Gets the QR code scanner ready when the app is installed -->
+        <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="barcode_ui" />
+
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
@@ -40,6 +43,13 @@
                 <data android:mimeType="application/x-cbr" />
                 <data android:mimeType="image/vnd.djvu" />
                 <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+            <!-- The panel's QR code, opened from the camera app -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="opdshelf" android:host="connect" />
             </intent-filter>
         </activity>
 

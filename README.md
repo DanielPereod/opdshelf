@@ -55,14 +55,14 @@ Details, conflict handling and the API: [docs/sync.md](docs/sync.md).
 
 ### KOReader plugin
 
-Download it from the panel (or the [`koreader-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/koreader-latest) release), unzip `opdshelf.koplugin` into KOReader's `plugins` folder and restart. In **Tools → OPDShelf → Server** enter the address, username and password. Besides live sync it brings:
+Download it from the panel (or the [`koreader-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/koreader-latest) release), unzip `opdshelf.koplugin` into KOReader's `plugins` folder and restart. Downloaded from the panel it comes set up with the server and your login; otherwise enter them in **Tools → OPDShelf → Server**. It updates itself from the server (it asks at start when there is a new version), and **Tools → OPDShelf → Status and updates** shows its version, the connection, what is waiting to be sent and the last error. Besides live sync it brings:
 
 - **Library**: the server's catalog with covers, search and downloads (in the background, so e-ink screens such as Kindle keep refreshing).
 - **Home screen**: works as KOReader's launcher, with the book to continue, the newest books on the server and the last ones read.
 
 ### Android app
 
-Download it from the panel (or the [`android-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/android-latest) release). Browse and download the catalog, read offline with a [Readium](https://readium.org) reader (themes, bookmarks, search, volume keys), filter your books by reading state, and sync as above. Building and signing: [docs/android.md](docs/android.md).
+Download it from the panel (or the [`android-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/android-latest) release). Browse and download the catalog, read offline with a [Readium](https://readium.org) reader (themes, bookmarks, search, volume keys), filter your books by reading state, and sync as above. To connect it, scan the QR code under **Sync → Connect your apps** in the panel. Building and signing: [docs/android.md](docs/android.md).
 
 ---
 

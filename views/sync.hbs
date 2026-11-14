@@ -77,8 +77,8 @@
               <ol class="steps">
                 <li>{{{t "Unzip it into KOReader's {folder} folder (on a Kobo, {path})." folder="<code>plugins</code>" path="<code>.adds/koreader/plugins</code>"}}}</li>
                 <li>{{t "Restart KOReader and open Tools › OPDShelf."}}</li>
-                <li>{{t "Enter this server's address and your OPDShelf user:"}}</li>
               </ol>
+              <p class="muted">{{t "It comes set up with this server and your user, and updates itself. To set it up by hand, use this address:"}}</p>
               <div class="copy-row"><code class="mono" id="connectKoreader">{{baseUrl}}</code>
                 <button type="button" class="icon-btn" data-copy="connectKoreader" title="{{t "Copy address"}}"
                   aria-label="{{t "Copy address"}}"><i class="far fa-copy"></i></button></div>
@@ -94,6 +94,11 @@
               <div class="copy-row"><code class="mono" id="connectServer">{{baseUrl}}</code>
                 <button type="button" class="icon-btn" data-copy="connectServer" title="{{t "Copy address"}}"
                   aria-label="{{t "Copy address"}}"><i class="far fa-copy"></i></button></div>
+              <details class="connect-qr" id="connectQr">
+                <summary>{{t "Connect with a QR code"}}</summary>
+                <img alt="{{t "QR code with this server and your user"}}" width="200" height="200">
+                <p class="muted">{{t "In the app, tap Scan QR code on the connect screen. It includes your password, so do not share it."}}</p>
+              </details>
             </div>
             <p class="connect-note muted">{{#if apkLocal}}{{t "The app is downloaded from this server."}}{{else}}{{t "The app and the plugin are downloaded from the latest release on GitHub, so they stay up to date without updating the server."}}{{/if}}{{#if appsBeta}} {{t "This server is on the beta channel, so it offers the beta builds."}}{{/if}}</p>
             <div class="connect-item">
@@ -110,6 +115,12 @@
 <script>
   (function () {
     const $ = (id) => document.getElementById(id);
+    // The QR code holds the password: only loaded when asked for
+    $('connectQr').addEventListener('toggle', (e) => {
+      const img = e.target.querySelector('img');
+      if (e.target.open) img.src = '/apps/connect.svg?' + Date.now();
+      else img.removeAttribute('src');
+    });
     const csrf = $('app').dataset.csrf;
     const me = storeGet('opdshelf:device-id');
     const ACTIVE = 5 * 60;

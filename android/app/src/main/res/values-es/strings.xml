@@ -260,6 +260,16 @@
     <string name="color_gray">Gris</string>
     <string name="highlight_color">Color</string>
     <plurals name="highlights_count"><item quantity="one">%1$d subrayado · %2$d con nota</item><item quantity="other">%1$d subrayados · %2$d con nota</item></plurals>
+    <string name="tab_highlights">Subrayados</string>
+    <string name="daily_review">Repaso del día</string>
+    <string name="daily_review_text">Unos pocos subrayados para releer, distintos cada día.</string>
+    <string name="library_highlights">Todos los subrayados</string>
+    <string name="cannot_load_highlights">No se pueden cargar los subrayados: %1$s</string>
+    <string name="refresh">Actualizar</string>
+    <string name="show_more">Ver más</string>
+    <string name="unknown_book">Libro desconocido</string>
+    <string name="only_this_book">Ver solo este libro</string>
+    <string name="share_highlight">Compartir subrayado</string>
     <string name="new_folder">Nueva carpeta</string>
     <string name="folder_name">Nombre de la carpeta</string>
     <string name="create">Crear</string>
@@ -285,4 +295,7 @@
     <plurals name="upload_title"><item quantity="one">Añadir %1$d libro al servidor</item><item quantity="other">Añadir %1$d libros al servidor</item></plurals>
     <plurals name="upload_skipped"><item quantity="one">Se dejará fuera %1$d archivo.</item><item quantity="other">Se dejarán fuera %1$d archivos.</item></plurals>
     <plurals name="uploaded_count"><item quantity="one">%1$d libro añadido a %2$s</item><item quantity="other">%1$d libros añadidos a %2$s</item></plurals>
+    <string name="scan_qr">Escanear código QR</string>
+    <string name="scan_not_opdshelf">Este código QR no es de OPDShelf. Escanea el que hay en Sincronización › Conecta tus apps del panel web.</string>
+    <string name="scan_unavailable">Este dispositivo no puede escanear códigos. Abre el código QR con la app de la cámara o escribe los datos.</string>
 </resources>

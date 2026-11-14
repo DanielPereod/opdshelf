@@ -56,7 +56,7 @@ import androidx.compose.ui.unit.sp
 import io.github.danielpereod.opdshelf.R
 import io.github.danielpereod.opdshelf.data.Annotation
 
-private val colorNames = mapOf(
+internal val colorNames = mapOf(
     "yellow" to R.string.color_yellow, "green" to R.string.color_green, "blue" to R.string.color_blue,
     "red" to R.string.color_red, "purple" to R.string.color_purple, "orange" to R.string.color_orange,
     "cyan" to R.string.color_cyan, "olive" to R.string.color_olive, "gray" to R.string.color_gray,

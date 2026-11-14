@@ -32,7 +32,7 @@ They are worked out from the positions the devices send: the time between two pa
 
 ## KOReader
 
-Install the OPDShelf plugin from [`koreader/opdshelf.koplugin`](../koreader/opdshelf.koplugin): copy the `opdshelf.koplugin` folder into KOReader's `plugins` folder (`.adds/koreader/plugins` on Kobo, `koreader/plugins` on Kindle and in Android's storage) and restart KOReader. Then in **Tools → OPDShelf → Server** enter the server address and OPDShelf's username and password. If Progress sync already pointed to `…/kosync`, the address and username are filled in.
+Install the OPDShelf plugin from [`koreader/opdshelf.koplugin`](../koreader/opdshelf.koplugin): copy the `opdshelf.koplugin` folder into KOReader's `plugins` folder (`.adds/koreader/plugins` on Kobo, `koreader/plugins` on Kindle and in Android's storage) and restart KOReader. The zip downloaded from the panel (**Sync → Connect your apps**) comes set up with the server's address and login, read once and deleted on the first start. Otherwise, in **Tools → OPDShelf → Server** enter the server address and OPDShelf's username and password. If Progress sync already pointed to `…/kosync`, the address and username are filled in.
 
 **Live sync.** The plugin syncs with its own protocol, not KOReader's Progress sync (which it offers to turn off):
 
@@ -76,6 +76,9 @@ KOReader's own **Progress sync** also works without the plugin: set its custom s
 | `PUT` | `/api/annotations/<document>` | Send new, changed or deleted highlights: `annotations`, `device`, `device_id`, `sent_at`. The newest change of each one wins. Answers every highlight of the book |
 | `GET` | `/api/annotations` | Books with highlights: `highlights`, `notes`, last `updated`, `path` and `title` |
 | `GET` | `/api/annotations/<document>/export` | The highlights as a file: Markdown by chapter, or JSON with `?format=json` |
+| `GET` | `/api/highlights` | Every highlight of the library, newest first, each with its `document`, `path`, `title` and `authors` |
+| `GET` | `/api/highlights/review?date=YYYY-MM-DD` | The daily review: 5 highlights at random, from different books when possible, the same all day on every device |
+| `GET` | `/api/highlights/export` | Every book's highlights in one file: Markdown, or JSON with `?format=json` |
 | `*` | `/kosync/...` | KOReader sync protocol (`users/auth`, `syncs/progress`) |
 
 `<document>` is KOReader's partial MD5 of the file. `progress` is an xpointer for reflowable books and the page number (from 1) for PDFs and comics.

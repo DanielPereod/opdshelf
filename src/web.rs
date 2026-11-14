@@ -80,6 +80,8 @@ pub fn router(config: Config) -> Router {
     Router::new()
         .route("/", get(opds::root))
         .route("/opds/books", get(opds::books))
+        .route("/opds/reading", get(opds::reading))
+        .route("/opds/random", get(opds::random))
         .route("/opds/folders", get(opds::folders_root))
         .route("/opds/folders/{*path}", get(opds::folder))
         .route("/opds/authors", get(opds::authors))
@@ -97,8 +99,14 @@ pub fn router(config: Config) -> Router {
         .route("/page/{*path}", get(reader::page))
         .route("/admin", get(admin).layer(CompressionLayer::new()))
         .route("/admin/sync", get(admin_sync).layer(CompressionLayer::new()))
+        .route(
+            "/admin/highlights",
+            get(admin_highlights).layer(CompressionLayer::new()),
+        )
         .route("/apps/opdshelf.koplugin.zip", get(apps::koreader_plugin))
         .route("/apps/opdshelf.apk", get(apps::android_app))
+        .route("/apps/versions.json", get(apps::versions))
+        .route("/apps/connect.svg", get(apps::connect_qr))
         .route("/admin/upload", post(upload).layer(DefaultBodyLimit::max(upload_limit)))
         .route("/api/upload/{*path}", axum::routing::put(api_upload))
         .route("/admin/delete", post(delete))
@@ -126,8 +134,11 @@ pub fn router(config: Config) -> Router {
         .route("/api/devices", get(sync::devices))
         .route("/api/stats", get(crate::stats::summary))
         .route("/api/stats/today", get(crate::stats::today))
-        .route("/admin/stats", get(admin_stats).layer(CompressionLayer::new()))
+        .route("/admin/stats", get(admin_stats))
         .route("/api/annotations", get(sync::list_annotations))
+        .route("/api/highlights", get(crate::highlights::list))
+        .route("/api/highlights/review", get(crate::highlights::daily))
+        .route("/api/highlights/export", get(crate::highlights::export))
         .route(
             "/api/annotations/{document}",
             get(sync::get_annotations).put(sync::put_annotations),
@@ -470,6 +481,16 @@ async fn admin_sync(State(state): State<AppState>, headers: HeaderMap, Query(que
     let mut data = library_data(&state, &query).await;
     data["syncView"] = json!(true);
     page(&state, &headers, "admin", "Sync - OPDShelf", data)
+}
+
+async fn admin_highlights(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<AdminQuery>,
+) -> Response {
+    let mut data = library_data(&state, &query).await;
+    data["highlightsView"] = json!(true);
+    page(&state, &headers, "admin", "Highlights - OPDShelf", data)
 }
 
 async fn admin_stats(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<AdminQuery>) -> Response {

@@ -26,6 +26,9 @@
         <span class="live-dot" id="navLive" title="{{t "Connecting…"}}"></span>
         <span class="count" id="deviceCount"></span>
       </a>
+      <a class="nav-item" href="/admin/highlights" data-page="highlights" {{#if highlightsView}}aria-current="true"{{/if}}>
+        <i class="fas fa-highlighter"></i><span class="label">{{t "Highlights"}}</span>
+      </a>
       <a class="nav-item" href="/admin/stats" data-page="stats" {{#if statsView}}aria-current="true"{{/if}}>
         <i class="fas fa-chart-column"></i><span class="label">{{t "Statistics"}}</span>
       </a>
@@ -96,7 +99,7 @@
   </aside>
   <div class="scrim" id="scrim"></div>
 
-  <main class="main" id="libraryView" tabindex="-1" {{#if syncView}}hidden{{else if statsView}}hidden{{/if}}>
+  <main class="main" id="libraryView" tabindex="-1" {{#if syncView}}hidden{{else if highlightsView}}hidden{{else if statsView}}hidden{{/if}}>
     <header class="toolbar">
       <button type="button" class="icon-btn menu-btn" data-menu title="{{t "Shelves"}}" aria-label="{{t "Shelves"}}"><i
           class="fas fa-bars"></i></button>
@@ -223,6 +226,7 @@
   </main>
 
   {{> sync}}
+  {{> highlights}}
 
   {{> stats}}
 
@@ -689,7 +693,7 @@
       $('dropOverlayTarget').textContent = folder || libraryRoot;
       $('uploadFolder').value = folder;
       const url = new URL(location.href);
-      if (url.pathname in PAGES) url.pathname = '/admin';
+      if (['/admin/sync', '/admin/highlights', '/admin/stats'].includes(url.pathname)) url.pathname = '/admin';
       if (folder && url.pathname === '/admin') url.searchParams.set('folder', folder);
       else url.searchParams.delete('folder');
       history.replaceState(history.state, '', url);
@@ -866,30 +870,37 @@
     setView(storeGet('opdshelf:view') === 'grid' ? 'grid' : 'list');
 
     // ------------------------------------------------------------ library or sync page
-    // Pages other than the library, by their address
-    const PAGES = { '/admin/sync': 'sync', '/admin/stats': 'stats' };
-    const currentPage = () => Object.values(PAGES).find((name) => !$(name + 'View').hidden) || 'library';
+    const PAGES = { sync: 'syncView', highlights: 'highlightsView', stats: 'statsView' };
+    const TITLES = { sync: () => t('Sync - OPDShelf'), highlights: () => t('Highlights - OPDShelf'), stats: () => t('Statistics - OPDShelf') };
+    // The page shown: library, sync, highlights or stats
+    function currentPage() {
+      return Object.keys(PAGES).find((p) => !$(PAGES[p]).hidden) || 'library';
+    }
+    function pageUrl(page) {
+      return page === 'library' ? '/admin' : '/admin/' + page;
+    }
     function showPage(page) {
       $('libraryView').hidden = page !== 'library';
-      for (const [path, name] of Object.entries(PAGES)) {
-        $(name + 'View').hidden = page !== name;
-        document.querySelector(`[data-page="${name}"]`).setAttribute('aria-current', page === name);
-      }
+      Object.entries(PAGES).forEach(([name, id]) => {
+        $(id).hidden = name !== page;
+        document.querySelector(`[data-page="${name}"]`).setAttribute('aria-current', name === page);
+      });
       if (page !== 'library') document.querySelectorAll('[data-shelf]').forEach((b) => b.setAttribute('aria-current', false));
-      document.title = { sync: t('Sync - OPDShelf'), stats: t('Statistics - OPDShelf') }[page] || 'OPDShelf';
+      document.title = TITLES[page] ? TITLES[page]() : 'OPDShelf';
       document.dispatchEvent(new CustomEvent('pagechange', { detail: { page } }));
     }
     window.showPage = showPage;
     $('skipLink').addEventListener('click', (e) => {
       e.preventDefault();
-      $(currentPage() + 'View').focus();
+      const page = currentPage();
+      $(PAGES[page] || 'libraryView').focus();
     });
-    document.querySelectorAll('[data-page]').forEach((link) => link.addEventListener('click', (e) => {
+    Object.keys(PAGES).forEach((page) => document.querySelector(`[data-page="${page}"]`).addEventListener('click', (e) => {
       if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
       e.preventDefault();
       closePanel(false);
-      showPage(link.dataset.page);
-      history.pushState({ page: link.dataset.page }, '', link.getAttribute('href'));
+      showPage(page);
+      history.pushState({ page }, '', pageUrl(page));
       closeMenu();
     }));
 
@@ -995,9 +1006,8 @@
       insp.innerHTML = '';
       markSelected(null);
       if (push) {
-        const page = currentPage();
-        const url = new URL(page === 'library' ? '/admin' : '/admin/' + page, location.href);
-        if (state.shelf === 'folder' && page === 'library') url.searchParams.set('folder', state.value);
+        const url = new URL(pageUrl(currentPage()), location.href);
+        if (state.shelf === 'folder' && currentPage() === 'library') url.searchParams.set('folder', state.value);
         history.pushState({ panel: null }, '', url);
       }
     }
@@ -1171,7 +1181,7 @@
       if (path.startsWith('/info/') || path.startsWith('/admin/edit/')) openPanel(path + location.search, false);
       else {
         closePanel(false);
-        showPage(PAGES[path] || 'library');
+        showPage(Object.keys(PAGES).find((p) => path === pageUrl(p)) || 'library');
       }
     });
     document.addEventListener('keydown', (e) => {

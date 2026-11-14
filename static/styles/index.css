@@ -2817,6 +2817,24 @@ a.nav-item {
   background: var(--bg);
 }
 
+.connect-qr {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+.connect-qr summary {
+  cursor: pointer;
+  color: var(--fg);
+}
+
+.connect-qr img {
+  display: block;
+  margin: var(--sp-2) 0;
+  padding: var(--sp-2);
+  border-radius: var(--r-sm);
+  background: #fff;
+}
+
 .copy-row code {
   flex: 1;
   min-width: 0;
@@ -3935,6 +3953,32 @@ a.nav-item {
   * {
     transition: none !important;
     animation: none !important;
+  }
+}
+
+/* Every highlight of the library */
+.all-hl {
+  max-width: 820px;
+}
+
+.all-hl .hl-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
+.all-hl .hl-group h4 {
+  background: var(--bg);
+}
+
+@media (max-width: 600px) {
+  .all-hl .hl-tools {
+    flex-wrap: wrap;
+  }
+
+  .all-hl .hl-search {
+    flex-basis: 100%;
   }
 }
 

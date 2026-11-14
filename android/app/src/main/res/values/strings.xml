@@ -261,6 +261,16 @@
     <string name="color_gray">Gray</string>
     <string name="highlight_color">Colour</string>
     <plurals name="highlights_count"><item quantity="one">%1$d highlight · %2$d with a note</item><item quantity="other">%1$d highlights · %2$d with a note</item></plurals>
+    <string name="tab_highlights">Highlights</string>
+    <string name="daily_review">Daily review</string>
+    <string name="daily_review_text">A few highlights to read again, different every day.</string>
+    <string name="library_highlights">All highlights</string>
+    <string name="cannot_load_highlights">Cannot load the highlights: %1$s</string>
+    <string name="refresh">Refresh</string>
+    <string name="show_more">Show more</string>
+    <string name="unknown_book">Unknown book</string>
+    <string name="only_this_book">Show only this book</string>
+    <string name="share_highlight">Share highlight</string>
     <string name="new_folder">New folder</string>
     <string name="folder_name">Folder name</string>
     <string name="create">Create</string>
@@ -286,4 +296,7 @@
     <plurals name="upload_title"><item quantity="one">Add %1$d book to the server</item><item quantity="other">Add %1$d books to the server</item></plurals>
     <plurals name="upload_skipped"><item quantity="one">%1$d file will be left out.</item><item quantity="other">%1$d files will be left out.</item></plurals>
     <plurals name="uploaded_count"><item quantity="one">%1$d book added to %2$s</item><item quantity="other">%1$d books added to %2$s</item></plurals>
+    <string name="scan_qr">Scan QR code</string>
+    <string name="scan_not_opdshelf">This QR code is not from OPDShelf. Scan the one under Sync › Connect your apps in the web panel.</string>
+    <string name="scan_unavailable">This device cannot scan codes. Open the QR code with the camera app, or type the details.</string>
 </resources>

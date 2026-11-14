@@ -134,7 +134,7 @@ pub fn router(config: Config) -> Router {
         .route("/api/devices", get(sync::devices))
         .route("/api/stats", get(crate::stats::summary))
         .route("/api/stats/today", get(crate::stats::today))
-        .route("/admin/stats", get(admin_stats))
+        .route("/admin/stats", get(admin_stats).layer(CompressionLayer::new()))
         .route("/api/annotations", get(sync::list_annotations))
         .route("/api/highlights", get(crate::highlights::list))
         .route("/api/highlights/review", get(crate::highlights::daily))

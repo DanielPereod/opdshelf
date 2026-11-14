@@ -65,7 +65,7 @@ fn read_text(file: &std::path::Path) -> std::io::Result<String> {
 type PageCache = Mutex<HashMap<String, (u64, i64, Arc<Vec<String>>)>>;
 
 /// Page lists are cached because listing a RAR or 7z archive spawns bsdtar.
-async fn page_list(state: &AppState, book: &Book) -> Option<Arc<Vec<String>>> {
+pub(crate) async fn page_list(state: &AppState, book: &Book) -> Option<Arc<Vec<String>>> {
     static CACHE: OnceLock<PageCache> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
     let stamp = (book.size, book.modified.timestamp());
@@ -88,10 +88,15 @@ async fn page_list(state: &AppState, book: &Book) -> Option<Arc<Vec<String>>> {
     Some(pages)
 }
 
+/// Whether the book is a comic archive served one page at a time by /page.
+pub(crate) fn is_comic(book: &Book) -> bool {
+    let ext = paths::extension(&book.path);
+    book.readable && (ext == "cbz" || ext == "zip" || archive::is_archive_comic(&book.path))
+}
+
 async fn comic(state: &AppState, path: &str) -> Option<Book> {
     let book = state.library.book(path).await?;
-    let ext = paths::extension(&book.path);
-    (book.readable && (ext == "cbz" || ext == "zip" || archive::is_archive_comic(&book.path))).then_some(book)
+    is_comic(&book).then_some(book)
 }
 
 pub async fn pages(State(state): State<AppState>, Path(path): Path<String>) -> Response {

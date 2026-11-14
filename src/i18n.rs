@@ -593,6 +593,20 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("Green", "Verde"),
     ("Olive", "Oliva"),
     ("Gray", "Gris"),
+    // OPDS catalog
+    ("Recently added", "Añadidos recientemente"),
+    ("All books by title", "Todos los libros por título"),
+    ("{n} books, newest first", "{n} libros, los más nuevos primero"),
+    ("{n} books, A-Z", "{n} libros, de la A a la Z"),
+    ("{n} folders", "{n} carpetas"),
+    ("{n} authors", "{n} autores"),
+    ("{n} series", "{n} series"),
+    ("Books you have started, last read first", "Libros empezados, el último leído primero"),
+    ("Random books", "Libros al azar"),
+    ("A different selection each time", "Una selección distinta cada vez"),
+    ("Search: {terms}", "Buscar: {terms}"),
+    ("Reading status", "Estado de lectura"),
+    ("Not started", "Sin empezar"),
 ];
 
 #[cfg(test)]

@@ -36,6 +36,7 @@ pub struct AppState {
     pub marks: crate::marks::Marks,
     pub documents: DocumentIds,
     pub presence: sync::Presence,
+    pub annotations: crate::annotations::Annotations,
 }
 
 pub fn router(config: Config) -> Router {
@@ -52,6 +53,7 @@ pub fn router(config: Config) -> Router {
         marks: crate::marks::Marks::open(&config.data_dir),
         documents: DocumentIds::open(&config.data_dir),
         presence: sync::Presence::default(),
+        annotations: crate::annotations::Annotations::open(&config.data_dir),
         config: Arc::new(config),
     };
     let upload_limit = state.config.max_upload_bytes;
@@ -112,6 +114,12 @@ pub fn router(config: Config) -> Router {
         .route("/api/progress", get(sync::list_progress))
         .route("/api/progress/events", get(sync::events))
         .route("/api/devices", get(sync::devices))
+        .route("/api/annotations", get(sync::list_annotations))
+        .route(
+            "/api/annotations/{document}",
+            get(sync::get_annotations).put(sync::put_annotations),
+        )
+        .route("/api/annotations/{document}/export", get(sync::export_annotations))
         .route("/api/marks", axum::routing::put(sync::put_marks))
         .route("/api/devices/{device}", axum::routing::delete(sync::forget_device))
         .route(
@@ -315,6 +323,8 @@ pub struct AdminQuery {
     error: Option<String>,
     /// Set when the inspector asks for just its own HTML.
     panel: Option<String>,
+    /// The inspector's tab: `notes` for the highlights and notes of the book.
+    tab: Option<String>,
 }
 
 impl AdminQuery {
@@ -782,13 +792,19 @@ async fn info(
         return StatusCode::NOT_FOUND.into_response();
     };
     let document = state.documents.id(&state.library, &book).await;
+    let notes = query.tab.as_deref() == Some("notes");
+    let highlights = document
+        .as_deref()
+        .map_or(0, |d| state.annotations.list(d).iter().filter(|a| !a.deleted).count());
     let selection = json!({
         "book": book_json(&book),
         "document": document,
         "meta": book.meta,
         "mime": book.mime,
-        "tab": "info",
-        "infoTab": true,
+        "tab": if notes { "notes" } else { "info" },
+        "infoTab": !notes,
+        "notesTab": notes,
+        "highlightCount": highlights,
     });
     if query.wants_panel() {
         return fragment(&state, &headers, "inspector", selection);

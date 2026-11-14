@@ -71,3 +71,31 @@ function deviceIcon(name) {
 function encodePath(path) {
   return path.split('/').map(encodeURIComponent).join('/');
 }
+
+// This browser as a device of the sync: an id kept in this browser and a name
+// such as "Firefox on Linux". The reader and the panel use the same one.
+function opdshelfDevice() {
+  function deviceId() {
+    let id = storeGet('opdshelf:device-id');
+    if (!id) {
+      id = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now()).replace(/-/g, '');
+      storeSet('opdshelf:device-id', id);
+    }
+    return id;
+  }
+
+  function deviceName() {
+    const ua = navigator.userAgent;
+    const browser = /Edg\//.test(ua) ? 'Edge'
+      : /Firefox\//.test(ua) ? 'Firefox'
+        : /Chrome\//.test(ua) ? 'Chrome'
+          : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+    const os = /Android/.test(ua) ? 'Android'
+      : /iPhone|iPad/.test(ua) ? 'iOS'
+        : /Mac OS X/.test(ua) ? 'macOS'
+          : /Windows/.test(ua) ? 'Windows'
+            : /Linux/.test(ua) ? 'Linux' : '';
+    return os ? `${browser} on ${os}` : browser;
+  }
+  return { id: deviceId(), name: deviceName() };
+}

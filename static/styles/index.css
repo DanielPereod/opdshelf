@@ -1748,29 +1748,6 @@ dialog::backdrop {
   text-decoration: underline;
 }
 
-.mark-point {
-  position: absolute;
-  left: 50%;
-  bottom: 12px;
-  z-index: 2;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-4);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--pane);
-  color: var(--fg);
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.15);
-}
-
-.mark-point[hidden] {
-  display: none;
-}
-
 .loading {
   position: absolute;
   inset: 0;
@@ -2943,6 +2920,557 @@ a.nav-item {
   .c-fmt,
   .c-size {
     display: none;
+  }
+}
+
+/* ---------------------------------------------------- highlights and notes */
+/* Highlight colours are the readers' own, so they are the one exception to the greys */
+
+[data-color="yellow"] { --hl: #f5c400; }
+[data-color="orange"] { --hl: #ff9800; }
+[data-color="red"] { --hl: #ef5350; }
+[data-color="purple"] { --hl: #ab47bc; }
+[data-color="blue"] { --hl: #42a5f5; }
+[data-color="cyan"] { --hl: #26c6da; }
+[data-color="green"] { --hl: #66bb6a; }
+[data-color="olive"] { --hl: #9e9d24; }
+[data-color="gray"] { --hl: #9e9e9e; }
+
+.hl-swatches {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hl-swatch {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--hl);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
+  transition: transform 0.12s;
+}
+
+.hl-swatch:hover {
+  transform: scale(1.12);
+}
+
+.hl-swatch[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--pane), 0 0 0 4px var(--fg);
+}
+
+.hl-dot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--hl);
+}
+
+/* Toolbar over the page while text is selected */
+.sel-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  z-index: 4;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  max-width: calc(100% - 16px);
+  padding: 6px 6px 6px var(--sp-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--pane);
+  color: var(--fg);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+}
+
+.sel-bar[hidden] {
+  display: none;
+}
+
+.sel-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--control);
+  padding: 0 var(--sp-3);
+  border-radius: 999px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sel-action:hover {
+  background: var(--hover);
+}
+
+.sel-bar .hl-swatches {
+  padding-right: var(--sp-2);
+  border-right: 1px solid var(--line);
+}
+
+.notes-btn {
+  position: relative;
+}
+
+.notes-count {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: var(--fg);
+  color: var(--inverse);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+.notes-count[hidden] {
+  display: none;
+}
+
+/* The reader's side panel of highlights */
+.notes-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  border-left: 1px solid var(--line);
+  background: var(--pane);
+  color: var(--fg);
+}
+
+.notes-panel[hidden] {
+  display: none;
+}
+
+.stage:has(.notes-panel:not([hidden])) .epub-viewer {
+  right: calc(360px + 24px);
+}
+
+.stage:has(.notes-panel:not([hidden])) .page-turn.next {
+  right: 360px;
+}
+
+.notes-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3) var(--sp-2) var(--sp-2) var(--sp-4);
+}
+
+.notes-panel h2 {
+  margin: 0;
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+#notesList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--sp-4) var(--sp-4);
+}
+
+/* The list, in the reader and in the book's panel */
+.hl-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.hl-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.hl-stats {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.hl-statsrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.hl-sort[hidden] {
+  display: none;
+}
+
+.hl-tools {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.hl-tools[hidden],
+.hl-filters[hidden] {
+  display: none;
+}
+
+.hl-search {
+  flex: 1;
+  min-width: 0;
+}
+
+.hl-sort {
+  width: auto;
+  height: 26px;
+  margin-left: auto;
+  padding: 0 var(--sp-1) 0 var(--sp-2);
+  border-color: transparent;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.hl-export {
+  position: relative;
+}
+
+.hl-export .btn {
+  height: var(--control);
+}
+
+.hl-view.compact .hl-export .btn {
+  width: var(--control);
+  padding: 0;
+  font-size: 0;
+  gap: 0;
+}
+
+.hl-view.compact .hl-export .btn i {
+  font-size: var(--fs-sm);
+}
+
+.hl-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 190px;
+  padding: var(--sp-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--pane);
+  box-shadow: var(--shadow);
+}
+
+.hl-menu[hidden] {
+  display: none;
+}
+
+.hl-menu a,
+.hl-menu button {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  text-align: left;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.hl-menu a:hover,
+.hl-menu button:hover {
+  background: var(--hover);
+}
+
+.hl-menu i {
+  width: 16px;
+  color: var(--muted);
+}
+
+.hl-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.hl-chip:hover {
+  color: var(--fg);
+}
+
+.hl-chip[aria-pressed="true"] {
+  border-color: var(--fg);
+  background: var(--fg);
+  color: var(--inverse);
+}
+
+.hl-group h4 {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: var(--sp-2) 0 var(--sp-1);
+  padding: var(--sp-2) 0;
+  background: var(--pane);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.hl-group ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hl-item {
+  position: relative;
+  padding: var(--sp-3) var(--sp-3) var(--sp-2) calc(var(--sp-3) + 4px);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--pane);
+}
+
+.hl-item::before {
+  content: "";
+  position: absolute;
+  top: var(--sp-3);
+  bottom: var(--sp-3);
+  left: 0;
+  width: 4px;
+  border-radius: 0 2px 2px 0;
+  background: var(--hl, var(--line-strong));
+}
+
+.hl-item.flash {
+  animation: hl-flash 1.6s ease-out;
+}
+
+@keyframes hl-flash {
+  from { box-shadow: 0 0 0 3px var(--hl); }
+  to { box-shadow: 0 0 0 0 transparent; }
+}
+
+.hl-text {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.hl-text.underline {
+  text-decoration: underline 2px var(--hl);
+  text-underline-offset: 3px;
+}
+
+.hl-text.strike {
+  text-decoration: line-through 2px var(--hl);
+}
+
+.hl-note {
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  background: var(--soft);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.hl-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.hl-meta {
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hl-actions {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+
+.hl-actions .icon-btn {
+  width: var(--control-sm);
+  height: var(--control-sm);
+  font-size: var(--fs-sm);
+}
+
+/* Actions show on hover with a mouse, always on touch screens */
+@media (hover: hover) and (pointer: fine) {
+  .hl-item .hl-actions {
+    opacity: 0.35;
+    transition: opacity 0.12s;
+  }
+
+  .hl-item:hover .hl-actions,
+  .hl-item:focus-within .hl-actions {
+    opacity: 1;
+  }
+}
+
+.hl-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.hl-edit textarea,
+.note-dialog textarea {
+  height: auto;
+  padding: var(--sp-2) var(--sp-3);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.hl-edit-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.hl-edit-row .hl-swatches {
+  flex: 1;
+}
+
+.hl-edit .hl-swatch {
+  width: 20px;
+  height: 20px;
+}
+
+.hl-empty {
+  padding: var(--sp-8) var(--sp-4);
+}
+
+.hl-none {
+  margin: var(--sp-4) 0;
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+
+/* Note dialog of the reader */
+.note-dialog {
+  width: min(480px, calc(100% - 32px));
+}
+
+.note-dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-5);
+}
+
+.note-dialog h2 {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+.note-dialog blockquote {
+  max-height: 30vh;
+  overflow-y: auto;
+  margin: 0;
+  padding-left: var(--sp-3);
+  border-left: 3px solid var(--line-strong);
+  font-family: var(--serif);
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.note-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.note-row .icon-btn[hidden] {
+  display: none;
+}
+
+.note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+
+.tab-count {
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--soft);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.notes-body .hl-group h4 {
+  top: calc(-1 * var(--sp-4));
+}
+
+@media (max-width: 760px) {
+  .notes-panel {
+    width: 100%;
+    border-left: 0;
+  }
+
+  .stage:has(.notes-panel:not([hidden])) .epub-viewer {
+    right: auto;
+  }
+
+  .sel-bar {
+    bottom: 8px;
+    padding-left: var(--sp-2);
+  }
+
+  .sel-action span {
+    display: none;
+  }
+
+  .sel-action {
+    padding: 0 10px;
   }
 }
 

@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::broadcast::error::RecvError;
 
+use crate::annotations;
 use crate::progress::{self, Update};
 use crate::web::AppState;
 
@@ -153,8 +154,10 @@ fn short(value: Option<String>) -> String {
 /// device that has the book open can follow reading done elsewhere at once.
 ///
 /// Sends `hello` with the server's time when connecting, then a `progress`
-/// event (`{document, current}`) per change, and `resync` when changes were
-/// missed and the client should fetch its books' positions again.
+/// event (`{document, current}`) per change of position, an `annotations`
+/// event (`{document, annotations}`) with the highlights that changed, and
+/// `resync` when changes were missed and the client should fetch its books'
+/// positions and highlights again.
 pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQuery>) -> Response {
     let wanted: Option<HashSet<String>> = query.documents.map(|list| {
         list.split(',')
@@ -167,28 +170,43 @@ pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQue
         .event("hello")
         .data(json!({ "server_time": now() }).to_string());
     let changes = state.progress.subscribe();
+    let notes = state.annotations.subscribe();
     let device_id = short(query.device_id);
     let guard = (!device_id.is_empty()).then(|| state.presence.join(&device_id, &short(query.device)));
     let stream = futures_util::stream::unfold(
-        (Some(hello), changes, wanted, guard),
-        |(first, mut changes, wanted, guard)| async move {
+        (Some(hello), changes, notes, wanted, guard),
+        |(first, mut changes, mut notes, wanted, guard)| async move {
             if let Some(event) = first {
-                return Some((Ok::<_, Infallible>(event), (None, changes, wanted, guard)));
+                return Some((Ok::<_, Infallible>(event), (None, changes, notes, wanted, guard)));
             }
             loop {
-                let event = match changes.recv().await {
-                    Ok(change) => {
-                        if wanted.as_ref().is_some_and(|w| !w.contains(&change.document)) {
-                            continue;
+                let event = tokio::select! {
+                    change = changes.recv() => match change {
+                        Ok(change) => {
+                            if wanted.as_ref().is_some_and(|w| !w.contains(&change.document)) {
+                                continue;
+                            }
+                            Event::default()
+                                .event("progress")
+                                .data(serde_json::to_string(&change).unwrap_or_default())
                         }
-                        Event::default()
-                            .event("progress")
-                            .data(serde_json::to_string(&change).unwrap_or_default())
-                    }
-                    Err(RecvError::Lagged(_)) => Event::default().event("resync").data("{}"),
-                    Err(RecvError::Closed) => return None,
+                        Err(RecvError::Lagged(_)) => Event::default().event("resync").data("{}"),
+                        Err(RecvError::Closed) => return None,
+                    },
+                    change = notes.recv() => match change {
+                        Ok(change) => {
+                            if wanted.as_ref().is_some_and(|w| !w.contains(&change.document)) {
+                                continue;
+                            }
+                            Event::default()
+                                .event("annotations")
+                                .data(serde_json::to_string(&change).unwrap_or_default())
+                        }
+                        Err(RecvError::Lagged(_)) => Event::default().event("resync").data("{}"),
+                        Err(RecvError::Closed) => return None,
+                    },
                 };
-                return Some((Ok(event), (None, changes, wanted, guard)));
+                return Some((Ok(event), (None, changes, notes, wanted, guard)));
             }
         },
     );
@@ -406,6 +424,167 @@ pub async fn forget_device(
         Ok(removed) => Json(json!({ "removed": removed })).into_response(),
         Err(err) => save_failed(err),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Highlights and notes
+
+fn missing_device() -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({ "error": "device_id is required" })),
+    )
+        .into_response()
+}
+
+pub async fn get_annotations(State(state): State<AppState>, Path(document): Path<String>) -> Response {
+    if !progress::valid_document(&document) {
+        return bad_document();
+    }
+    Json(json!({
+        "document": document,
+        "annotations": state.annotations.list(&document),
+        "server_time": now(),
+    }))
+    .into_response()
+}
+
+/// Merges the highlights a device sends and answers every highlight of the book.
+pub async fn put_annotations(
+    State(state): State<AppState>,
+    Path(document): Path<String>,
+    Json(batch): Json<annotations::Batch>,
+) -> Response {
+    if !progress::valid_document(&document) {
+        return bad_document();
+    }
+    if batch.device_id.trim().is_empty() && batch.annotations.iter().any(|a| a.device_id.trim().is_empty()) {
+        return missing_device();
+    }
+    match state.annotations.merge(&document, batch, now()) {
+        Ok(changed) => Json(json!({
+            "document": document,
+            "changed": changed.len(),
+            "annotations": state.annotations.list(&document),
+            "server_time": now(),
+        }))
+        .into_response(),
+        Err(err) => {
+            tracing::error!("cannot save highlights: {err}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Cannot save the highlights" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Every book with highlights: how many, how many with notes, and the last change.
+pub async fn list_annotations(State(state): State<AppState>) -> Response {
+    let books = books_by_document(&state).await;
+    let mut list: Vec<_> = state
+        .annotations
+        .all()
+        .into_iter()
+        .map(|(document, notes)| {
+            let mut entry = book_fields(&books, &document);
+            entry["document"] = json!(document);
+            entry["highlights"] = json!(notes.len());
+            entry["notes"] = json!(notes.iter().filter(|a| !a.note.trim().is_empty()).count());
+            entry["updated"] = json!(notes.iter().map(|a| a.updated).max().unwrap_or(0));
+            entry
+        })
+        .collect();
+    list.sort_by_key(|e| std::cmp::Reverse(e["updated"].as_i64().unwrap_or(0)));
+    Json(json!({ "books": list, "server_time": now() })).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct ExportQuery {
+    #[serde(default)]
+    format: Option<String>,
+}
+
+/// The highlights of a book as a Markdown or JSON file.
+pub async fn export_annotations(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(document): Path<String>,
+    Query(query): Query<ExportQuery>,
+) -> Response {
+    if !progress::valid_document(&document) {
+        return bad_document();
+    }
+    let index = state.documents.index(&state.library).await;
+    let book = match index.get(&document) {
+        Some(path) => state.library.book(path).await,
+        None => None,
+    };
+    let info = annotations::BookInfo {
+        title: book.as_ref().map_or_else(|| document.clone(), |b| b.title.clone()),
+        authors: book.as_ref().map(|b| b.author_line()).unwrap_or_default(),
+    };
+    let list: Vec<_> = state
+        .annotations
+        .list(&document)
+        .into_iter()
+        .filter(|a| !a.deleted)
+        .collect();
+    let stem: String = info
+        .title
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .chars()
+        .take(80)
+        .collect();
+    let stem = if stem.is_empty() {
+        "highlights".to_string()
+    } else {
+        stem
+    };
+    let (body, mime, ext) = match query.format.as_deref() {
+        Some("json") => (
+            serde_json::to_string_pretty(&json!({
+                "title": info.title,
+                "authors": info.authors,
+                "document": document,
+                "annotations": list,
+            }))
+            .unwrap_or_default(),
+            "application/json; charset=utf-8",
+            "json",
+        ),
+        _ => {
+            let spanish = crate::i18n::Lang::from_headers(&headers) == crate::i18n::Lang::Es;
+            (
+                annotations::markdown(&info, &list, spanish),
+                "text/markdown; charset=utf-8",
+                "md",
+            )
+        }
+    };
+    let ascii: String = stem.chars().map(|c| if c.is_ascii() { c } else { '_' }).collect();
+    let disposition = format!(
+        "attachment; filename=\"{ascii}.{ext}\"; filename*=UTF-8''{}.{ext}",
+        crate::paths::url_encode(&stem)
+    );
+    (
+        [
+            (header::CONTENT_TYPE, mime.to_string()),
+            (header::CONTENT_DISPOSITION, disposition),
+        ],
+        body,
+    )
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------

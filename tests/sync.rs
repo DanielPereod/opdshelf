@@ -593,3 +593,117 @@ async fn reading_apps_download_from_the_panel() {
         .unwrap()
         .contains("beta channel"));
 }
+
+#[tokio::test]
+async fn highlights_sync_between_devices() {
+    let app = app();
+    let uri = format!("/api/annotations/{DOC}");
+    let response = app
+        .app
+        .clone()
+        .oneshot(
+            Request::get(format!("/api/progress/events?documents={DOC}"))
+                .header(header::AUTHORIZATION, basic())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut events = response.into_body();
+    async fn next(body: &mut Body) -> String {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), body.frame())
+            .await
+            .expect("an event")
+            .unwrap()
+            .unwrap();
+        String::from_utf8(frame.into_data().unwrap().to_vec()).unwrap()
+    }
+    assert!(next(&mut events).await.starts_with("event: hello\n"));
+
+    let (status, body) = app.api("GET", &uri, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["annotations"], json!([]));
+
+    // KOReader highlights a sentence and adds a note
+    let highlight = json!({
+        "id": "kobo-1",
+        "text": "It was a dark and stormy night",
+        "note": "Classic opening",
+        "color": "green",
+        "pos0": "/body/DocFragment[2]/body/p[1]/text()[1].0",
+        "pos1": "/body/DocFragment[2]/body/p[1]/text()[1].30",
+        "chapter": "Chapter 1",
+        "percentage": 0.02,
+        "updated": 0,
+    });
+    let (status, body) = app
+        .api(
+            "PUT",
+            &uri,
+            Some(json!({ "device": "Kobo", "device_id": "kobo", "annotations": [highlight] })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["changed"], 1);
+    assert_eq!(body["annotations"][0]["device"], "Kobo");
+    let updated = body["annotations"][0]["updated"].as_i64().unwrap();
+    let event = next(&mut events).await;
+    assert!(event.starts_with("event: annotations\n"), "{event}");
+    assert!(event.contains("Classic opening"), "{event}");
+
+    // The browser deletes it a bit later
+    let gone =
+        json!({ "id": "kobo-1", "deleted": true, "updated": updated + 5, "device_id": "web1", "device": "Firefox" });
+    let (_, body) = app.api("PUT", &uri, Some(json!({ "annotations": [gone] }))).await;
+    assert_eq!(body["annotations"][0]["deleted"], true);
+    assert_eq!(body["annotations"][0]["text"], "");
+
+    // Listed for the panel only while it has highlights left
+    let (_, list) = app.api("GET", "/api/annotations", None).await;
+    assert_eq!(list["books"], json!([]));
+    let again = json!({ "id": "web-2", "text": "stormy", "note": "Weather", "updated": updated + 6 });
+    app.api(
+        "PUT",
+        &uri,
+        Some(json!({ "device": "Firefox", "device_id": "web1", "annotations": [again] })),
+    )
+    .await;
+    let (_, list) = app.api("GET", "/api/annotations", None).await;
+    assert_eq!(list["books"][0]["path"], "One.epub");
+    assert_eq!(
+        (
+            list["books"][0]["highlights"].as_i64(),
+            list["books"][0]["notes"].as_i64()
+        ),
+        (Some(1), Some(1))
+    );
+
+    // Exported as Markdown with the book's title
+    let response = app
+        .app
+        .clone()
+        .oneshot(
+            Request::get(format!("{uri}/export"))
+                .header(header::AUTHORIZATION, basic())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(response.headers()[header::CONTENT_DISPOSITION]
+        .to_str()
+        .unwrap()
+        .contains("One.md"));
+    let text = response.into_body().collect().await.unwrap().to_bytes();
+    let text = String::from_utf8_lossy(&text);
+    assert!(text.starts_with("# One\n"), "{text}");
+    assert!(text.contains("> stormy\n\nWeather\n"), "{text}");
+
+    // Without a device the change cannot be told apart
+    let (status, _) = app
+        .api("PUT", &uri, Some(json!({ "annotations": [{ "id": "x" }] })))
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = app.api("GET", "/api/annotations/not-valid!", None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

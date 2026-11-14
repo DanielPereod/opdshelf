@@ -1,6 +1,7 @@
 <div class="insp-head">
   <nav class="tabs" aria-label="{{t "Book"}}">
     <a class="tab" href="/info/{{urlPath book.path}}" data-panel {{#if infoTab}}aria-current="page"{{/if}}>{{t "Details"}}</a>
+    <a class="tab" href="/info/{{urlPath book.path}}?tab=notes" data-panel {{#if notesTab}}aria-current="page"{{/if}}>{{t "Highlights"}}{{#if highlightCount}}<span class="tab-count">{{highlightCount}}</span>{{/if}}</a>
     <a class="tab" href="/admin/edit/{{urlPath book.path}}" data-panel {{#if editTab}}aria-current="page"{{/if}}>{{t "Edit"}}</a>
   </nav>
   <button type="button" class="icon-btn" data-delete="{{book.path}}" data-title="{{book.title}}" title="{{t "Delete book"}}" aria-label="{{t "Delete book"}}">
@@ -75,6 +76,12 @@
     </button>
     <a class="btn" href="/admin/edit/{{urlPath book.path}}" data-panel><i class="fas fa-pen"></i>{{t "Edit details"}}</a>
   </div>
+</div>
+{{/if}}
+
+{{#if notesTab}}
+<div class="insp-body notes-body" data-notes="{{document}}" data-path="{{book.path}}" data-readable="{{book.readable}}">
+  {{#unless document}}<p class="muted">{{t "This book has no id, so its highlights cannot be synced."}}</p>{{/unless}}
 </div>
 {{/if}}
 

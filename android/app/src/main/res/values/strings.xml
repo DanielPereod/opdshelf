@@ -275,4 +275,15 @@
     <string name="empty_folder">This folder is empty</string>
     <string name="empty_folder_text">Open a book and choose Move to folder to put it here.</string>
     <string name="empty_folders_add">Create folders here and move books into them from their details.</string>
+    <string name="add_books">Add books</string>
+    <string name="upload_folder">Folder on the server</string>
+    <string name="upload_change_folder">Change</string>
+    <string name="upload_start">Upload</string>
+    <string name="uploading">Uploading…</string>
+    <string name="upload_done">Added to the server</string>
+    <string name="upload_unsupported">Not a book format the server takes</string>
+    <string name="upload_unreadable">Cannot read this file</string>
+    <plurals name="upload_title"><item quantity="one">Add %1$d book to the server</item><item quantity="other">Add %1$d books to the server</item></plurals>
+    <plurals name="upload_skipped"><item quantity="one">%1$d file will be left out.</item><item quantity="other">%1$d files will be left out.</item></plurals>
+    <plurals name="uploaded_count"><item quantity="one">%1$d book added to %2$s</item><item quantity="other">%1$d books added to %2$s</item></plurals>
 </resources>

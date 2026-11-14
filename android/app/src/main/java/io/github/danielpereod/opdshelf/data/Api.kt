@@ -159,6 +159,50 @@ class Api(private val settings: Settings) {
     private fun serverError(text: String): String? =
         runCatching { json.decodeFromString(ErrorResponse.serializer(), text).error }.getOrNull()
 
+    /**
+     * Uploads a book to [folder] on the server ("" for the top), reading it from [open].
+     * The server never overwrites: it answers the path it saved the book under.
+     */
+    suspend fun upload(
+        folder: String,
+        name: String,
+        size: Long,
+        open: () -> java.io.InputStream,
+        onProgress: (Float) -> Unit,
+    ): String = withContext(Dispatchers.IO) {
+        val path = (if (folder.isEmpty()) name else "$folder/$name").split('/').joinToString("/") { segment ->
+            java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
+        }
+        val body = object : okhttp3.RequestBody() {
+            override fun contentType() = "application/octet-stream".toMediaType()
+            override fun contentLength() = size
+            override fun writeTo(sink: okio.BufferedSink) {
+                open().use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    var done = 0L
+                    while (true) {
+                        val n = input.read(buffer)
+                        if (n < 0) break
+                        sink.write(buffer, 0, n)
+                        done += n
+                        if (size > 0) onProgress(done.toFloat() / size)
+                    }
+                }
+            }
+        }
+        // Big books on slow connections take a while to go up
+        val slow = client.newBuilder().writeTimeout(5, TimeUnit.MINUTES).readTimeout(2, TimeUnit.MINUTES).build()
+        slow.newCall(Request.Builder().url(url("/api/upload/$path")).put(body).build()).execute().use {
+            val text = it.body?.string().orEmpty()
+            val answer = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull()
+            if (!it.isSuccessful) {
+                val reason = (answer?.get("error") as? JsonPrimitive)?.content ?: "${it.code} ${it.message}"
+                throw HttpError(it.code, reason)
+            }
+            (answer?.get("path") as? JsonPrimitive)?.content ?: name
+        }
+    }
+
     /** Checks the address and login. */
     suspend fun check() {
         feed(url("/"))

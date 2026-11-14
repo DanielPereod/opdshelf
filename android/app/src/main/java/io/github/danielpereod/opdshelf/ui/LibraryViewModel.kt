@@ -52,6 +52,33 @@ data class Notice(
     val retry: Entry? = null,
 )
 
+/** A file chosen on this device to add to the server. */
+data class UploadFile(
+    val uri: android.net.Uri,
+    val name: String,
+    val size: Long,
+    /** From 0 to 1 while it goes up. */
+    val progress: Float? = null,
+    val done: Boolean = false,
+    val error: String? = null,
+) {
+    val supported get() = isBookFile(name)
+}
+
+/** Books on their way to the server, and the folder they go to ("" for the top). */
+data class Upload(val files: List<UploadFile>, val folder: String, val running: Boolean = false, val finished: Boolean = false)
+
+/** The formats the server takes by default, so other files are pointed out before uploading. */
+private val bookExtensions = setOf(
+    "epub", "kepub", "pdf", "fb2", "fbz", "mobi", "azw", "azw3", "azw4", "cbz", "cbr", "cb7", "cbt", "djvu", "rtf",
+    "txt", "doc", "docx", "odt", "zip",
+)
+
+fun isBookFile(name: String): Boolean {
+    val lower = name.lowercase()
+    return lower.endsWith(".fb2.zip") || lower.substringAfterLast('.', "") in bookExtensions
+}
+
 /** The book whose details are open: from the catalog, or only on this device. */
 data class Detail(val entry: Entry?, val bookId: String)
 
@@ -81,6 +108,9 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     /** The server's latest position of the book in the details, to say where it was left. */
     private val _remote = MutableStateFlow<Position?>(null)
     val remote: StateFlow<Position?> = _remote.asStateFlow()
+
+    private val _upload = MutableStateFlow<Upload?>(null)
+    val upload: StateFlow<Upload?> = _upload.asStateFlow()
 
     val books = app.store.books
     val syncStatus = app.sync.status
@@ -218,6 +248,83 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             } finally {
                 _downloads.value = _downloads.value - entry.id
                 jobs.remove(entry.id)
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Adding books to the server
+
+    /** Opens the upload sheet for files picked here or shared from another app. */
+    fun prepareUpload(uris: List<android.net.Uri>) {
+        if (uris.isEmpty() || _upload.value?.running == true) return
+        viewModelScope.launch {
+            val files = withContext(Dispatchers.IO) { uris.distinct().map { describeFile(it) } }
+            _upload.value = Upload(files, currentFolder() ?: "")
+        }
+    }
+
+    private fun describeFile(uri: android.net.Uri): UploadFile {
+        var name: String? = null
+        var size = -1L
+        runCatching {
+            text.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                if (c.moveToFirst()) {
+                    val n = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    val s = c.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                    if (n >= 0) name = c.getString(n)
+                    if (s >= 0 && !c.isNull(s)) size = c.getLong(s)
+                }
+            }
+        }
+        val fallback = uri.lastPathSegment?.substringAfterLast('/') ?: "book"
+        return UploadFile(uri, (name ?: fallback).replace('/', '_'), size)
+    }
+
+    fun setUploadFolder(folder: String) {
+        _upload.value = _upload.value?.copy(folder = folder)
+    }
+
+    fun closeUpload() {
+        if (_upload.value?.running != true) _upload.value = null
+    }
+
+    fun startUpload() {
+        val upload = _upload.value ?: return
+        if (upload.running) return
+        _upload.value = upload.copy(running = true, finished = false)
+        viewModelScope.launch {
+            var saved = 0
+            for (file in upload.files) {
+                if (!file.supported || file.done) continue
+                fun change(f: (UploadFile) -> UploadFile) {
+                    _upload.value = _upload.value?.let { u -> u.copy(files = u.files.map { if (it.uri == file.uri) f(it) else it }) }
+                }
+                change { it.copy(progress = 0f, error = null) }
+                try {
+                    app.api.upload(
+                        upload.folder, file.name, file.size,
+                        open = { text.contentResolver.openInputStream(file.uri) ?: throw java.io.IOException(text.getString(R.string.upload_unreadable)) },
+                        onProgress = { p -> change { it.copy(progress = p) } },
+                    )
+                    saved++
+                    change { it.copy(progress = null, done = true) }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    change { it.copy(progress = null, error = text.describe(e)) }
+                }
+            }
+            val now = _upload.value ?: return@launch
+            val failed = now.files.any { it.supported && !it.done }
+            // Show the new books where the catalog is open
+            _stack.value.lastOrNull()?.let { load(it.url) }
+            if (failed) {
+                _upload.value = now.copy(running = false, finished = true)
+            } else {
+                _upload.value = null
+                val where = upload.folder.ifEmpty { text.getString(R.string.library_top) }
+                _messages.value = Notice(text.resources.getQuantityString(R.plurals.uploaded_count, saved, saved, where))
             }
         }
     }

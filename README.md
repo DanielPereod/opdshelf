@@ -34,7 +34,7 @@
 
 - **Single Rust binary, no database.** Your folder structure is the library; new, changed and deleted files show up instantly.
 - **OPDS 1.2 catalog** for any reader (KOReader, Moon+ Reader, Readest, Calibre…): recent books, titles, folders, authors and series, with search and pagination ([URLs](docs/opds.md)).
-- **Web panel** in English and Spanish: list or cover grid, drag-and-drop uploads, metadata and cover editing (with ISBN lookup), authors and series shelves, bulk move, delete and **mark as read / unread**, light and dark themes, works on phones.
+- **Web panel** in English and Spanish: list or cover grid, drag-and-drop uploads, metadata and cover editing (with ISBN lookup), authors and series shelves, folders you create and fill with one click or by dragging books onto them, bulk move, delete and **mark as read / unread**, light and dark themes, works on phones.
 - **Read in the browser**: EPUB (text settings, two-page spread), PDF, comics (CBZ, CBR, CB7, CBT) and TXT.
 - **Devices page**: every device that syncs, whether it is connected right now, the books it is on and how far, and a live feed of reading activity.
 - **Android app** and **KOReader plugin**, downloadable from the panel.
@@ -55,14 +55,14 @@ Details, conflict handling and the API: [docs/sync.md](docs/sync.md).
 
 ### KOReader plugin
 
-Download it from the panel (or the [`koreader-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/koreader-latest) release), unzip `opdshelf.koplugin` into KOReader's `plugins` folder and restart. In **Tools → OPDShelf → Server** enter the address, username and password. Besides live sync it brings:
+Download it from the panel (or the [`koreader-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/koreader-latest) release), unzip `opdshelf.koplugin` into KOReader's `plugins` folder and restart. Downloaded from the panel it comes set up with the server and your login; otherwise enter them in **Tools → OPDShelf → Server**. It updates itself from the server (it asks at start when there is a new version), and **Tools → OPDShelf → Status and updates** shows its version, the connection, what is waiting to be sent and the last error. Besides live sync it brings:
 
 - **Library**: the server's catalog with covers, search and downloads (in the background, so e-ink screens such as Kindle keep refreshing).
 - **Home screen**: works as KOReader's launcher, with the book to continue, the newest books on the server and the last ones read.
 
 ### Android app
 
-Download it from the panel (or the [`android-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/android-latest) release). Browse and download the catalog, read offline with a [Readium](https://readium.org) reader (themes, bookmarks, search, volume keys), filter your books by reading state, and sync as above. Building and signing: [docs/android.md](docs/android.md).
+Download it from the panel (or the [`android-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/android-latest) release). Browse and download the catalog, read offline with a [Readium](https://readium.org) reader (themes, bookmarks, search, volume keys), filter your books by reading state, and sync as above. To connect it, scan the QR code under **Sync → Connect your apps** in the panel. Building and signing: [docs/android.md](docs/android.md).
 
 ---
 
@@ -124,6 +124,7 @@ All settings are environment variables.
 | `APPS_URL` | `https://github.com/DanielPereod/opdshelf/releases/download` | Where the panel's Android app and KOReader plugin downloads come from |
 | `APPS_CHANNEL` | `latest` (`beta` in the `:beta` image) | Which releases those downloads use: `latest` (from `main`) or `beta` |
 | `DATA_DIR` | `BOOKS_DIR/.opdshelf` | Where edited metadata, custom covers and the thumbnail cache are stored |
+| `TZ` | `UTC` | Time zone the reading statistics count days in, e.g. `Europe/Madrid` |
 | `WATCH` | `true` | Watch the books folder for changes. Set to `false` on network shares that do not report changes; the library is then rescanned on each request |
 | `SCAN_INTERVAL` | `600` | Seconds between full rescans while watching, as a safety net for missed events |
 | `RUST_LOG` | `info` | Log level (`debug`, `info`, `warn`...) |

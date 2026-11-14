@@ -5,6 +5,7 @@ OPDShelf's home screen: what to read next, at a glance.
   when another device went further, where that one is.
 - Recently added on the server, as a shelf of covers.
 - The last books opened on this device, with their progress.
+- How long you read today, on every device, under the title.
 - Library, search and the file browser one tap away.
 
 It can replace KOReader's start screen (File browser → Settings → Start with).
@@ -270,6 +271,12 @@ function Home:loadRemote()
     else
         self.connected = false
         self.server_error = code == 401 and _("The server did not accept the username or password.") or nil
+    end
+    -- Time read today, on every device
+    if self.connected then
+        local c, today = client:getToday()
+        self.today_minutes = c == 200 and type(today) == "table" and tonumber(today.seconds)
+            and math.floor(today.seconds / 60 + 0.5) or nil
     end
     -- Where the book to continue was left on other devices
     local book = self.history[1]
@@ -545,6 +552,8 @@ function Home:statusLine()
         return self.server_error
     elseif self.offline or self.connected == false then
         return _("Offline: showing what is on this device")
+    elseif self.server_count and self.today_minutes then
+        return T(_("%1 books in your library · Today: %2 min"), self.server_count, self.today_minutes)
     elseif self.server_count then
         return T(_("%1 books in your library"), self.server_count)
     end

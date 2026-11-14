@@ -270,4 +270,32 @@
     <string name="unknown_book">Libro desconocido</string>
     <string name="only_this_book">Ver solo este libro</string>
     <string name="share_highlight">Compartir subrayado</string>
+    <string name="new_folder">Nueva carpeta</string>
+    <string name="folder_name">Nombre de la carpeta</string>
+    <string name="create">Crear</string>
+    <string name="folder_created">Carpeta %1$s creada</string>
+    <string name="move_to_folder">Mover a carpeta</string>
+    <string name="library_top">Raíz de la biblioteca</string>
+    <string name="or_new_folder">O una carpeta nueva</string>
+    <string name="create_and_move">Crear y mover</string>
+    <string name="already_here">Ya está aquí</string>
+    <string name="moved_to_folder">\"%1$s\" movido a %2$s</string>
+    <string name="moved_to_top">\"%1$s\" movido a la raíz de la biblioteca</string>
+    <string name="empty_folder">Esta carpeta está vacía</string>
+    <string name="empty_folder_text">Abre un libro y elige Mover a carpeta para ponerlo aquí.</string>
+    <string name="empty_folders_add">Crea carpetas aquí y mueve libros a ellas desde su ficha.</string>
+    <string name="add_books">Añadir libros</string>
+    <string name="upload_folder">Carpeta en el servidor</string>
+    <string name="upload_change_folder">Cambiar</string>
+    <string name="upload_start">Subir</string>
+    <string name="uploading">Subiendo…</string>
+    <string name="upload_done">Añadido al servidor</string>
+    <string name="upload_unsupported">El servidor no admite este formato</string>
+    <string name="upload_unreadable">No se puede leer este archivo</string>
+    <plurals name="upload_title"><item quantity="one">Añadir %1$d libro al servidor</item><item quantity="other">Añadir %1$d libros al servidor</item></plurals>
+    <plurals name="upload_skipped"><item quantity="one">Se dejará fuera %1$d archivo.</item><item quantity="other">Se dejarán fuera %1$d archivos.</item></plurals>
+    <plurals name="uploaded_count"><item quantity="one">%1$d libro añadido a %2$s</item><item quantity="other">%1$d libros añadidos a %2$s</item></plurals>
+    <string name="scan_qr">Escanear código QR</string>
+    <string name="scan_not_opdshelf">Este código QR no es de OPDShelf. Escanea el que hay en Sincronización › Conecta tus apps del panel web.</string>
+    <string name="scan_unavailable">Este dispositivo no puede escanear códigos. Abre el código QR con la app de la cámara o escribe los datos.</string>
 </resources>

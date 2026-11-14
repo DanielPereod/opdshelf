@@ -121,3 +121,35 @@ internal fun resolveHref(base: HttpUrl?, href: String): String {
     val resolved = base?.resolve(escaped)?.toString() ?: escaped
     return resolved.replace("%7B", "{").replace("%7D", "}")
 }
+
+/** The book's path in the library, from its download link: "Comics/Saga 1.cbz". */
+val Entry.serverPath: String?
+    get() {
+        val segments = acquisition?.url?.toHttpUrlOrNull()?.pathSegments ?: return null
+        val at = segments.indexOf("download")
+        return if (at < 0 || at == segments.lastIndex) null else segments.drop(at + 1).joinToString("/")
+    }
+
+/** Percent-encodes each segment of a library path as the server does, keeping the slashes. */
+fun encodeLibraryPath(path: String): String = path.split('/').joinToString("/") { segment ->
+    buildString {
+        segment.toByteArray(Charsets.UTF_8).forEach { byte ->
+            val c = byte.toInt() and 0xff
+            if (c in 'a'.code..'z'.code || c in 'A'.code..'Z'.code || c in '0'.code..'9'.code || c.toChar() in "-._~") append(c.toChar())
+            else append("%%%02X".format(c))
+        }
+    }
+}
+
+/** The entry of the same book after the server moved it from [oldPath] to [newPath]: its id and links follow the path. */
+fun Entry.movedTo(oldPath: String, newPath: String): Entry {
+    val from = encodeLibraryPath(oldPath)
+    val to = encodeLibraryPath(newPath)
+    val swap = { url: String -> url.replace("/$from", "/$to") }
+    return copy(
+        id = id.replace(from, to),
+        acquisition = acquisition?.copy(url = swap(acquisition.url)),
+        thumbnailUrl = thumbnailUrl?.let(swap),
+        coverUrl = coverUrl?.let(swap),
+    )
+}

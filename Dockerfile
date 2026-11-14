@@ -21,8 +21,8 @@ FROM alpine:3.22
 # latest for images built from main, beta for the beta branch: picks which
 # releases of the Android app and KOReader plugin the web panel offers
 ARG CHANNEL=latest
-# pdfinfo/pdftoppm for PDF covers, bsdtar for CBR/CB7/CBT comics
-RUN apk add --no-cache poppler-utils libarchive-tools
+# pdfinfo/pdftoppm for PDF covers, bsdtar for CBR/CB7/CBT comics, tzdata for TZ (days in reading statistics)
+RUN apk add --no-cache poppler-utils libarchive-tools tzdata
 COPY --from=builder /app/target/release/opdshelf /usr/local/bin/opdshelf
 WORKDIR /app
 RUN mkdir -p /app/books

@@ -72,7 +72,27 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { AppTheme { Main(library, ::openBook) } }
+        val link = io.github.danielpereod.opdshelf.data.ConnectLink.parse(intent?.dataString)
+        setContent { AppTheme { Main(library, link, ::openBook) } }
+        if (savedInstanceState == null) receiveShared(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        receiveShared(intent)
+    }
+
+    /** Books shared from another app (Files, a browser's downloads, mail) go to the upload sheet. */
+    private fun receiveShared(intent: Intent?) {
+        val uris = when (intent?.action) {
+            Intent.ACTION_SEND -> listOfNotNull(
+                androidx.core.content.IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, android.net.Uri::class.java),
+            )
+            Intent.ACTION_SEND_MULTIPLE -> androidx.core.content.IntentCompat
+                .getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, android.net.Uri::class.java).orEmpty()
+            else -> emptyList()
+        }
+        library.prepareUpload(uris)
     }
 
     private fun openBook(book: LocalBook) {
@@ -85,7 +105,7 @@ enum class Tab { Home, Explore, Highlights, Settings }
 private enum class Setup { Welcome, Connect }
 
 @Composable
-fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
+fun Main(library: LibraryViewModel, link: io.github.danielpereod.opdshelf.data.ConnectLink? = null, openBook: (LocalBook) -> Unit) {
     val context = LocalContext.current
     // Status and navigation bar icons follow the app's appearance, which can differ from the system's
     val view = androidx.compose.ui.platform.LocalView.current
@@ -99,7 +119,8 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
         }
     }
     var configured by remember { mutableStateOf(context.app.settings.isConfigured) }
-    var setup by rememberSaveable { mutableStateOf(Setup.Welcome) }
+    // Opened from the panel's QR code: straight to the filled-in connect form
+    var setup by rememberSaveable { mutableStateOf(if (link != null) Setup.Connect else Setup.Welcome) }
 
     if (!configured) {
         AnimatedContent(setup, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "setup") { step ->
@@ -111,6 +132,7 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
                         ConnectScreen(
                             onConnected = { configured = true },
                             onBack = { setup = Setup.Welcome },
+                            link = link,
                             modifier = Modifier.padding(it),
                         )
                     }
@@ -137,6 +159,8 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
         }
     }
     LaunchedEffect(Unit) { library.openRoot() }
+    val upload by library.upload.collectAsState()
+    upload?.let { UploadDialog(it, library) }
 
     // Predictive back on details: the page shrinks and slides with the finger before it closes
     var backProgress by remember { mutableStateOf(0f) }

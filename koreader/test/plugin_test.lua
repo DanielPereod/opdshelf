@@ -439,4 +439,66 @@ local _es = dofile(plugin_dir .. "/opdshelf_i18n.lua")
 check(_es("Home") == "Inicio" and _es("Not in the catalog") == "Not in the catalog", "speaks Spanish, and English for the rest")
 global_settings:saveSetting("language", "en")
 check(_es("Home") == "Home", "and English otherwise")
+-- Setup from the panel, updates and status
+local Update = dofile(plugin_dir .. "/opdshelf_update.lua")
+local tmp = os.tmpname()
+os.remove(tmp)
+local dir = tmp .. "/plugins/opdshelf.koplugin"
+os.execute("mkdir -p '" .. dir .. "'")
+local function write(path, text) local f = assert(io.open(path, "w")) f:write(text) f:close() end
+local function exists(path) local f = io.open(path) if f then f:close() return true end return false end
+local function read(path) local f = io.open(path) if not f then return nil end local t = f:read("*a") f:close() return t end
+write(dir .. "/_meta.lua", 'return {\n    name = "opdshelf",\n    version = 202601010000,\n}')
+local setup = cjson.encode({ server = "http://new.example", username = "dani", password = "pw" })
+write(dir .. "/opdshelf_setup.json", setup)
+local q = OPDShelf:new{ ui = ui, dialog = {}, view = {}, path = dir }
+check(state():readSetting("server") == "https://books.example", "an account already set up stays")
+check(not exists(dir .. "/opdshelf_setup.json"), "and the setup file is removed, as it holds the password")
+state():saveSetting("server", nil)
+write(dir .. "/opdshelf_setup.json", setup)
+q = OPDShelf:new{ ui = ui, dialog = {}, view = {}, path = dir }
+check(state():readSetting("server") == "http://new.example" and state():readSetting("username") == "dani"
+    and state():readSetting("password") == "pw" and q:ready(), "a plugin from the panel comes set up")
+check(q:version() == 202601010000 and Update.describe(q:version()) == "2026-01-01 00:00", "knows its version")
+
+shown = {}
+respond(200, { koreader = { version = 202601010000 } })
+q:checkForUpdate(true)
+check(last().url == "http://new.example/apps/versions.json" and shown[#shown].text == "OPDShelf is up to date.", "says when it is up to date")
+respond(200, { koreader = { version = 202602020000 } })
+q:checkForUpdate(false)
+check(shown[#shown].kind == "confirm" and shown[#shown].text:find("2026-02-02 00:00", 1, true), "offers a newer version")
+
+local fs = {
+    exists = exists,
+    mkdir = function(path) os.execute("mkdir -p '" .. path .. "'") end,
+    purge = function(path) os.execute("rm -rf '" .. path .. "'") end,
+    unpack = function(zip, to)
+        if read(zip) ~= "ZIP" then return false, "not a zip" end
+        os.execute("mkdir -p '" .. to .. "/opdshelf.koplugin'")
+        write(to .. "/opdshelf.koplugin/main.lua", "return {}")
+        write(to .. "/opdshelf.koplugin/_meta.lua", "return { version = 202602020000 }")
+        write(to .. "/opdshelf.koplugin/opdshelf_setup.json", "{}")
+        return true
+    end,
+}
+local fake = { download = function(_, url, path) write(path, url == Update.URL and "ZIP" or "") return true end }
+check(Update.install(fake, dir, fs) == true and Update.localVersion(dir) == 202602020000, "installs the update in place")
+check(not exists(dir .. "/opdshelf_setup.json") and not exists(dir .. ".old/main.lua")
+    and not exists(tmp .. "/plugins/opdshelf-update.zip") and not exists(tmp .. "/plugins/opdshelf-update/main.lua"), "and leaves nothing behind")
+local broken = { download = function(_, _url, path) write(path, "HTML") return true end }
+local ok, why = Update.install(broken, dir, fs)
+check(not ok and why == "not a zip" and Update.localVersion(dir) == 202602020000, "a bad download leaves the plugin as it was")
+
+shown = {}
+state():saveSetting("pending", { A = {}, B = {} })
+respond(401, "")
+q:noteError("Something broke")
+q:showStatus()
+local status = shown[#shown].title
+check(status:find("Version: 2026-02-02 00:00", 1, true) and status:find("Connection: wrong username or password", 1, true)
+    and status:find("Positions waiting to be sent: 2", 1, true) and status:find("Last error: Something broke", 1, true), "the status screen says how things are")
+state():saveSetting("pending", nil)
+os.execute("rm -rf '" .. tmp .. "'")
+
 print("all good")

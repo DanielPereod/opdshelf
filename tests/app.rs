@@ -464,3 +464,117 @@ async fn base_url_from_proxy_headers_or_config() {
         .unwrap()
         .contains("https://lib.example.org/opds/books"));
 }
+
+#[tokio::test]
+async fn opds_facets_reading_random_and_page_streaming() {
+    let t = app();
+    write_epub(&t.books().join("a.epub"), "Started", "Ana");
+    write_epub(&t.books().join("b.epub"), "Done", "Ana");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(t.books().join("comic.cbz")).unwrap());
+    for page in ["1.png", "2.png", "3.png"] {
+        zip.start_file(page, zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(b"PNG").unwrap();
+    }
+    zip.finish().unwrap();
+
+    for (file, percentage) in [("a.epub", 0.4), ("b.epub", 1.0)] {
+        let document = opdshelf::progress::partial_md5(&t.books().join(file)).unwrap();
+        let body = format!(r#"{{"progress":"5","percentage":{percentage},"device":"test","device_id":"t1"}}"#);
+        let (status, _, _) = t
+            .send(
+                Request::put(format!("/api/progress/{document}"))
+                    .header(header::AUTHORIZATION, basic())
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    let titles = |xml: &str| -> Vec<String> {
+        let doc = roxmltree::Document::parse(xml).expect("valid XML");
+        doc.descendants()
+            .filter(|n| n.has_tag_name("entry"))
+            .filter_map(|e| e.children().find(|c| c.has_tag_name("title")).and_then(|c| c.text()))
+            .map(str::to_string)
+            .collect()
+    };
+
+    assert!(t.text("/").await.contains("/opds/reading"));
+    assert_eq!(titles(&t.text("/opds/reading").await), ["Started"]);
+    assert_eq!(titles(&t.text("/opds/books?status=reading").await), ["Started"]);
+    assert_eq!(titles(&t.text("/opds/books?status=finished").await), ["Done"]);
+    assert_eq!(titles(&t.text("/opds/books?status=unread").await), ["comic"]);
+    assert_eq!(titles(&t.text("/opds/books?format=cbz").await), ["comic"]);
+    assert_eq!(titles(&t.text("/opds/random?status=unread").await), ["comic"]);
+    assert_eq!(titles(&t.text("/opds/random").await).len(), 3);
+
+    let books = t.text("/opds/books?sort=name-asc&status=reading").await;
+    assert!(books.contains(r#"rel="http://opds-spec.org/facet""#));
+    assert!(books.contains(
+        r#"href="http://localhost/opds/books?sort=name-asc&amp;status=reading" type="application/atom+xml;profile=opds-catalog;kind=acquisition" title="Reading" opds:facetGroup="Reading status" opds:activeFacet="true""#
+    ));
+    assert!(books.contains(r#"title="CBZ" opds:facetGroup="Format" thr:count="1""#));
+
+    // OPDS-PSE: comics stream their pages through /page, counted from 0
+    let all = t.text("/opds/books").await;
+    assert!(all.contains(
+        r#"<link rel="http://vaemendis.net/opds-pse/stream" href="http://localhost/page/comic.cbz?n={pageNumber}" type="image/jpeg" pse:count="3"/>"#
+    ));
+    assert_eq!(all.matches("opds-pse/stream").count(), 1, "only comics stream pages");
+    let (status, _, body) = t.get("/page/comic.cbz?n=0").await;
+    assert_eq!((status, body.as_slice()), (StatusCode::OK, b"PNG".as_slice()));
+
+    // In Spanish for readers that ask for it
+    let (_, _, root) = t
+        .send(
+            Request::get("/")
+                .header(header::AUTHORIZATION, basic())
+                .header(header::ACCEPT_LANGUAGE, "es")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    let root = String::from_utf8(root).unwrap();
+    assert!(root.contains("Seguir leyendo") && root.contains("Libros al azar"));
+}
+
+#[tokio::test]
+async fn api_upload_saves_books_for_apps() {
+    let t = app();
+    let put = |uri: &str, data: &'static [u8], auth: bool| {
+        let mut request = Request::put(uri);
+        if auth {
+            request = request.header(header::AUTHORIZATION, basic());
+        }
+        request.body(Body::from(data)).unwrap()
+    };
+
+    let (status, _, _) = t.send(put("/api/upload/a.epub", b"x", false)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(!t.books().join("a.epub").exists());
+
+    let (status, _, body) = t.send(put("/api/upload/Saga/Libro%20uno.epub", b"one", true)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["path"],
+        "Saga/Libro uno.epub"
+    );
+    // Never overwrites
+    let (_, _, body) = t.send(put("/api/upload/Saga/Libro%20uno.epub", b"two", true)).await;
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["path"],
+        "Saga/Libro uno (1).epub"
+    );
+    assert_eq!(std::fs::read(t.books().join("Saga/Libro uno.epub")).unwrap(), b"one");
+
+    let (status, _, _) = t.send(put("/api/upload/song.mp3", b"x", true)).await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    let (status, _, _) = t.send(put("/api/upload/..%2Fout.epub", b"x", true)).await;
+    assert_ne!(status, StatusCode::CREATED);
+    assert!(!t.dir.path().join("out.epub").exists());
+
+    // The new book is in the catalog right away
+    assert!(t.text("/opds/folders/Saga").await.contains("Libro uno"));
+}

@@ -105,23 +105,46 @@ pub struct Progress {
     file: PathBuf,
     books: Arc<Mutex<HashMap<String, Vec<Record>>>>,
     changes: broadcast::Sender<Change>,
+    stats: crate::stats::Stats,
 }
 
 impl Progress {
     pub fn open(dir: &Path) -> Self {
         let file = dir.join("progress.json");
-        let books = match std::fs::read(&file) {
+        let books: HashMap<String, Vec<Record>> = match std::fs::read(&file) {
             Ok(json) => serde_json::from_slice(&json).unwrap_or_else(|err| {
                 tracing::error!("ignoring unreadable {}: {err}", file.display());
                 HashMap::new()
             }),
             Err(_) => HashMap::new(),
         };
+        let stats = crate::stats::Stats::open(dir, || {
+            books
+                .iter()
+                .flat_map(|(doc, history)| {
+                    history.iter().map(move |r| {
+                        (
+                            r.device_id.clone(),
+                            doc.clone(),
+                            r.progress.clone(),
+                            r.percentage,
+                            r.timestamp,
+                        )
+                    })
+                })
+                .collect()
+        });
         Self {
             file,
             books: Arc::new(Mutex::new(books)),
             changes: broadcast::channel(256).0,
+            stats,
         }
+    }
+
+    /// Reading statistics, kept up to date with every position saved.
+    pub fn stats(&self) -> &crate::stats::Stats {
+        &self.stats
     }
 
     /// Changes of current positions, as they happen.
@@ -160,6 +183,8 @@ impl Progress {
             timestamp: update.timestamp.map_or(now, |t| t.saturating_add(skew).min(now)),
         };
         let (device_id, progress) = (record.device_id.clone(), record.progress.clone());
+        self.stats
+            .record(&device_id, document, &progress, record.percentage, record.timestamp);
         let (before, current) = {
             let mut books = self.books.lock().unwrap();
             let history = books.entry(document.to_string()).or_default();

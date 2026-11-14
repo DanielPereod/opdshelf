@@ -124,6 +124,7 @@ All settings are environment variables.
 | `APPS_URL` | `https://github.com/DanielPereod/opdshelf/releases/download` | Where the panel's Android app and KOReader plugin downloads come from |
 | `APPS_CHANNEL` | `latest` (`beta` in the `:beta` image) | Which releases those downloads use: `latest` (from `main`) or `beta` |
 | `DATA_DIR` | `BOOKS_DIR/.opdshelf` | Where edited metadata, custom covers and the thumbnail cache are stored |
+| `TZ` | `UTC` | Time zone the reading statistics count days in, e.g. `Europe/Madrid` |
 | `WATCH` | `true` | Watch the books folder for changes. Set to `false` on network shares that do not report changes; the library is then rescanned on each request |
 | `SCAN_INTERVAL` | `600` | Seconds between full rescans while watching, as a safety net for missed events |
 | `RUST_LOG` | `info` | Log level (`debug`, `info`, `warn`...) |

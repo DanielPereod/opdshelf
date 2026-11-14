@@ -286,4 +286,7 @@
     <plurals name="upload_title"><item quantity="one">Add %1$d book to the server</item><item quantity="other">Add %1$d books to the server</item></plurals>
     <plurals name="upload_skipped"><item quantity="one">%1$d file will be left out.</item><item quantity="other">%1$d files will be left out.</item></plurals>
     <plurals name="uploaded_count"><item quantity="one">%1$d book added to %2$s</item><item quantity="other">%1$d books added to %2$s</item></plurals>
+    <string name="scan_qr">Scan QR code</string>
+    <string name="scan_not_opdshelf">This QR code is not from OPDShelf. Scan the one under Sync › Connect your apps in the web panel.</string>
+    <string name="scan_unavailable">This device cannot scan codes. Open the QR code with the camera app, or type the details.</string>
 </resources>

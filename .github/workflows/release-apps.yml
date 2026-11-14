@@ -30,6 +30,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The plugin updates itself from its server when the server offers a
+      # higher version: the commit's date and time, like 202611141233
+      - name: Version
+        run: |
+          version=$(date -u -d "@$(git log -1 --format=%ct)" +%Y%m%d%H%M)
+          sed -i "s/^    name = \"opdshelf\",$/&\n    version = $version,/" koreader/opdshelf.koplugin/_meta.lua
+          grep -q "version = $version," koreader/opdshelf.koplugin/_meta.lua
+
       - name: Zip the plugin
         working-directory: koreader
         run: zip -r ../opdshelf.koplugin.zip opdshelf.koplugin

@@ -2817,6 +2817,24 @@ a.nav-item {
   background: var(--bg);
 }
 
+.connect-qr {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+.connect-qr summary {
+  cursor: pointer;
+  color: var(--fg);
+}
+
+.connect-qr img {
+  display: block;
+  margin: var(--sp-2) 0;
+  padding: var(--sp-2);
+  border-radius: var(--r-sm);
+  background: #fff;
+}
+
 .copy-row code {
   flex: 1;
   min-width: 0;

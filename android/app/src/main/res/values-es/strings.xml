@@ -285,4 +285,7 @@
     <plurals name="upload_title"><item quantity="one">Añadir %1$d libro al servidor</item><item quantity="other">Añadir %1$d libros al servidor</item></plurals>
     <plurals name="upload_skipped"><item quantity="one">Se dejará fuera %1$d archivo.</item><item quantity="other">Se dejarán fuera %1$d archivos.</item></plurals>
     <plurals name="uploaded_count"><item quantity="one">%1$d libro añadido a %2$s</item><item quantity="other">%1$d libros añadidos a %2$s</item></plurals>
+    <string name="scan_qr">Escanear código QR</string>
+    <string name="scan_not_opdshelf">Este código QR no es de OPDShelf. Escanea el que hay en Sincronización › Conecta tus apps del panel web.</string>
+    <string name="scan_unavailable">Este dispositivo no puede escanear códigos. Abre el código QR con la app de la cámara o escribe los datos.</string>
 </resources>

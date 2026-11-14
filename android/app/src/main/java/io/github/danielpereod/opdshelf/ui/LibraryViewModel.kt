@@ -10,6 +10,10 @@ import io.github.danielpereod.opdshelf.data.Entry
 import io.github.danielpereod.opdshelf.data.Feed
 import io.github.danielpereod.opdshelf.data.LocalBook
 import io.github.danielpereod.opdshelf.data.Position
+import io.github.danielpereod.opdshelf.data.ServerFolder
+import io.github.danielpereod.opdshelf.data.movedTo
+import io.github.danielpereod.opdshelf.data.serverPath
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import io.github.danielpereod.opdshelf.data.partialMd5
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -219,6 +223,75 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun setFinished(book: LocalBook, finished: Boolean) = app.store.setFinished(book.id, finished)
+
+    // -----------------------------------------------------------------------
+    // Folders on the server
+
+    /** The library's folders, for choosing where a book goes; null while they load. */
+    private val _folders = MutableStateFlow<List<ServerFolder>?>(null)
+    val folders: StateFlow<List<ServerFolder>?> = _folders.asStateFlow()
+
+    fun loadFolders() {
+        _folders.value = null
+        viewModelScope.launch {
+            _folders.value = try {
+                app.api.folders()
+            } catch (e: Exception) {
+                _messages.value = Notice(text.describe(e))
+                emptyList()
+            }
+        }
+    }
+
+    /** The folder open in the Folders section, "" at its top; null anywhere else. */
+    fun currentFolder(stack: List<FeedState> = _stack.value): String? {
+        val state = stack.lastOrNull() ?: return null
+        if (_section.value != Section.Folders || state.label != null) return null
+        val segments = state.url.toHttpUrlOrNull()?.pathSegments ?: return null
+        val at = segments.indexOf("folders")
+        if (at < 0 || segments.getOrNull(at - 1) != "opds") return null
+        return segments.drop(at + 1).filter { it.isNotEmpty() }.joinToString("/")
+    }
+
+    /** Creates a folder inside the one open, or at the top. */
+    fun createFolder(name: String) {
+        val parent = currentFolder() ?: ""
+        viewModelScope.launch {
+            try {
+                val path = app.api.createFolder(parent, name.trim())
+                _messages.value = Notice(text.getString(R.string.folder_created, path))
+                reloadAll()
+            } catch (e: Exception) {
+                _messages.value = Notice(text.describe(e))
+            }
+        }
+    }
+
+    /** Moves a book of the catalog into [folder] ("" for the top), creating the folder if it is new. */
+    fun moveToFolder(entry: Entry, folder: String) {
+        val path = entry.serverPath ?: return
+        val target = folder.trim().trim('/')
+        viewModelScope.launch {
+            try {
+                val result = app.api.moveBooks(listOf(path), target)
+                val newPath = listOf(result.folder, path.substringAfterLast('/')).filter { it.isNotEmpty() }.joinToString("/")
+                val moved = entry.movedTo(path, newPath)
+                // The copy on this device stays tied to the book
+                app.store.changeId(entry.id, moved.id)
+                if (_detail.value?.bookId == entry.id) _detail.value = Detail(moved, moved.id)
+                _messages.value = Notice(
+                    if (result.folder.isEmpty()) text.getString(R.string.moved_to_top, entry.title)
+                    else text.getString(R.string.moved_to_folder, entry.title, result.folder)
+                )
+                reloadAll()
+            } catch (e: Exception) {
+                _messages.value = Notice(text.describe(e))
+            }
+        }
+    }
+
+    /** Folder counts and contents change after a move, so every open feed is read again. */
+    private fun reloadAll() = _stack.value.forEach { load(it.url) }
 
     fun cancelDownload(id: String) {
         jobs[id]?.cancel()

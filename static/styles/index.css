@@ -609,8 +609,7 @@ input[type="checkbox"] {
   cursor: pointer;
 }
 
-.bulk .short,
-.bulk-move-toggle {
+.bulk .short {
   display: none !important;
 }
 
@@ -657,15 +656,111 @@ input[type="checkbox"] {
   background: rgb(127 127 127 / 0.25);
 }
 
-.bulk-move {
+/* Folders: the + beside the heading, drop targets and the move dialog */
+.nav-head {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: var(--sp-5) 0 var(--sp-1) 0;
+}
+
+.nav-head h2 {
+  margin: 0 var(--sp-2);
+}
+
+.nav-head .icon-btn {
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+}
+
+.nav-head .icon-btn:hover {
+  color: var(--fg);
+}
+
+.nav-add {
+  color: var(--muted);
+}
+
+.dragging-books .nav-item[data-shelf="folder"] {
+  outline: 1px dashed var(--line-strong);
+  outline-offset: -1px;
+}
+
+.nav-item.drop-into {
+  background: var(--fg);
+  color: var(--inverse);
+  outline: none;
+}
+
+.nav-item.drop-into i,
+.nav-item.drop-into .count {
+  color: inherit;
+}
+
+#moveDialog {
+  width: min(440px, calc(100vw - 32px));
+}
+
+.folder-pick {
+  display: flex;
+  flex-direction: column;
+  max-height: min(50vh, 360px);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: var(--sp-1);
+}
+
+.folder-option {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 8px 6px calc(8px + var(--depth, 0) * 14px);
+  border-radius: var(--r-sm);
+  text-align: left;
+}
+
+.folder-option:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.folder-option:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.folder-option i {
+  width: 16px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.folder-option .label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-option .count {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.folder-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: var(--sp-2);
 }
 
-.bulk-move .input {
-  width: 180px;
-  background: transparent;
-  border-color: rgb(127 127 127 / 0.5);
+.folder-empty-actions[hidden] {
+  display: none;
 }
 
 .drop-hint {
@@ -961,6 +1056,12 @@ input[type="checkbox"] {
   display: block;
   margin-bottom: var(--sp-3);
   font-size: var(--fs-2xl);
+}
+
+.empty .btn i {
+  display: inline;
+  margin: 0;
+  font-size: inherit;
 }
 
 .empty strong {
@@ -2865,13 +2966,9 @@ a.nav-item {
   }
 
   .bulk #bulkDelete,
-  .bulk .bulk-move-toggle {
+  .bulk #bulkMove {
     width: var(--control);
     padding: 0;
-  }
-
-  .bulk .bulk-move-toggle {
-    display: inline-flex !important;
   }
 
   .bulk [data-bulk-mark] {
@@ -2880,29 +2977,8 @@ a.nav-item {
 
   .bulk [data-bulk-mark],
   .bulk #bulkDelete,
-  .bulk .bulk-move-toggle {
+  .bulk #bulkMove {
     order: 2;
-  }
-
-  .bulk:not(.moving) .bulk-move {
-    display: none;
-  }
-
-  .bulk-move {
-    order: 3;
-    flex: 1 1 100%;
-    min-width: 0;
-  }
-
-  .bulk-move .btn {
-    width: var(--control);
-    padding: 0;
-  }
-
-  .bulk-move .input {
-    flex: 1;
-    width: auto;
-    min-width: 0;
   }
 
   .search kbd,

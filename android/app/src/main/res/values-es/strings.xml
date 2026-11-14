@@ -260,4 +260,18 @@
     <string name="color_gray">Gris</string>
     <string name="highlight_color">Color</string>
     <plurals name="highlights_count"><item quantity="one">%1$d subrayado · %2$d con nota</item><item quantity="other">%1$d subrayados · %2$d con nota</item></plurals>
+    <string name="new_folder">Nueva carpeta</string>
+    <string name="folder_name">Nombre de la carpeta</string>
+    <string name="create">Crear</string>
+    <string name="folder_created">Carpeta %1$s creada</string>
+    <string name="move_to_folder">Mover a carpeta</string>
+    <string name="library_top">Raíz de la biblioteca</string>
+    <string name="or_new_folder">O una carpeta nueva</string>
+    <string name="create_and_move">Crear y mover</string>
+    <string name="already_here">Ya está aquí</string>
+    <string name="moved_to_folder">\"%1$s\" movido a %2$s</string>
+    <string name="moved_to_top">\"%1$s\" movido a la raíz de la biblioteca</string>
+    <string name="empty_folder">Esta carpeta está vacía</string>
+    <string name="empty_folder_text">Abre un libro y elige Mover a carpeta para ponerlo aquí.</string>
+    <string name="empty_folders_add">Crea carpetas aquí y mueve libros a ellas desde su ficha.</string>
 </resources>

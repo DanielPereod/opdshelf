@@ -4,6 +4,7 @@
 
 - **My books**: the books on the phone, with a **Continue reading** card, filters (All, Reading, Not started, Finished, with counts), search, sorting and a ⋮ menu on every book. Long press to select several and mark them finished or remove them.
 - **Explore**: browse and search the catalog by recent books, A–Z, authors, series and folders, as a grid or a list, and download books (EPUB, PDF, CBZ). Downloads can be cancelled. Without a connection a band says so and the downloaded books are still at hand.
+- **Folders**: in Explore → Folders, the folder button creates a folder where you are, and a book's details (or its ⋮ menu) has **Move to folder**: tap a folder to move it there, or type a new name to create it and move it in.
 - **Book details** with cover, series, publisher, year, language and subjects; two panes on tablets.
 - **Reader** built on [Readium](https://readium.org): light, sepia and dark themes (the bars follow them), fonts, margins, justification, brightness, minutes left in the chapter, contents, bookmarks, search inside the book, previous/next chapter, volume keys to turn pages and the screen kept on while reading.
 - **Sync**: the position is saved on the phone and sent to the server when there is a connection, so it is shared with KOReader and the web reader. When a book was read further on another device, it opens there and says so. Select text and choose **Set as last position** to pin a sentence, as in KOReader. The last page of a book saves 100 %, so it counts as finished everywhere.

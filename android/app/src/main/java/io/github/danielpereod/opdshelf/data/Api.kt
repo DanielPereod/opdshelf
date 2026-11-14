@@ -119,8 +119,66 @@ class Api(private val settings: Settings) {
         }
     }
 
+    /** Every folder of the library, sorted by path. */
+    suspend fun folders(): List<ServerFolder> = withContext(Dispatchers.IO) {
+        client.newCall(Request.Builder().url(url("/api/folders")).build()).execute().use {
+            if (!it.isSuccessful) throw HttpError(it.code, "${it.code} ${it.message}")
+            json.decodeFromString(FoldersResponse.serializer(), it.body!!.string()).folders
+        }
+    }
+
+    /** Creates [name] inside [parent] ("" for the top) and answers its path. */
+    suspend fun createFolder(parent: String, name: String): String = withContext(Dispatchers.IO) {
+        val body = JsonObject(mapOf("parent" to JsonPrimitive(parent), "name" to JsonPrimitive(name)))
+            .toString().toRequestBody("application/json".toMediaType())
+        client.newCall(Request.Builder().url(url("/api/folders")).post(body).build()).execute().use {
+            val text = it.body?.string().orEmpty()
+            if (!it.isSuccessful) throw HttpError(it.code, serverError(text) ?: "${it.code} ${it.message}")
+            json.decodeFromString(CreatedFolder.serializer(), text).path
+        }
+    }
+
+    /** Moves books (by their path in the library) into [folder], "" for the top; it is created if needed. */
+    suspend fun moveBooks(paths: List<String>, folder: String): MoveResult = withContext(Dispatchers.IO) {
+        val body = JsonObject(
+            mapOf(
+                "paths" to kotlinx.serialization.json.JsonArray(paths.map { JsonPrimitive(it) }),
+                "folder" to JsonPrimitive(folder),
+            )
+        ).toString().toRequestBody("application/json".toMediaType())
+        client.newCall(Request.Builder().url(url("/api/books/move")).post(body).build()).execute().use {
+            val text = it.body?.string().orEmpty()
+            val result = runCatching { json.decodeFromString(MoveResult.serializer(), text) }.getOrNull()
+            if (!it.isSuccessful || result == null) {
+                throw HttpError(it.code, result?.failed?.firstOrNull() ?: serverError(text) ?: "${it.code} ${it.message}")
+            }
+            result
+        }
+    }
+
+    private fun serverError(text: String): String? =
+        runCatching { json.decodeFromString(ErrorResponse.serializer(), text).error }.getOrNull()
+
     /** Checks the address and login. */
     suspend fun check() {
         feed(url("/"))
     }
 }
+
+/** A folder of the library on the server. */
+@kotlinx.serialization.Serializable
+data class ServerFolder(val path: String, val name: String = path.substringAfterLast('/'), val count: Int = 0) {
+    val depth get() = path.count { it == '/' }
+}
+
+@kotlinx.serialization.Serializable
+private data class FoldersResponse(val folders: List<ServerFolder> = emptyList())
+
+@kotlinx.serialization.Serializable
+private data class CreatedFolder(val path: String)
+
+@kotlinx.serialization.Serializable
+private data class ErrorResponse(val error: String? = null)
+
+@kotlinx.serialization.Serializable
+data class MoveResult(val moved: Int = 0, val folder: String = "", val failed: List<String> = emptyList())

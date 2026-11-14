@@ -180,6 +180,24 @@ class ScreenshotTest {
         shot("07-ajustes$suffix")
     }
 
+    /** Folders on the server, with the button to make one, and a book's details with Move to folder. */
+    @Test
+    fun folders() {
+        configure()
+        show()
+        click("Explorar")
+        click("Carpetas")
+        compose.waitUntil(15_000) {
+            compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Nueva carpeta")).fetchSemanticsNodes().isNotEmpty()
+        }
+        shot("12-carpetas")
+        click("Recientes")
+        waitFor("Rimas")
+        click("Rimas")
+        waitFor("Mover a carpeta")
+        shot("12b-ficha-mover")
+    }
+
     @Test
     fun app() = screens("")
 

@@ -61,6 +61,16 @@ impl DocumentIds {
         );
     }
 
+    /// Book path → document id, for the books whose id is known (see [`Self::index`]).
+    pub fn ids_by_path(&self) -> HashMap<String, String> {
+        self.known
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(path, entry)| (path.clone(), entry.id.clone()))
+            .collect()
+    }
+
     /// The id of one book, reading the file if it is not known yet.
     pub async fn id(&self, library: &Library, book: &Book) -> Option<String> {
         if let Some(id) = self.cached(book) {

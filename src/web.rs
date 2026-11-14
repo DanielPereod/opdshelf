@@ -108,6 +108,11 @@ pub fn router(config: Config) -> Router {
             post(edit::save).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
         )
         .route("/admin/reset", post(edit::reset))
+        .route("/admin/maintenance", get(crate::maintenance::maintenance_page))
+        .route("/admin/maintenance/delete", post(crate::maintenance::delete))
+        .route("/admin/maintenance/dismiss", post(crate::maintenance::dismiss))
+        .route("/admin/maintenance/undismiss", post(crate::maintenance::undismiss))
+        .route("/admin/maintenance/clean", post(crate::maintenance::clean))
         .route("/admin/lookup", get(edit::lookup))
         .route("/user/login", get(login_page).post(login))
         .route("/user/logout", post(logout))
@@ -539,7 +544,7 @@ async fn delete(State(state): State<AppState>, Form(form): Form<DeleteForm>) -> 
     }
 }
 
-async fn delete_book(state: &AppState, rel: &str, path: &std::path::Path) -> std::io::Result<()> {
+pub(crate) async fn delete_book(state: &AppState, rel: &str, path: &std::path::Path) -> std::io::Result<()> {
     tokio::fs::remove_file(path).await?;
     state.library.forget(rel);
     state.library.invalidate();

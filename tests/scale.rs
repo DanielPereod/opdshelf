@@ -162,10 +162,10 @@ async fn large_library() {
     // Edited metadata: every edit rewrites metadata.json
     let store = library.store().clone();
     let edited = n / 10;
-    for i in 0..edited - 1 {
+    for (i, book) in snapshot.books.iter().enumerate().take(edited - 1) {
         store
             .set(
-                &snapshot.books[i].path,
+                &book.path,
                 MetaOverride {
                     title: Some(format!("Edited {i}")),
                     ..Default::default()

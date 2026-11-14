@@ -482,7 +482,9 @@ pub fn format_size(bytes: u64) -> String {
         size /= 1024.0;
         unit += 1;
     }
-    format!("{size:.1} {}", units[unit])
+    // Like formatBytes in static/app/common.js: no decimals for bytes or from 100 up
+    let digits = if unit == 0 || size >= 100.0 { 0 } else { 1 };
+    format!("{size:.digits$} {}", units[unit])
 }
 
 #[cfg(test)]
@@ -583,7 +585,9 @@ mod tests {
 
     #[test]
     fn sizes() {
-        assert_eq!(format_size(512), "512.0 B");
+        assert_eq!(format_size(512), "512 B");
         assert_eq!(format_size(1536), "1.5 KB");
+        assert_eq!(format_size(124_928), "122 KB");
+        assert_eq!(format_size(4_928_307), "4.7 MB");
     }
 }

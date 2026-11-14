@@ -340,7 +340,6 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("Finished", "Terminados"),
     ("Added this week", "Añadidos esta semana"),
     ("Missing details", "Faltan datos"),
-    ("Sync", "Sincronización"),
     ("Folders", "Carpetas"),
     ("New folder", "Nueva carpeta"),
     ("Move to folder", "Mover a carpeta"),
@@ -360,7 +359,6 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("Upload books here, or select books and use Move to folder. On a computer you can also drag them onto the folder.", "Sube libros aquí, o selecciona libros y usa Mover a carpeta. En el ordenador también puedes arrastrarlos a la carpeta."),
     ("Rename", "Renombrar"),
     ("Formats", "Formatos"),
-    ("OPDS catalog for reader apps", "Catálogo OPDS para apps de lectura"),
     ("Light or dark", "Claro u oscuro"),
     ("Language", "Idioma"),
     ("Sign out", "Salir"),
@@ -394,7 +392,6 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("No books yet", "Aún no hay libros"),
     ("Drop EPUB, PDF or comic files here, or use Upload.", "Suelta aquí archivos EPUB, PDF o cómics, o usa Subir."),
     ("Upload books", "Subir libros"),
-    ("Drop files anywhere to upload them to", "Suelta archivos en cualquier sitio para subirlos a"),
     ("the library root", "la raíz de la biblioteca"),
     ("Book", "Libro"),
     ("empty for the root", "vacía para la raíz"),
@@ -416,7 +413,6 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("another device", "otro dispositivo"),
     ("{pct}% · {device}", "{pct}% · {device}"),
     ("Continue reading {title}", "Seguir leyendo {title}"),
-    ("Sync - OPDShelf", "Sincronización - OPDShelf"),
     ("Statistics - OPDShelf", "Estadísticas - OPDShelf"),
     ("Statistics", "Estadísticas"),
     ("Today", "Hoy"),
@@ -627,9 +623,8 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("Search: {terms}", "Buscar: {terms}"),
     ("Reading status", "Estado de lectura"),
     ("Not started", "Sin empezar"),
-    // Maintenance page
+    // Maintenance tab of the settings
     ("Maintenance", "Mantenimiento"),
-    ("Maintenance - OPDShelf", "Mantenimiento - OPDShelf"),
     ("Possible duplicates", "Posibles duplicados"),
     ("Show dismissed again", "Volver a mostrar los descartados"),
     (
@@ -640,10 +635,6 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("Edited", "Editado"),
     ("Same title and authors", "Mismo título y autores"),
     ("Keep all", "Conservar todos"),
-    (
-        "Delete this book? Its file is removed from the books folder.",
-        "¿Borrar este libro? Su archivo se quita de la carpeta de libros.",
-    ),
     ("No duplicates found", "No hay duplicados"),
     ("Data of deleted books", "Datos de libros borrados"),
     (
@@ -659,7 +650,6 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("Reading positions", "Posiciones de lectura"),
     ("Highlights and notes", "Subrayados y notas"),
     ("Read marks", "Marcas de leído"),
-    ("Remove this data? It cannot be undone.", "¿Quitar estos datos? No se puede deshacer."),
     ("Clean", "Limpiar"),
     ("Clean all", "Limpiar todo"),
     ("Marked as not duplicates", "Marcados como no duplicados"),
@@ -668,6 +658,84 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("The library is empty: nothing was cleaned", "La biblioteca está vacía: no se ha limpiado nada"),
     ("Removed {n} entries", "Quitadas {n} entradas"),
     ("Cannot clean: {reason}", "No se ha podido limpiar: {reason}"),
+    // Settings
+    ("Settings", "Ajustes"),
+    ("Settings - OPDShelf", "Ajustes - OPDShelf"),
+    ("General", "General"),
+    ("Apps and connections", "Apps y conexiones"),
+    ("About", "Acerca de"),
+    ("Appearance", "Apariencia"),
+    ("Theme", "Tema"),
+    (
+        "System follows the light or dark mode of this device. Saved in this browser.",
+        "Sistema sigue el modo claro u oscuro de este dispositivo. Se guarda en este navegador.",
+    ),
+    (
+        "The language of the panel and the web reader. Saved in this browser.",
+        "El idioma del panel y del lector web. Se guarda en este navegador.",
+    ),
+    ("Account", "Cuenta"),
+    (
+        "Signed in. Reading apps use the same user and password.",
+        "Sesión iniciada. Las apps de lectura usan el mismo usuario y contraseña.",
+    ),
+    ("No sign-in", "Sin inicio de sesión"),
+    (
+        "The panel is open to anyone who can reach this server, because no username and password are set. To ask for them, set {user} and {password} and restart the server.",
+        "El panel está abierto a cualquiera que llegue a este servidor, porque no hay usuario ni contraseña. Para pedirlos, define {user} y {password} y reinicia el servidor.",
+    ),
+    (
+        "Open a book with Read and its position is saved on the server, like in the apps.",
+        "Abre un libro con Leer y su posición se guarda en el servidor, como en las apps.",
+    ),
+    ("This server", "Este servidor"),
+    ("Version {version}", "Versión {version}"),
+    ("Version", "Versión"),
+    ("Release channel", "Canal de versiones"),
+    ("Stable", "Estable"),
+    ("Beta", "Beta"),
+    ("Books", "Libros"),
+    ("Books folder", "Carpeta de libros"),
+    ("Data folder", "Carpeta de datos"),
+    ("Folder watching", "Vigilancia de la carpeta"),
+    (
+        "On: changes show up at once, with a full scan every {n} min",
+        "Activada: los cambios aparecen al momento, con una revisión completa cada {n} min",
+    ),
+    (
+        "Off: the books folder is read again each time the library is opened",
+        "Desactivada: la carpeta de libros se vuelve a leer cada vez que se abre la biblioteca",
+    ),
+    ("Project on GitHub", "Proyecto en GitHub"),
+    ("Documentation", "Documentación"),
+    ("Cannot load the maintenance data.", "No se pueden cargar los datos de mantenimiento."),
+    ("Connect another device", "Conectar otro dispositivo"),
+    ("Settings › Apps and connections", "Ajustes › Apps y conexiones"),
+    ("1 group", "1 grupo"),
+    ("{n} groups", "{n} grupos"),
+    // After "Removed {n} entries", which it would also match
+    ("1 entry", "1 entrada"),
+    ("{n} entries", "{n} entradas"),
+    ("Show the details of this book", "Ver los datos de este libro"),
+    (
+        "{file} is removed from the books folder. This cannot be undone.",
+        "{file} se quita de la carpeta de libros. No se puede deshacer.",
+    ),
+    ("Remove this data?", "¿Quitar estos datos?"),
+    (
+        "The saved data of books that are no longer in the library is removed. This cannot be undone.",
+        "Se quitan los datos guardados de libros que ya no están en la biblioteca. No se puede deshacer.",
+    ),
+    // Sidebar and library
+    ("Activity", "Actividad"),
+    ("Devices - OPDShelf", "Dispositivos - OPDShelf"),
+    ("Every book is started", "Todos los libros están empezados"),
+    (
+        "Books that no device has opened yet show up here.",
+        "Aquí aparecen los libros que aún no se han abierto en ningún dispositivo.",
+    ),
+    ("Identifier", "Identificador"),
+    ("Metadata", "Datos"),
 ];
 
 #[cfg(test)]
@@ -696,6 +764,7 @@ mod tests {
         assert_eq!(Lang::Es.message("Uploaded 2 book(s)"), "2 libro(s) subidos");
         assert_eq!(Lang::Es.message("Something else"), "Something else");
         assert_eq!(Lang::En.message("Uploaded 2 book(s)"), "Uploaded 2 book(s)");
+        assert_eq!(Lang::Es.message("Removed 3 entries"), "Quitadas 3 entradas");
     }
 
     /// Every text used by the templates and scripts has its Spanish version.

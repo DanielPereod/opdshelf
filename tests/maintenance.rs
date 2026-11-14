@@ -1,4 +1,4 @@
-//! The maintenance page: duplicates and data of books that are gone.
+//! The Maintenance tab of the settings: duplicates and data of books that are gone.
 
 use axum::body::Body;
 use axum::http::{header, Request, StatusCode};
@@ -8,25 +8,49 @@ use tower::ServiceExt;
 
 use opdshelf::{router, Config};
 
-async fn send(app: &axum::Router, request: Request<Body>) -> (StatusCode, String) {
+async fn send(app: &axum::Router, request: Request<Body>) -> (StatusCode, String, String) {
     let response = app.clone().oneshot(request).await.unwrap();
     let status = response.status();
+    let location = response
+        .headers()
+        .get(header::LOCATION)
+        .map(|v| v.to_str().unwrap().to_string())
+        .unwrap_or_default();
     let body = response.into_body().collect().await.unwrap().to_bytes();
-    (status, String::from_utf8_lossy(&body).into_owned())
+    (status, location, String::from_utf8_lossy(&body).into_owned())
 }
 
+async fn get(app: &axum::Router, uri: &str) -> (StatusCode, String, String) {
+    send(app, Request::get(uri).body(Body::empty()).unwrap()).await
+}
+
+/// The tab as it is opened from another page of the panel: just its HTML.
 async fn page(app: &axum::Router) -> String {
-    let (status, html) = send(app, Request::get("/admin/maintenance").body(Body::empty()).unwrap()).await;
+    let (status, _, html) = get(app, "/admin/settings/maintenance?panel=1").await;
     assert_eq!(status, StatusCode::OK);
+    assert!(!html.contains("<html"), "a fragment, not a whole page");
     html
 }
 
-async fn post(app: &axum::Router, uri: &str, form: String) -> StatusCode {
+/// Posts a form and answers where it goes back to.
+async fn post_to(app: &axum::Router, uri: &str, form: String) -> (StatusCode, String) {
     let request = Request::post(uri)
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(form))
         .unwrap();
-    send(app, request).await.0
+    let (status, location, _) = send(app, request).await;
+    (status, location)
+}
+
+async fn post(app: &axum::Router, uri: &str, form: String) -> StatusCode {
+    let (status, location) = post_to(app, uri, form).await;
+    if status == StatusCode::SEE_OTHER {
+        assert!(
+            location.starts_with("/admin/settings/maintenance"),
+            "back to the tab, not {location}"
+        );
+    }
+    status
 }
 
 fn csrf(html: &str) -> String {
@@ -76,8 +100,35 @@ async fn finds_duplicates_and_cleans_data_of_gone_books() {
     let html = page(&app).await;
     assert!(html.contains("copy/story.txt"), "the copy is listed");
     assert!(html.contains("Same file"));
+    assert!(html.contains("1 group"));
     assert!(!html.contains(">other.txt<"));
+    assert!(
+        html.contains(r#"href="/info/copy/story.txt" data-panel"#),
+        "each copy can be looked at before deleting it"
+    );
     let token = csrf(&html);
+
+    // On its own address the tab is a page of the panel, with the data in it
+    let (status, _, full) = get(&app, "/admin/settings/maintenance").await;
+    assert_eq!(status, StatusCode::OK);
+    let tab = &full[full.find(r#"id="maintBody""#).unwrap()..];
+    assert!(tab.contains("copy/story.txt"));
+    assert!(tab.contains(&format!(r#"name="csrf" value="{token}""#)));
+    assert!(
+        !full.contains("confirm("),
+        "the panel's own dialog asks, not the browser's"
+    );
+    // The other pages of the panel do not read it
+    let (_, _, library) = get(&app, "/admin").await;
+    assert!(!library.contains("copy/story.txt\n") && !library.contains("Same file"));
+
+    // The old address goes to the tab, with its message
+    let (status, location, _) = get(&app, "/admin/maintenance?notice=Hi%20there").await;
+    assert!(status.is_redirection());
+    assert_eq!(location, "/admin/settings/maintenance?notice=Hi%20there");
+    let (status, _, done) = get(&app, "/admin/settings/maintenance?notice=Removed%203%20entries").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(done.contains("Removed 3 entries"));
 
     // Not duplicates: the group is hidden
     let key_at = html.find(r#"name="key" value=""#).unwrap() + 18;
@@ -154,7 +205,9 @@ async fn an_empty_library_is_never_cleaned() {
     .collect();
     let app = router(Config::from_lookup(|k| env.get(k).cloned()));
     let token = csrf(&page(&app).await);
-    post(&app, "/admin/maintenance/clean", format!("csrf={token}&what=all")).await;
+    let (status, location) = post_to(&app, "/admin/maintenance/clean", format!("csrf={token}&what=all")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(location.starts_with("/admin/settings/maintenance?error="));
     assert!(std::fs::read_to_string(data.join("metadata.json"))
         .unwrap()
         .contains("gone.epub"));

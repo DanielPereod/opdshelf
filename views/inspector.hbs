@@ -54,8 +54,8 @@
     <dt>{{t "Date"}}</dt>
     <dd>{{#if meta.date}}{{meta.date}}{{else}}—{{/if}}</dd>
     <dt>{{t "Language"}}</dt>
-    <dd>{{#if meta.language}}{{meta.language}}{{else}}—{{/if}}</dd>
-    <dt>ISBN</dt>
+    <dd>{{#if meta.language}}<span data-lang-code="{{meta.language}}">{{meta.language}}</span>{{else}}—{{/if}}</dd>
+    <dt>{{#if identifierIsIsbn}}ISBN{{else}}{{t "Identifier"}}{{/if}}</dt>
     <dd class="mono">{{#if meta.identifier}}{{meta.identifier}}{{else}}—{{/if}}</dd>
     <dt>{{t "Subjects"}}</dt>
     <dd>{{#if meta.subjects}}{{#each meta.subjects}}{{#if @index}}, {{/if}}{{this}}{{/each}}{{else}}—{{/if}}</dd>
@@ -65,8 +65,8 @@
     <dt>{{t "File"}}</dt>
     <dd class="mono">{{book.path}}</dd>
     <dt>{{t "Format"}}</dt>
-    <dd>{{book.format}} · {{book.size}}</dd>
-    <dt>{{t "Details"}}</dt>
+    <dd>{{book.format}} · <span data-bytes="{{book.bytes}}">{{book.size}}</span></dd>
+    <dt>{{t "Metadata"}}</dt>
     <dd>{{#if book.edited}}{{t "Edited in OPDShelf"}}{{else}}{{t "From the file"}}{{/if}}</dd>
   </dl>
   <div class="rule"></div>

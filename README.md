@@ -62,7 +62,7 @@ Download it from the panel (or the [`koreader-latest`](https://github.com/Daniel
 
 ### Android app
 
-Download it from the panel (or the [`android-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/android-latest) release). Browse and download the catalog, read offline with a [Readium](https://readium.org) reader (themes, bookmarks, search, volume keys), filter your books by reading state, and sync as above. To connect it, scan the QR code under **Sync → Connect your apps** in the panel. Building and signing: [docs/android.md](docs/android.md).
+Download it from the panel (or the [`android-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/android-latest) release). Browse and download the catalog, read offline with a [Readium](https://readium.org) reader (themes, bookmarks, search, volume keys), filter your books by reading state, and sync as above. To connect it, scan the QR code under **Settings → Apps and connections** in the panel. Building and signing: [docs/android.md](docs/android.md).
 
 ---
 

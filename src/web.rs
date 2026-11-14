@@ -98,6 +98,7 @@ pub fn router(config: Config) -> Router {
         .route("/page/{*path}", get(reader::page))
         .route("/admin", get(admin))
         .route("/admin/sync", get(admin_sync))
+        .route("/admin/highlights", get(admin_highlights))
         .route("/apps/opdshelf.koplugin.zip", get(apps::koreader_plugin))
         .route("/apps/opdshelf.apk", get(apps::android_app))
         .route("/apps/versions.json", get(apps::versions))
@@ -126,6 +127,9 @@ pub fn router(config: Config) -> Router {
         .route("/api/stats/today", get(crate::stats::today))
         .route("/admin/stats", get(admin_stats))
         .route("/api/annotations", get(sync::list_annotations))
+        .route("/api/highlights", get(crate::highlights::list))
+        .route("/api/highlights/review", get(crate::highlights::daily))
+        .route("/api/highlights/export", get(crate::highlights::export))
         .route(
             "/api/annotations/{document}",
             get(sync::get_annotations).put(sync::put_annotations),
@@ -428,6 +432,16 @@ async fn admin_sync(State(state): State<AppState>, headers: HeaderMap, Query(que
     let mut data = library_data(&state, &query).await;
     data["syncView"] = json!(true);
     page(&state, &headers, "admin", "Sync - OPDShelf", data)
+}
+
+async fn admin_highlights(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<AdminQuery>,
+) -> Response {
+    let mut data = library_data(&state, &query).await;
+    data["highlightsView"] = json!(true);
+    page(&state, &headers, "admin", "Highlights - OPDShelf", data)
 }
 
 async fn admin_stats(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<AdminQuery>) -> Response {

@@ -96,6 +96,16 @@ impl TestApp {
         .await
     }
 
+    async fn post_json(&self, uri: &str, body: &str) -> Res {
+        self.send(
+            Request::post(uri)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+    }
+
     async fn post_form(&self, uri: &str, form: &str) -> Res {
         self.send(
             Request::post(uri)
@@ -435,6 +445,108 @@ async fn bulk_move_and_delete() {
         .await;
     assert!(headers["location"].contains("error"));
     assert!(t.books().join("c.txt").exists());
+}
+
+#[tokio::test]
+async fn create_and_delete_folders() {
+    let t = app_with(&[]);
+    let csrf = t.csrf().await;
+
+    let (status, _, _) = t.post_form("/admin/folder", "csrf=bad&action=create&name=Sport").await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(!t.books().join("Sport").exists());
+
+    let (_, headers, _) = t
+        .post_form("/admin/folder", &format!("csrf={csrf}&action=create&name=Sport"))
+        .await;
+    assert!(headers["location"].starts_with("/admin?folder=Sport&notice="));
+    assert!(t.books().join("Sport").is_dir());
+    // An empty folder shows up in the sidebar right away
+    assert!(t.text("/admin").await.contains(r#"data-value="Sport""#));
+
+    // Inside another folder
+    t.post_form(
+        "/admin/folder",
+        &format!("csrf={csrf}&action=create&path=Sport&name=Running"),
+    )
+    .await;
+    assert!(t.books().join("Sport/Running").is_dir());
+
+    for bad in ["..", ".hidden", "a%2Fb", "%20"] {
+        let (_, headers, _) = t
+            .post_form("/admin/folder", &format!("csrf={csrf}&action=create&name={bad}"))
+            .await;
+        assert!(headers["location"].contains("error"), "{bad}");
+    }
+    let (_, headers, _) = t
+        .post_form("/admin/folder", &format!("csrf={csrf}&action=create&path=..&name=x"))
+        .await;
+    assert!(headers["location"].contains("error"));
+
+    // A folder with something in it stays
+    std::fs::write(t.books().join("Sport/Running/a.txt"), "x").unwrap();
+    let (_, headers, _) = t
+        .post_form(
+            "/admin/folder",
+            &format!("csrf={csrf}&action=delete&path=Sport%2FRunning"),
+        )
+        .await;
+    assert!(headers["location"].contains("error"));
+    assert!(t.books().join("Sport/Running/a.txt").exists());
+    std::fs::remove_file(t.books().join("Sport/Running/a.txt")).unwrap();
+    let (_, headers, _) = t
+        .post_form(
+            "/admin/folder",
+            &format!("csrf={csrf}&action=delete&path=Sport%2FRunning"),
+        )
+        .await;
+    assert!(headers["location"].starts_with("/admin?folder=Sport&notice="));
+    assert!(!t.books().join("Sport/Running").exists());
+    // The root is never deleted
+    let (_, headers, _) = t
+        .post_form("/admin/folder", &format!("csrf={csrf}&action=delete&path="))
+        .await;
+    assert!(headers["location"].contains("error"));
+    assert!(t.books().exists());
+}
+
+#[tokio::test]
+async fn folders_api_for_the_apps() {
+    let t = app_with(&[]);
+    for name in ["a.txt", "b.txt"] {
+        std::fs::write(t.books().join(name), "x").unwrap();
+    }
+    let (status, _, body) = t.post_json("/api/folders", r#"{"name":"Sport"}"#).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["path"],
+        "Sport"
+    );
+    let (status, _, _) = t.post_json("/api/folders", r#"{"parent":"Sport","name":"../x"}"#).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, _, body) = t
+        .post_json("/api/books/move", r#"{"paths":["a.txt","b.txt"],"folder":"Sport"}"#)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(serde_json::from_slice::<serde_json::Value>(&body).unwrap()["moved"], 2);
+    assert!(t.books().join("Sport/a.txt").exists());
+
+    let (_, _, body) = t.get("/api/folders").await;
+    let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(list["folders"][0]["path"], "Sport");
+    assert_eq!(list["folders"][0]["count"], 2);
+
+    // Back to the root
+    let (status, _, _) = t
+        .post_json("/api/books/move", r#"{"paths":["Sport/a.txt"],"folder":""}"#)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(t.books().join("a.txt").exists());
+    let (status, _, _) = t
+        .post_json("/api/books/move", r#"{"paths":["b.txt"],"folder":"../out"}"#)
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]

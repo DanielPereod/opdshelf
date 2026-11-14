@@ -16,6 +16,7 @@ pub mod opds;
 pub mod paths;
 pub mod progress;
 pub mod reader;
+pub mod stats;
 pub mod store;
 pub mod sync;
 pub mod templates;

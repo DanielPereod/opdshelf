@@ -261,4 +261,29 @@
     <string name="color_gray">Gray</string>
     <string name="highlight_color">Colour</string>
     <plurals name="highlights_count"><item quantity="one">%1$d highlight · %2$d with a note</item><item quantity="other">%1$d highlights · %2$d with a note</item></plurals>
+    <string name="new_folder">New folder</string>
+    <string name="folder_name">Folder name</string>
+    <string name="create">Create</string>
+    <string name="folder_created">Folder %1$s created</string>
+    <string name="move_to_folder">Move to folder</string>
+    <string name="library_top">Library top level</string>
+    <string name="or_new_folder">Or a new folder</string>
+    <string name="create_and_move">Create and move</string>
+    <string name="already_here">It is already here</string>
+    <string name="moved_to_folder">\"%1$s\" moved to %2$s</string>
+    <string name="moved_to_top">\"%1$s\" moved to the library top level</string>
+    <string name="empty_folder">This folder is empty</string>
+    <string name="empty_folder_text">Open a book and choose Move to folder to put it here.</string>
+    <string name="empty_folders_add">Create folders here and move books into them from their details.</string>
+    <string name="add_books">Add books</string>
+    <string name="upload_folder">Folder on the server</string>
+    <string name="upload_change_folder">Change</string>
+    <string name="upload_start">Upload</string>
+    <string name="uploading">Uploading…</string>
+    <string name="upload_done">Added to the server</string>
+    <string name="upload_unsupported">Not a book format the server takes</string>
+    <string name="upload_unreadable">Cannot read this file</string>
+    <plurals name="upload_title"><item quantity="one">Add %1$d book to the server</item><item quantity="other">Add %1$d books to the server</item></plurals>
+    <plurals name="upload_skipped"><item quantity="one">%1$d file will be left out.</item><item quantity="other">%1$d files will be left out.</item></plurals>
+    <plurals name="uploaded_count"><item quantity="one">%1$d book added to %2$s</item><item quantity="other">%1$d books added to %2$s</item></plurals>
 </resources>

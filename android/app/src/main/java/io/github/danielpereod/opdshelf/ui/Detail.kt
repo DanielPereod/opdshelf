@@ -1,5 +1,8 @@
 package io.github.danielpereod.opdshelf.ui
 
+import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
+import androidx.compose.material.icons.outlined.Folder
+import io.github.danielpereod.opdshelf.data.serverPath
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.aspectRatio
@@ -72,6 +75,15 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
     var confirmRemove by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
     var cut by remember { mutableStateOf(false) }
+    var moving by remember { mutableStateOf(false) }
+    val folders by library.folders.collectAsState()
+    val serverPath = entry?.serverPath
+    if (moving && entry != null && serverPath != null) {
+        FolderPickerDialog(
+            title = entry.title, folders = folders, current = serverPath.substringBeforeLast('/', ""),
+            onPick = { moving = false; library.moveToFolder(entry, it) }, onDismiss = { moving = false },
+        )
+    }
 
     val title = entry?.title ?: local?.title.orEmpty()
     val authors = entry?.authors ?: local?.authors.orEmpty()
@@ -141,6 +153,23 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
                 )
                 Spacer(Modifier.height(Space.s))
                 Text(stringResource(R.string.download_help), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
+            }
+        }
+        // Where the book lives on the server
+        if (serverPath != null) {
+            Spacer(Modifier.height(Space.m))
+            SecondaryButton(
+                stringResource(R.string.move_to_folder),
+                { library.loadFolders(); moving = true }, Modifier.fillMaxWidth(),
+                icon = Icons.AutoMirrored.Outlined.DriveFileMove,
+            )
+            serverPath.substringBeforeLast('/', "").takeIf { it.isNotEmpty() }?.let {
+                Spacer(Modifier.height(Space.xs))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Folder, null, tint = shelf.muted, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(Space.xs))
+                    Text(it, color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
     }

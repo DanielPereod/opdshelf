@@ -22,6 +22,14 @@ Each highlight has an id made where it was created, so every device edits the sa
 
 A highlight is stored with KOReader's xpointers of its start and end, the text, the words around it and, from the web, the EPUB CFI. When a device cannot follow the xpointers (another copy of the book, or a reader that splits the text differently) it finds the text instead. Highlights in PDFs and comics sync and are listed everywhere, but only drawn in the reader they were made in.
 
+## Reading statistics
+
+**Statistics** in the web panel shows the time read today and on each of the last 30 days, the streak of days in a row with some reading, the books finished per month and the most read books. KOReader's home screen shows today's minutes under the title.
+
+They are worked out from the positions the devices send: the time between two page turns of the same device in the same book counts as reading, unless it is over 10 minutes, which starts a new session. A book counts as finished at 99 %. Days follow the server's time zone (`TZ`). Only a daily summary is kept, in `DATA_DIR/stats.json`; on the first start it is filled from the positions already saved. Reading done offline counts only once its positions reach the server one by one, so pages read in KOReader without a connection are not counted.
+
+`GET /api/stats` returns the panel's summary and `GET /api/stats/today` today's seconds, sessions and streak.
+
 ## KOReader
 
 Install the OPDShelf plugin from [`koreader/opdshelf.koplugin`](../koreader/opdshelf.koplugin): copy the `opdshelf.koplugin` folder into KOReader's `plugins` folder (`.adds/koreader/plugins` on Kobo, `koreader/plugins` on Kindle and in Android's storage) and restart KOReader. Then in **Tools → OPDShelf → Server** enter the server address and OPDShelf's username and password. If Progress sync already pointed to `…/kosync`, the address and username are filled in.

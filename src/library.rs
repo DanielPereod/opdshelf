@@ -89,8 +89,10 @@ impl SortMode {
         }
     }
 
-    pub fn sort(self, books: &mut [Book]) {
+    /// Sorts books, or references to books.
+    pub fn sort<B: std::borrow::Borrow<Book>>(self, books: &mut [B]) {
         books.sort_by(|a, b| {
+            let (a, b) = (a.borrow(), b.borrow());
             let by_name = || by_title(a, b);
             match self {
                 Self::NameAsc => by_name(),
@@ -105,9 +107,11 @@ impl SortMode {
 /// Title order, with the books of a series kept together in volume order:
 /// a series sorts under its name, and its books by their position in it.
 pub fn by_title(a: &Book, b: &Book) -> std::cmp::Ordering {
-    let key = |book: &'_ Book| book.meta.series.clone().unwrap_or_else(|| book.title.clone());
+    fn key(book: &Book) -> &str {
+        book.meta.series.as_deref().unwrap_or(&book.title)
+    }
     let position = |book: &Book| book.meta.series.as_ref().and(book.meta.series_position());
-    natural_cmp(&key(a), &key(b))
+    natural_cmp(key(a), key(b))
         .then_with(|| match (position(a), position(b)) {
             (Some(x), Some(y)) => x.total_cmp(&y),
             (Some(_), None) => std::cmp::Ordering::Less,
@@ -126,14 +130,14 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    pub fn search(&self, query: &str) -> Vec<Book> {
+    pub fn search(&self, query: &str) -> Vec<&Book> {
         let terms: Vec<String> = query.to_lowercase().split_whitespace().map(str::to_string).collect();
-        self.books.iter().filter(|b| b.matches(&terms)).cloned().collect()
+        self.books.iter().filter(|b| b.matches(&terms)).collect()
     }
 
     /// Books directly inside `folder` (`""` for the root).
-    pub fn in_folder(&self, folder: &str) -> Vec<Book> {
-        self.books.iter().filter(|b| b.folder == folder).cloned().collect()
+    pub fn in_folder(&self, folder: &str) -> Vec<&Book> {
+        self.books.iter().filter(|b| b.folder == folder).collect()
     }
 
     /// Direct subfolders of `folder`.
@@ -175,19 +179,17 @@ impl Snapshot {
         series
     }
 
-    pub fn in_series(&self, series: &str) -> Vec<Book> {
+    pub fn in_series(&self, series: &str) -> Vec<&Book> {
         self.books
             .iter()
             .filter(|b| b.meta.series.as_deref() == Some(series))
-            .cloned()
             .collect()
     }
 
-    pub fn by_author(&self, author: &str) -> Vec<Book> {
+    pub fn by_author(&self, author: &str) -> Vec<&Book> {
         self.books
             .iter()
             .filter(|b| b.authors.iter().any(|a| a == author))
-            .cloned()
             .collect()
     }
 }

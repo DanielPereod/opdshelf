@@ -87,14 +87,14 @@ fn with_params(href: &str, params: &[(&str, Option<&str>)]) -> String {
 /// Adds the facet links of an acquisition feed (reading status, and language
 /// and format when the books have more than one) and returns the books the
 /// chosen facets select, with the feed's href carrying them.
-async fn facets(
+async fn facets<'a>(
     state: &AppState,
     feed: &mut Feed,
     lang: Lang,
-    books: Vec<Book>,
+    books: Vec<&'a Book>,
     query: &FeedQuery,
     href: &str,
-) -> (Vec<Book>, String) {
+) -> (Vec<&'a Book>, String) {
     let status = query
         .status
         .as_deref()
@@ -188,13 +188,14 @@ fn page_range(len: usize, page: usize, page_size: usize) -> (usize, usize, usize
 
 /// Fills `feed.pages` with the page count of the comics shown on this page,
 /// for their OPDS-PSE stream links.
-async fn count_pages(state: &AppState, feed: &mut Feed, books: &[Book], page: usize) {
+async fn count_pages(state: &AppState, feed: &mut Feed, books: &[&Book], page: usize) {
     let page_size = state.config.page_size;
     let (_, _, start) = page_range(books.len(), page, page_size);
     let comics: Vec<&Book> = books
         .iter()
         .skip(start)
         .take(page_size)
+        .copied()
         .filter(|b| crate::reader::is_comic(b))
         .collect();
     let counts = futures_util::future::join_all(comics.iter().map(|b| crate::reader::page_list(state, b))).await;
@@ -206,14 +207,14 @@ async fn count_pages(state: &AppState, feed: &mut Feed, books: &[Book], page: us
 }
 
 /// Facets, page counts and one page of `books`: the body of an acquisition feed.
-async fn fill_feed(
+async fn fill_feed<'a>(
     state: &AppState,
     feed: &mut Feed,
     lang: Lang,
-    books: Vec<Book>,
+    books: Vec<&'a Book>,
     query: &FeedQuery,
     href: &str,
-) -> Vec<Book> {
+) -> Vec<&'a Book> {
     let (books, href) = facets(state, feed, lang, books, query, href).await;
     let page = query.page.unwrap_or(1);
     count_pages(state, feed, &books, page).await;
@@ -380,7 +381,7 @@ impl Feed {
     }
 
     /// Adds a page of `books` with first/previous/next/last links.
-    fn paginate(&mut self, books: &[Book], page: usize, page_size: usize, href: &str) {
+    fn paginate(&mut self, books: &[&Book], page: usize, page_size: usize, href: &str) {
         let (page, pages, start) = page_range(books.len(), page, page_size);
         let sep = if href.contains('?') { '&' } else { '?' };
         let page_href = |p: usize| {
@@ -445,8 +446,8 @@ impl Feed {
     }
 }
 
-fn latest(books: &[Book]) -> DateTime<Utc> {
-    books.iter().map(|b| b.modified).max().unwrap_or_else(Utc::now)
+fn latest<'a>(books: impl IntoIterator<Item = &'a Book>) -> DateTime<Utc> {
+    books.into_iter().map(|b| b.modified).max().unwrap_or_else(Utc::now)
 }
 
 fn path_with_query(path: &str, sort: SortMode) -> String {
@@ -466,7 +467,7 @@ pub async fn root(State(state): State<AppState>, headers: HeaderMap, Query(query
 
     let lang = Lang::from_headers(&headers);
     let count = |template: &str, n: usize| fill(&lang.text(template), &[("n".into(), n.to_string())]);
-    let snapshot = state.library.scan().await;
+    let snapshot = state.library.snapshot().await;
     let base = base_url(&state, &headers);
     let updated = latest(&snapshot.books);
     let books = snapshot.books.len();
@@ -545,7 +546,8 @@ pub async fn root(State(state): State<AppState>, headers: HeaderMap, Query(query
 
 pub async fn books(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<FeedQuery>) -> Response {
     let lang = Lang::from_headers(&headers);
-    let mut books = state.library.scan().await.books;
+    let snapshot = state.library.snapshot().await;
+    let mut books: Vec<&Book> = snapshot.books.iter().collect();
     let sort = SortMode::parse(query.sort.as_deref());
     sort.sort(&mut books);
     let href = path_with_query("/opds/books", sort);
@@ -563,26 +565,24 @@ pub async fn books(State(state): State<AppState>, headers: HeaderMap, Query(quer
     );
     feed.link("up", "/", NAV);
     let books = fill_feed(&state, &mut feed, lang, books, &query, &href).await;
-    feed.render(latest(&books))
+    feed.render(latest(books.iter().copied()))
 }
 
 /// Started books that are not finished, last read first.
 pub async fn reading(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<FeedQuery>) -> Response {
     let lang = Lang::from_headers(&headers);
     let statuses = statuses(&state).await;
-    let mut books: Vec<(i64, Book)> = state
-        .library
-        .scan()
-        .await
+    let snapshot = state.library.snapshot().await;
+    let mut books: Vec<(i64, &Book)> = snapshot
         .books
-        .into_iter()
+        .iter()
         .filter_map(|b| match statuses.get(&b.path) {
             Some(&(Status::Reading, at)) => Some((at, b)),
             _ => None,
         })
         .collect();
-    books.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| crate::library::by_title(&a.1, &b.1)));
-    let books: Vec<Book> = books.into_iter().map(|(_, b)| b).collect();
+    books.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| crate::library::by_title(a.1, b.1)));
+    let books: Vec<&Book> = books.into_iter().map(|(_, b)| b).collect();
     let href = "/opds/reading";
     let mut feed = Feed::new(
         &base_url(&state, &headers),
@@ -603,7 +603,8 @@ pub async fn reading(State(state): State<AppState>, headers: HeaderMap, Query(qu
 pub async fn random(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<FeedQuery>) -> Response {
     use rand::seq::SliceRandom;
     let lang = Lang::from_headers(&headers);
-    let books = state.library.scan().await.books;
+    let snapshot = state.library.snapshot().await;
+    let books: Vec<&Book> = snapshot.books.iter().collect();
     let href = "/opds/random";
     let mut feed = Feed::new(
         &base_url(&state, &headers),
@@ -644,7 +645,7 @@ async fn folder_feed(
         return StatusCode::NOT_FOUND.into_response();
     };
     let lang = Lang::from_headers(&headers);
-    let snapshot = state.library.scan().await;
+    let snapshot = state.library.snapshot().await;
     let mut books = snapshot.in_folder(&folder);
     let sort = SortMode::parse(query.sort.as_deref().or(Some("name-asc")));
     sort.sort(&mut books);
@@ -680,14 +681,8 @@ async fn folder_feed(
         for sub in snapshot.subfolders(&folder) {
             let count = snapshot.count_under(&sub);
             let sub_href = format!("/opds/folders/{}", paths::url_encode(&sub));
-            let updated = latest(
-                &snapshot
-                    .books
-                    .iter()
-                    .filter(|b| b.path.starts_with(&format!("{sub}/")))
-                    .cloned()
-                    .collect::<Vec<_>>(),
-            );
+            let prefix = format!("{sub}/");
+            let updated = latest(snapshot.books.iter().filter(|b| b.path.starts_with(&prefix)));
             feed.nav_entry(
                 &format!("folder:{}", paths::url_encode(&sub)),
                 &format!("📁 {}", paths::file_name(&sub)),
@@ -699,7 +694,7 @@ async fn folder_feed(
         }
     }
     let books = fill_feed(&state, &mut feed, lang, books, &query, &href).await;
-    feed.render(latest(&books))
+    feed.render(latest(books.iter().copied()))
 }
 
 /// What a list of names (authors, series) is about.
@@ -725,13 +720,13 @@ impl NameList {
 }
 
 /// A paginated navigation feed of names, each linking to its books.
-fn name_index(
+fn name_index<'a>(
     state: &AppState,
     headers: &HeaderMap,
     query: &FeedQuery,
     list: NameList,
     names: &[(String, usize)],
-    books_of: impl Fn(&str) -> Vec<Book>,
+    books_of: impl Fn(&str) -> Vec<&'a Book>,
     updated: DateTime<Utc>,
 ) -> Response {
     let lang = Lang::from_headers(headers);
@@ -762,14 +757,14 @@ fn name_index(
             &fill(&lang.text("{n} books"), &[("n".into(), count.to_string())]),
             &format!("{href}/{encoded}"),
             ACQ,
-            latest(&books_of(name)),
+            latest(books_of(name)),
         );
     }
     feed.render(updated)
 }
 
 pub async fn authors(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<FeedQuery>) -> Response {
-    let snapshot = state.library.scan().await;
+    let snapshot = state.library.snapshot().await;
     let updated = latest(&snapshot.books);
     name_index(
         &state,
@@ -788,7 +783,8 @@ pub async fn author(
     Query(query): Query<FeedQuery>,
     Path(name): Path<String>,
 ) -> Response {
-    let books = state.library.scan().await.by_author(&name);
+    let snapshot = state.library.snapshot().await;
+    let books = snapshot.by_author(&name);
     books_of(&state, &headers, &query, books, "author", &name, "/opds/authors").await
 }
 
@@ -797,7 +793,7 @@ pub async fn series_index(
     headers: HeaderMap,
     Query(query): Query<FeedQuery>,
 ) -> Response {
-    let snapshot = state.library.scan().await;
+    let snapshot = state.library.snapshot().await;
     let updated = latest(&snapshot.books);
     name_index(
         &state,
@@ -816,7 +812,8 @@ pub async fn series(
     Query(query): Query<FeedQuery>,
     Path(name): Path<String>,
 ) -> Response {
-    let books = state.library.scan().await.in_series(&name);
+    let snapshot = state.library.snapshot().await;
+    let books = snapshot.in_series(&name);
     books_of(&state, &headers, &query, books, "series", &name, "/opds/series").await
 }
 
@@ -825,7 +822,7 @@ async fn books_of(
     state: &AppState,
     headers: &HeaderMap,
     query: &FeedQuery,
-    mut books: Vec<Book>,
+    mut books: Vec<&Book>,
     kind: &str,
     name: &str,
     up: &str,
@@ -845,13 +842,14 @@ async fn books_of(
     );
     feed.link("up", up, NAV);
     let books = fill_feed(state, &mut feed, Lang::from_headers(headers), books, query, &href).await;
-    feed.render(latest(&books))
+    feed.render(latest(books.iter().copied()))
 }
 
 pub async fn search(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<FeedQuery>) -> Response {
     let lang = Lang::from_headers(&headers);
     let terms = query.q.clone().unwrap_or_default();
-    let mut books = state.library.scan().await.search(&terms);
+    let snapshot = state.library.snapshot().await;
+    let mut books = snapshot.search(&terms);
     SortMode::NameAsc.sort(&mut books);
     let href = format!("/opds/search?q={}", paths::url_encode(&terms));
     let mut feed = Feed::new(

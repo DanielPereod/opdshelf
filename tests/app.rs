@@ -432,7 +432,8 @@ async fn admin_escapes_filenames() {
     t.write("it's <b>#1.txt", b"x");
     let html = t.text("/admin").await;
     assert!(!html.contains("<b>#1"));
-    assert!(html.contains("/info/it%27s%20%3Cb%3E%231.txt"));
+    // The rows are built in the page from JSON, where `<` is escaped
+    assert!(html.contains(r#""path":"it's \u003cb>#1.txt""#));
     // Without credentials the admin is open but forms still need the CSRF token
     let (status, _, _) = t
         .post_form("/admin/delete", &[("csrf", "x"), ("path", "it's <b>#1.txt")])

@@ -10,6 +10,7 @@ pub mod highlights;
 pub mod i18n;
 pub mod library;
 pub mod lookup;
+pub mod maintenance;
 pub mod marks;
 pub mod metadata;
 pub mod opds;

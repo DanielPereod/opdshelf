@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tower::ServiceExt;
+use tower_http::compression::CompressionLayer;
 use tower_http::services::ServeFile;
 
 use crate::auth::Auth;
@@ -96,9 +97,12 @@ pub fn router(config: Config) -> Router {
         .route("/read/{*path}", get(reader::read))
         .route("/pages/{*path}", get(reader::pages))
         .route("/page/{*path}", get(reader::page))
-        .route("/admin", get(admin))
-        .route("/admin/sync", get(admin_sync))
-        .route("/admin/highlights", get(admin_highlights))
+        .route("/admin", get(admin).layer(CompressionLayer::new()))
+        .route("/admin/sync", get(admin_sync).layer(CompressionLayer::new()))
+        .route(
+            "/admin/highlights",
+            get(admin_highlights).layer(CompressionLayer::new()),
+        )
         .route("/apps/opdshelf.koplugin.zip", get(apps::koreader_plugin))
         .route("/apps/opdshelf.apk", get(apps::android_app))
         .route("/apps/versions.json", get(apps::versions))
@@ -117,6 +121,11 @@ pub fn router(config: Config) -> Router {
             post(edit::save).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
         )
         .route("/admin/reset", post(edit::reset))
+        .route("/admin/maintenance", get(crate::maintenance::maintenance_page))
+        .route("/admin/maintenance/delete", post(crate::maintenance::delete))
+        .route("/admin/maintenance/dismiss", post(crate::maintenance::dismiss))
+        .route("/admin/maintenance/undismiss", post(crate::maintenance::undismiss))
+        .route("/admin/maintenance/clean", post(crate::maintenance::clean))
         .route("/admin/lookup", get(edit::lookup))
         .route("/user/login", get(login_page).post(login))
         .route("/user/logout", post(logout))
@@ -302,6 +311,40 @@ pub fn admin_redirect(folder: &str, notice: Option<&str>, error: Option<&str>) -
     Redirect::to(&url).into_response()
 }
 
+/// The books of the library page as JSON for a `<script>` block: the page
+/// builds only the rows it shows, which keeps it light with thousands of books.
+fn books_script(books: &[&Book]) -> String {
+    let flag = |on: bool| if on { "1" } else { "" };
+    let rows: Vec<_> = books
+        .iter()
+        .map(|book| {
+            json!({
+                "path": book.path,
+                "title": book.title,
+                "authors": book.author_line(),
+                "authorList": book.authors.join("\n"),
+                "folder": book.folder,
+                "format": book.format,
+                "added": book.modified.to_rfc3339(),
+                "bytes": book.size.to_string(),
+                "series": book.meta.series.as_deref().unwrap_or_default(),
+                "index": book.meta.series_index.as_deref().unwrap_or_default(),
+                "incomplete": flag(book.authors.is_empty() || !book.has_cover),
+                "readable": flag(book.readable),
+                "cover": if book.has_cover {
+                    format!("/thumb/{}?v={}", paths::url_encode(&book.path), covers::version(book))
+                } else {
+                    String::new()
+                },
+            })
+        })
+        .collect();
+    // No `<` at all, so no text can end the script block early
+    serde_json::to_string(&rows)
+        .unwrap_or_else(|_| "[]".into())
+        .replace('<', "\\u003c")
+}
+
 pub fn book_json(book: &Book) -> serde_json::Value {
     json!({
         "path": book.path,
@@ -350,8 +393,8 @@ impl AdminQuery {
 
 /// Everything the library page needs: the books, the folder tree and format counts.
 pub async fn library_data(state: &AppState, query: &AdminQuery) -> serde_json::Value {
-    let snapshot = state.library.scan().await;
-    let mut books = snapshot.books.clone();
+    let snapshot = state.library.snapshot().await;
+    let mut books: Vec<&Book> = snapshot.books.iter().collect();
     let sort = SortMode::parse(query.sort.as_deref());
     sort.sort(&mut books);
 
@@ -369,15 +412,20 @@ pub async fn library_data(state: &AppState, query: &AdminQuery) -> serde_json::V
         .filter(|f| snapshot.folders.contains(f))
         .unwrap_or_default();
 
+    // Books under each folder, subfolders included, counted in one pass
+    let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for book in &books {
+        let mut folder = book.folder.as_str();
+        while !folder.is_empty() {
+            *counts.entry(folder).or_default() += 1;
+            folder = paths::parent(folder);
+        }
+    }
     let folder_tree: Vec<_> = snapshot
         .folders
         .iter()
         .map(|f| {
-            let prefix = format!("{f}/");
-            let count = books
-                .iter()
-                .filter(|b| b.folder == *f || b.folder.starts_with(&prefix))
-                .count();
+            let count = counts.get(f.as_str()).copied().unwrap_or(0);
             json!({
                 "path": f,
                 "name": paths::file_name(f),
@@ -396,7 +444,8 @@ pub async fn library_data(state: &AppState, query: &AdminQuery) -> serde_json::V
     formats.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
     json!({
-        "books": books.iter().map(book_json).collect::<Vec<_>>(),
+        "books": !books.is_empty(),
+        "booksJson": books_script(&books),
         "total": books.len(),
         "incompleteCount": books.iter().filter(|b| b.authors.is_empty() || !b.has_cover).count(),
         "folders": snapshot.folders,
@@ -635,7 +684,7 @@ async fn delete(State(state): State<AppState>, Form(form): Form<DeleteForm>) -> 
     }
 }
 
-async fn delete_book(state: &AppState, rel: &str, path: &std::path::Path) -> std::io::Result<()> {
+pub(crate) async fn delete_book(state: &AppState, rel: &str, path: &std::path::Path) -> std::io::Result<()> {
     tokio::fs::remove_file(path).await?;
     state.library.forget(rel);
     state.library.invalidate();

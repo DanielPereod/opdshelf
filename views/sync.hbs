@@ -149,10 +149,10 @@
     function cover(entry) {
       const box = document.createElement('span');
       box.className = 'thumb';
-      const row = entry.path && document.querySelector(`.book[data-path="${CSS.escape(entry.path)}"]`);
-      if (row && row.dataset.cover) {
+      const book = entry.path && window.bookByPath ? window.bookByPath(entry.path) : null;
+      if (book && book.cover) {
         const img = document.createElement('img');
-        img.src = row.dataset.cover; img.alt = ''; img.loading = 'lazy';
+        img.src = book.cover; img.alt = ''; img.loading = 'lazy';
         img.onerror = () => img.remove();
         box.append(img);
       } else {

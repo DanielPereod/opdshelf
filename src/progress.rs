@@ -263,6 +263,25 @@ impl Progress {
         Ok(removed)
     }
 
+    /// Drops the positions of documents `keep` rejects (books no longer in the
+    /// library), or only counts them with `dry_run`. Returns how many.
+    pub fn retain_documents(&self, keep: impl Fn(&str) -> bool, dry_run: bool) -> std::io::Result<usize> {
+        let removed = {
+            let mut all = self.books.lock().unwrap();
+            let gone: Vec<String> = all.keys().filter(|d| !keep(d)).cloned().collect();
+            if !dry_run {
+                for document in &gone {
+                    all.remove(document);
+                }
+            }
+            gone.len()
+        };
+        if removed > 0 && !dry_run {
+            self.save()?;
+        }
+        Ok(removed)
+    }
+
     fn save(&self) -> std::io::Result<()> {
         let json = serde_json::to_vec(&*self.books.lock().unwrap()).map_err(std::io::Error::other)?;
         if let Some(dir) = self.file.parent() {

@@ -142,6 +142,64 @@ impl Store {
         }
     }
 
+    /// Drops the edits of books `keep` rejects (no longer in the library) and
+    /// their covers, or only counts them with `dry_run`. Returns how many.
+    pub fn retain_books(&self, keep: impl Fn(&str) -> bool, dry_run: bool) -> std::io::Result<usize> {
+        let removed: Vec<MetaOverride> = {
+            let mut map = self.overrides.lock().unwrap();
+            let gone: Vec<String> = map.keys().filter(|p| !keep(p)).cloned().collect();
+            if dry_run {
+                return Ok(gone.len());
+            }
+            gone.iter().filter_map(|p| map.remove(p)).collect()
+        };
+        if removed.is_empty() {
+            return Ok(0);
+        }
+        let count = removed.len();
+        for old in removed {
+            self.remove_cover_file(old.cover);
+        }
+        self.save()?;
+        Ok(count)
+    }
+
+    /// Files in DATA_DIR/covers that no edited book uses, or only counts them
+    /// with `dry_run`. Covers added in the last hour are left alone: one may
+    /// have just been uploaded and not saved with its book yet.
+    pub fn unused_covers(&self, dry_run: bool) -> usize {
+        let used: std::collections::HashSet<String> = self
+            .overrides
+            .lock()
+            .unwrap()
+            .values()
+            .filter_map(|o| o.cover.clone())
+            .collect();
+        let Ok(entries) = std::fs::read_dir(self.covers_dir()) else {
+            return 0;
+        };
+        let recent = |entry: &std::fs::DirEntry| {
+            entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_none_or(|age| age < std::time::Duration::from_secs(3600))
+        };
+        let mut count = 0;
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if used.contains(&name) || !entry.path().is_file() || recent(&entry) {
+                continue;
+            }
+            count += 1;
+            if !dry_run {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+        count
+    }
+
     /// Stores an uploaded cover image and returns its file name.
     pub fn save_cover(&self, image: &[u8]) -> std::io::Result<String> {
         let ext = match image::guess_format(image) {

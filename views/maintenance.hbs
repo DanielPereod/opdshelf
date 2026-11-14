@@ -1,0 +1,102 @@
+<main class="main maint-page" id="maintenance" tabindex="-1">
+  <header class="toolbar">
+    <a class="icon-btn" href="/admin" title="{{t "Back to the library"}}" aria-label="{{t "Back to the library"}}"><i
+        class="fas fa-arrow-left"></i></a>
+    <h1>{{t "Maintenance"}}<small>{{total}}</small></h1>
+  </header>
+  {{#if notice}}<div class="notice" role="status"><i class="far fa-circle-check"></i>{{notice}}</div>{{/if}}
+  {{#if error}}<div class="notice error" role="alert"><i class="fas fa-circle-exclamation"></i>{{error}}</div>{{/if}}
+
+  <div class="sync-scroll">
+    <div class="sync-wrap">
+      <section class="panel-section" aria-labelledby="dupTitle">
+        <div class="section-head">
+          <h2 id="dupTitle">{{t "Possible duplicates"}}</h2>
+          <span class="muted">{{groupCount}}</span>
+          {{#if dismissedCount}}
+          <form action="/admin/maintenance/undismiss" method="post">
+            <input type="hidden" name="csrf" value="{{csrf}}">
+            <button type="submit" class="btn btn-quiet btn-small">{{t "Show dismissed again"}}</button>
+          </form>
+          {{/if}}
+        </div>
+        <p class="muted">{{t "Books with the same file, or with the same title and authors. Deleting a book removes its file from the books folder."}}</p>
+        {{#each groups}}
+        <div class="maint-group">
+          <div class="maint-group-head">
+            <strong>{{#if same}}{{t "Same file"}}{{else}}{{t "Same title and authors"}}{{/if}}</strong>
+            <form action="/admin/maintenance/dismiss" method="post">
+              <input type="hidden" name="csrf" value="{{../csrf}}">
+              <input type="hidden" name="key" value="{{key}}">
+              <button type="submit" class="btn btn-quiet btn-small"><i class="fas fa-check"></i>{{t "Keep all"}}</button>
+            </form>
+          </div>
+          {{#each books}}
+          <div class="maint-book">
+            <span class="thumb{{#unless hasCover}} none{{/unless}}">{{#if hasCover}}<img loading="lazy" alt=""
+                src="/thumb/{{urlPath path}}?v={{coverVersion}}">{{else}}<span>{{format}}</span>{{/if}}</span>
+            <div class="maint-book-text">
+              <strong>{{title}}</strong>
+              <span class="muted">{{authors}}</span>
+              <span class="mono muted">{{path}}</span>
+              <span class="muted">{{format}} · {{size}} · {{modified}}{{#if edited}} · {{t "Edited"}}{{/if}}{{#if progress}} · {{progress}}%{{/if}}</span>
+            </div>
+            <form action="/admin/maintenance/delete" method="post"
+              data-confirm="{{t "Delete this book? Its file is removed from the books folder."}}">
+              <input type="hidden" name="csrf" value="{{../../csrf}}">
+              <input type="hidden" name="path" value="{{path}}">
+              <button type="submit" class="btn btn-small btn-danger"><i class="far fa-trash-can"></i>{{t "Delete"}}</button>
+            </form>
+          </div>
+          {{/each}}
+        </div>
+        {{else}}
+        <div class="empty small"><i class="far fa-circle-check"></i><strong>{{t "No duplicates found"}}</strong></div>
+        {{/each}}
+      </section>
+
+      <section class="panel-section" aria-labelledby="orphanTitle">
+        <div class="section-head">
+          <h2 id="orphanTitle">{{t "Data of deleted books"}}</h2>
+          <span class="muted">{{orphanTotal}}</span>
+        </div>
+        <p class="muted">{{t "Saved data of books that are no longer in the library. Positions and highlights of a book you read in KOReader from somewhere else also count here."}}</p>
+        {{#if emptyLibrary}}
+        <div class="notice error"><i class="fas fa-circle-exclamation"></i>{{t "The library is empty: nothing can be cleaned until the books folder is back."}}</div>
+        {{/if}}
+        <div class="maint-group">
+          {{#each orphans}}
+          <div class="maint-row">
+            <span>{{t label}}</span>
+            <strong>{{count}}</strong>
+            <form action="/admin/maintenance/clean" method="post"
+              data-confirm="{{t "Remove this data? It cannot be undone."}}">
+              <input type="hidden" name="csrf" value="{{../csrf}}">
+              <input type="hidden" name="what" value="{{what}}">
+              <button type="submit" class="btn btn-small" {{#unless count}}disabled{{/unless}}
+                {{#if ../emptyLibrary}}disabled{{/if}}>{{t "Clean"}}</button>
+            </form>
+          </div>
+          {{/each}}
+          <div class="maint-row">
+            <span></span><span></span>
+            <form action="/admin/maintenance/clean" method="post"
+              data-confirm="{{t "Remove this data? It cannot be undone."}}">
+              <input type="hidden" name="csrf" value="{{csrf}}">
+              <input type="hidden" name="what" value="all">
+              <button type="submit" class="btn btn-small btn-primary" {{#unless orphanTotal}}disabled{{/unless}}
+                {{#if emptyLibrary}}disabled{{/if}}>{{t "Clean all"}}</button>
+            </form>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+<script>
+  document.querySelectorAll('form[data-confirm]').forEach((form) => {
+    form.addEventListener('submit', (event) => {
+      if (!confirm(form.dataset.confirm)) event.preventDefault();
+    });
+  });
+</script>

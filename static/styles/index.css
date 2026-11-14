@@ -3981,3 +3981,61 @@ a.nav-item {
     flex-basis: 100%;
   }
 }
+
+/* Maintenance page */
+.maint-page {
+  height: 100%;
+}
+
+.maint-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--pane);
+}
+
+.maint-group-head,
+.maint-book,
+.maint-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+}
+
+.maint-group > * + * {
+  border-top: 1px solid var(--line);
+}
+
+.maint-group-head > :last-child,
+.maint-book > form,
+.maint-row > form {
+  margin-left: auto;
+}
+
+.maint-book .thumb {
+  width: 40px;
+}
+
+.maint-book-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+
+.maint-book-text > * {
+  overflow-wrap: anywhere;
+}
+
+.maint-row > span:first-child {
+  flex: 1;
+}
+
+@media (max-width: 520px) {
+  .maint-book {
+    flex-wrap: wrap;
+  }
+}

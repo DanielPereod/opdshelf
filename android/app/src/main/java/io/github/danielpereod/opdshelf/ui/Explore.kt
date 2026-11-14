@@ -8,6 +8,8 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material.icons.outlined.DownloadDone
 import androidx.compose.material.icons.outlined.FolderOff
+import androidx.compose.material.icons.outlined.CreateNewFolder
+import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.PersonOff
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -81,6 +83,7 @@ import coil.ImageLoader
 import io.github.danielpereod.opdshelf.R
 import io.github.danielpereod.opdshelf.data.Entry
 import io.github.danielpereod.opdshelf.data.LocalBook
+import io.github.danielpereod.opdshelf.data.serverPath
 
 /** The web's list/grid switch: two icons in a hairline box. */
 @Composable
@@ -112,6 +115,20 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
     val state = stack.lastOrNull()
     var query by rememberSaveable { mutableStateOf("") }
     var grid by rememberSaveable { mutableStateOf(true) }
+    // In Folders, folders can be made and books moved between them
+    val folder = library.currentFolder(stack)
+    var newFolder by rememberSaveable { mutableStateOf(false) }
+    var moving by remember { mutableStateOf<Entry?>(null) }
+    val folders by library.folders.collectAsState()
+    if (newFolder) {
+        NewFolderDialog(onCreate = { newFolder = false; library.createFolder(it) }, onDismiss = { newFolder = false })
+    }
+    moving?.let { entry ->
+        FolderPickerDialog(
+            title = entry.title, folders = folders, current = entry.serverPath?.substringBeforeLast('/', ""),
+            onPick = { moving = null; library.moveToFolder(entry, it) }, onDismiss = { moving = null },
+        )
+    }
     val focus = LocalFocusManager.current
     // Search and sections slide away while scrolling down and come back on the way up,
     // so short screens (phones on their side) keep room for the books
@@ -134,7 +151,14 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
             title = state?.label ?: if (atRoot) stringResource(R.string.tab_explore) else state?.feed?.title.orEmpty(),
             count = entries.size.takeIf { hasBooks && state?.feed?.nextUrl == null },
             onBack = if (!atRoot) ({ library.back() }) else null,
-            actions = { if (hasBooks) ViewSwitch(grid) { grid = it } },
+            actions = {
+                if (folder != null && state?.error == null) {
+                    IconButton(onClick = { newFolder = true }) {
+                        Icon(Icons.Outlined.CreateNewFolder, stringResource(R.string.new_folder), tint = shelf.fg)
+                    }
+                }
+                if (hasBooks) ViewSwitch(grid) { grid = it }
+            },
         )
         androidx.compose.animation.AnimatedVisibility(filtersShown || query.isNotEmpty()) {
         Column(Modifier.background(shelf.pane)) {
@@ -198,13 +222,22 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
                 // Each section says why it is empty
                 val (icon, title, text) = when {
                     state.label != null -> Triple(Icons.Outlined.SearchOff, R.string.no_results, R.string.no_results_text)
+                    folder != null && !atRoot -> Triple(Icons.Outlined.FolderOff, R.string.empty_folder, R.string.empty_folder_text)
                     !atRoot -> Triple(Icons.Outlined.FolderOff, R.string.empty_feed, R.string.empty_feed_text)
                     section == Section.Authors -> Triple(Icons.Outlined.PersonOff, R.string.empty_authors, R.string.empty_authors_text)
                     section == Section.Series -> Triple(Icons.Outlined.CollectionsBookmark, R.string.empty_series, R.string.empty_series_text)
                     section == Section.Folders -> Triple(Icons.Outlined.FolderOff, R.string.empty_folders, R.string.empty_folders_text)
                     else -> Triple(Icons.AutoMirrored.Outlined.LibraryBooks, R.string.empty_library, R.string.empty_library_text)
                 }
-                EmptyState(icon = icon, title = stringResource(title), text = stringResource(text))
+                if (folder != null) {
+                    EmptyState(
+                        icon = icon, title = stringResource(title),
+                        text = stringResource(if (atRoot) R.string.empty_folders_add else text),
+                        action = stringResource(R.string.new_folder), onAction = { newFolder = true },
+                    )
+                } else {
+                    EmptyState(icon = icon, title = stringResource(title), text = stringResource(text))
+                }
             }
             else -> {
                 val list = rememberLazyGridState()
@@ -244,6 +277,12 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
                                         else -> null
                                     },
                                     MenuAction(stringResource(R.string.details), Icons.Outlined.Info) { library.showDetail(entry, entry.id) },
+                                    entry.serverPath?.let {
+                                        MenuAction(stringResource(R.string.move_to_folder), Icons.AutoMirrored.Outlined.DriveFileMove) {
+                                            library.loadFolders()
+                                            moving = entry
+                                        }
+                                    },
                                 ),
                             )
                             else -> BookRow(

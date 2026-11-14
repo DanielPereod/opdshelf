@@ -34,7 +34,7 @@
 
 - **Single Rust binary, no database.** Your folder structure is the library; new, changed and deleted files show up instantly.
 - **OPDS 1.2 catalog** for any reader (KOReader, Moon+ Reader, Readest, Calibre…): recent books, titles, folders, authors and series, with search and pagination ([URLs](docs/opds.md)).
-- **Web panel** in English and Spanish: list or cover grid, drag-and-drop uploads, metadata and cover editing (with ISBN lookup), authors and series shelves, bulk move, delete and **mark as read / unread**, light and dark themes, works on phones.
+- **Web panel** in English and Spanish: list or cover grid, drag-and-drop uploads, metadata and cover editing (with ISBN lookup), authors and series shelves, folders you create and fill with one click or by dragging books onto them, bulk move, delete and **mark as read / unread**, light and dark themes, works on phones.
 - **Read in the browser**: EPUB (text settings, two-page spread), PDF, comics (CBZ, CBR, CB7, CBT) and TXT.
 - **Devices page**: every device that syncs, whether it is connected right now, the books it is on and how far, and a live feed of reading activity.
 - **Android app** and **KOReader plugin**, downloadable from the panel.

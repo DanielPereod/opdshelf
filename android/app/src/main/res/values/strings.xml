@@ -261,4 +261,18 @@
     <string name="color_gray">Gray</string>
     <string name="highlight_color">Colour</string>
     <plurals name="highlights_count"><item quantity="one">%1$d highlight · %2$d with a note</item><item quantity="other">%1$d highlights · %2$d with a note</item></plurals>
+    <string name="new_folder">New folder</string>
+    <string name="folder_name">Folder name</string>
+    <string name="create">Create</string>
+    <string name="folder_created">Folder %1$s created</string>
+    <string name="move_to_folder">Move to folder</string>
+    <string name="library_top">Library top level</string>
+    <string name="or_new_folder">Or a new folder</string>
+    <string name="create_and_move">Create and move</string>
+    <string name="already_here">It is already here</string>
+    <string name="moved_to_folder">\"%1$s\" moved to %2$s</string>
+    <string name="moved_to_top">\"%1$s\" moved to the library top level</string>
+    <string name="empty_folder">This folder is empty</string>
+    <string name="empty_folder_text">Open a book and choose Move to folder to put it here.</string>
+    <string name="empty_folders_add">Create folders here and move books into them from their details.</string>
 </resources>

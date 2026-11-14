@@ -93,6 +93,18 @@ class LocalStore(private val dir: File) {
         write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
     }
 
+    /** Keeps a downloaded book tied to its catalog entry when the entry's id changes (it was moved on the server). */
+    @Synchronized
+    fun changeId(old: String, new: String) {
+        if (old == new || book(old) == null) return
+        _books.value = _books.value.map { if (it.id == old) it.copy(id = new) else it }
+        write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
+        bookmarks[old]?.let { list ->
+            bookmarks = bookmarks - old + (new to list)
+            write(bookmarksFile, bookmarksSerializer, bookmarks)
+        }
+    }
+
     @Synchronized
     fun setPercentage(document: String, percentage: Double) {
         _books.value = _books.value.map { if (it.document == document) it.copy(percentage = percentage) else it }

@@ -34,7 +34,7 @@
 
 - **Single Rust binary, no database.** Your folder structure is the library; new, changed and deleted files show up instantly.
 - **OPDS 1.2 catalog** for any reader (KOReader, Moon+ Reader, Readest, Calibre…): recent books, titles, folders, authors and series, with search and pagination ([URLs](docs/opds.md)).
-- **Web panel** in English and Spanish: list or cover grid, drag-and-drop uploads, metadata and cover editing (with ISBN lookup), authors and series shelves, bulk move, delete and **mark as read / unread**, light and dark themes, works on phones.
+- **Web panel** in English and Spanish: list or cover grid, drag-and-drop uploads, metadata and cover editing (with ISBN lookup), authors and series shelves, folders you create and fill with one click or by dragging books onto them, bulk move, delete and **mark as read / unread**, light and dark themes, works on phones.
 - **Read in the browser**: EPUB (text settings, two-page spread), PDF, comics (CBZ, CBR, CB7, CBT) and TXT.
 - **Devices page**: every device that syncs, whether it is connected right now, the books it is on and how far, and a live feed of reading activity.
 - **Android app** and **KOReader plugin**, downloadable from the panel.
@@ -124,6 +124,7 @@ All settings are environment variables.
 | `APPS_URL` | `https://github.com/DanielPereod/opdshelf/releases/download` | Where the panel's Android app and KOReader plugin downloads come from |
 | `APPS_CHANNEL` | `latest` (`beta` in the `:beta` image) | Which releases those downloads use: `latest` (from `main`) or `beta` |
 | `DATA_DIR` | `BOOKS_DIR/.opdshelf` | Where edited metadata, custom covers and the thumbnail cache are stored |
+| `TZ` | `UTC` | Time zone the reading statistics count days in, e.g. `Europe/Madrid` |
 | `WATCH` | `true` | Watch the books folder for changes. Set to `false` on network shares that do not report changes; the library is then rescanned on each request |
 | `SCAN_INTERVAL` | `600` | Seconds between full rescans while watching, as a safety net for missed events |
 | `RUST_LOG` | `info` | Log level (`debug`, `info`, `warn`...) |

@@ -24,6 +24,23 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Share books from other apps to add them to the server -->
+            <intent-filter android:label="@string/add_books">
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/epub+zip" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/x-mobipocket-ebook" />
+                <data android:mimeType="application/vnd.amazon.ebook" />
+                <data android:mimeType="application/x-fictionbook+xml" />
+                <data android:mimeType="application/vnd.comicbook+zip" />
+                <data android:mimeType="application/vnd.comicbook-rar" />
+                <data android:mimeType="application/x-cbz" />
+                <data android:mimeType="application/x-cbr" />
+                <data android:mimeType="image/vnd.djvu" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
         </activity>
 
         <activity

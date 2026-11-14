@@ -539,3 +539,42 @@ async fn opds_facets_reading_random_and_page_streaming() {
     let root = String::from_utf8(root).unwrap();
     assert!(root.contains("Seguir leyendo") && root.contains("Libros al azar"));
 }
+
+#[tokio::test]
+async fn api_upload_saves_books_for_apps() {
+    let t = app();
+    let put = |uri: &str, data: &'static [u8], auth: bool| {
+        let mut request = Request::put(uri);
+        if auth {
+            request = request.header(header::AUTHORIZATION, basic());
+        }
+        request.body(Body::from(data)).unwrap()
+    };
+
+    let (status, _, _) = t.send(put("/api/upload/a.epub", b"x", false)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(!t.books().join("a.epub").exists());
+
+    let (status, _, body) = t.send(put("/api/upload/Saga/Libro%20uno.epub", b"one", true)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["path"],
+        "Saga/Libro uno.epub"
+    );
+    // Never overwrites
+    let (_, _, body) = t.send(put("/api/upload/Saga/Libro%20uno.epub", b"two", true)).await;
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["path"],
+        "Saga/Libro uno (1).epub"
+    );
+    assert_eq!(std::fs::read(t.books().join("Saga/Libro uno.epub")).unwrap(), b"one");
+
+    let (status, _, _) = t.send(put("/api/upload/song.mp3", b"x", true)).await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    let (status, _, _) = t.send(put("/api/upload/..%2Fout.epub", b"x", true)).await;
+    assert_ne!(status, StatusCode::CREATED);
+    assert!(!t.dir.path().join("out.epub").exists());
+
+    // The new book is in the catalog right away
+    assert!(t.text("/opds/folders/Saga").await.contains("Libro uno"));
+}

@@ -167,6 +167,7 @@ local client = {
         requests[#requests + 1] = "progress " .. document
         return 200, { current = { device = "Phone", device_id = "PHONE", percentage = 0.6, timestamp = os.time() - 120 } }
     end,
+    getToday = function() return 200, { seconds = 1530, sessions = 2 } end,
     download = function(_, url, path)
         requests[#requests + 1] = url
         files[path] = true
@@ -303,7 +304,7 @@ home:show()
 local seen = texts(home)
 if os.getenv("DEBUG") then for _, t in ipairs(seen) do print("  text:", t) end end
 check(#home.history == 2, "lists the books read on this device that are still there")
-check(home.server_count == 40 and has(seen, "^40 books in your library$"), "says how many books the library has")
+check(home.server_count == 40 and has(seen, "^40 books in your library · Today: 26 min$"), "says how many books the library has and how long was read today")
 check(#home.recent == 12 and home.recent[1].title == "Book 1", "shows the newest books of the library")
 check(has(seen, "^Title of b1%.epub$") and has(seen, "^42 %% read"), "continue reading: the last book and how far")
 check(home.history[1].remote and has(seen, "^Further on Phone: 60 %%"), "and where another device went further")

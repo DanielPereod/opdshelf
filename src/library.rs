@@ -314,6 +314,21 @@ impl Library {
         .flatten()
     }
 
+    /// Keeps the metadata read from the files of a book, or of every book in
+    /// a folder, that moved to a new path: the files are the same.
+    pub fn rename_cached(&self, from: &str, to: &str) {
+        let mut cache = self.cache.lock().unwrap();
+        let moved: Vec<(String, String)> = cache
+            .keys()
+            .filter_map(|k| paths::relocate(k, from, to).map(|n| (k.clone(), n)))
+            .collect();
+        for (old, new) in moved {
+            if let Some(entry) = cache.remove(&old) {
+                cache.insert(new, entry);
+            }
+        }
+    }
+
     pub fn forget(&self, rel: &str) {
         self.cache.lock().unwrap().remove(rel);
     }

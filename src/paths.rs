@@ -57,6 +57,25 @@ pub fn file_name(rel: &str) -> &str {
     rel.rsplit_once('/').map(|(_, name)| name).unwrap_or(rel)
 }
 
+/// Where `path` ends up when `from` (a book or a folder) moves to `to`:
+/// `from` itself and everything inside it, or `None` for anything else.
+pub fn relocate(path: &str, from: &str, to: &str) -> Option<String> {
+    if path == from {
+        return Some(to.to_string());
+    }
+    let rest = path.strip_prefix(from)?.strip_prefix('/')?;
+    Some(if to.is_empty() {
+        rest.to_string()
+    } else {
+        format!("{to}/{rest}")
+    })
+}
+
+/// Whether `path` is `folder` or inside it (`""`, the root, holds everything).
+pub fn is_within(path: &str, folder: &str) -> bool {
+    folder.is_empty() || relocate(path, folder, "").is_some()
+}
+
 /// Lower-case extension, treating `.fb2.zip` as a single extension.
 pub fn extension(rel: &str) -> String {
     let name = file_name(rel).to_lowercase();
@@ -104,6 +123,22 @@ mod tests {
         assert_eq!(sanitize("./a//b.pdf").as_deref(), Some("a/b.pdf"));
         assert_eq!(sanitize("a\\b.pdf").as_deref(), Some("a/b.pdf"));
         assert_eq!(sanitize_name("a/b.pdf"), None);
+    }
+
+    #[test]
+    fn relocates_paths_under_a_moved_folder() {
+        assert_eq!(
+            relocate("a/b.epub", "a/b.epub", "c/b.epub").as_deref(),
+            Some("c/b.epub")
+        );
+        assert_eq!(
+            relocate("Saga/Vol 1/x.epub", "Saga", "Old/Saga").as_deref(),
+            Some("Old/Saga/Vol 1/x.epub")
+        );
+        assert_eq!(relocate("Saga 2/x.epub", "Saga", "Old/Saga"), None);
+        assert_eq!(relocate("Sagas/x.epub", "Saga", "Old"), None);
+        assert!(is_within("Saga/Vol 1", "Saga") && is_within("Saga", "Saga") && is_within("x", ""));
+        assert!(!is_within("Sagas", "Saga"));
     }
 
     #[test]

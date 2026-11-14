@@ -114,7 +114,11 @@ pub fn router(config: Config) -> Router {
         .route("/admin/bulk", post(bulk))
         .route("/admin/folder", post(folder_action))
         .route("/api/folders", get(api_folders).post(api_create_folder))
+        .route("/api/folders/rename", post(api_rename_folder))
+        .route("/api/folders/move", post(api_move_folder))
+        .route("/api/folders/delete", post(api_delete_folder))
         .route("/api/books/move", post(api_move_books))
+        .route("/api/books/rename", post(api_rename_book))
         .route("/admin/edit/{*path}", get(edit::edit_page))
         .route(
             "/admin/edit",
@@ -780,12 +784,13 @@ pub(crate) async fn delete_book(state: &AppState, rel: &str, path: &std::path::P
     Ok(())
 }
 
-/// Moves a book to `new_rel`, taking its edited metadata along.
+/// Moves a book to `new_rel`, taking along everything DATA_DIR keeps by its path.
 async fn move_book(state: &AppState, rel: &str, old_path: &std::path::Path, new_rel: &str) -> Result<(), String> {
     let new_path = state.library.root().join(new_rel);
-    if new_path.exists() {
+    if new_path.exists() && !same_entry(old_path, &new_path) {
         return Err(format!("{new_rel} already exists"));
     }
+    let book = state.library.book(rel).await;
     let result = async {
         if let Some(parent) = new_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
@@ -794,13 +799,70 @@ async fn move_book(state: &AppState, rel: &str, old_path: &std::path::Path, new_
     }
     .await;
     result.map_err(|err| err.to_string())?;
-    state.library.forget(rel);
-    state.library.invalidate();
-    if let Err(err) = state.library.store().rename(rel, new_rel) {
-        tracing::warn!("cannot move edited metadata of {rel}: {err}");
-    }
+    carry_over(state, book.as_slice(), rel, new_rel);
     tracing::info!("renamed {rel} to {new_rel}");
     Ok(())
+}
+
+/// Whether two paths are the same file or folder, as when only the case of a
+/// name changes on a disk that ignores case.
+fn same_entry(a: &std::path::Path, b: &std::path::Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (std::fs::metadata(a), std::fs::metadata(b)) {
+            (Ok(x), Ok(y)) => x.dev() == y.dev() && x.ino() == y.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
+    }
+}
+
+/// After a book, or a folder with books in it, moved from `from` to `to`:
+/// everything DATA_DIR keeps by path follows it. Edits, custom covers and
+/// "not duplicates" choices are kept by path; the ids of the books and the
+/// covers drawn from them are cached by path. Reading positions, highlights
+/// and read marks are kept by the book's content, so they follow by themselves.
+/// `books` are the books that moved, as they were before.
+fn carry_over(state: &AppState, books: &[Book], from: &str, to: &str) {
+    let store = state.library.store();
+    state.library.rename_cached(from, to);
+    if let Err(err) = store.rename(from, to) {
+        tracing::warn!("cannot move the edited metadata of {from}: {err}");
+    }
+    state.documents.rename(from, to);
+    crate::maintenance::rename_dismissed(store.dir(), from, to);
+    for book in books {
+        if let Some(new) = paths::relocate(&book.path, from, to) {
+            covers::rename_cached(store, book, &new);
+        }
+    }
+    state.library.invalidate();
+}
+
+/// Where a book goes when it is renamed to `name` in `folder` (`None` keeps
+/// its folder, `""` is the root). The extension is kept.
+fn renamed_path(rel: &str, name: &str, folder: Option<&str>) -> Result<String, &'static str> {
+    let Some(mut name) = paths::sanitize_name(name.trim()) else {
+        return Err("Invalid name");
+    };
+    let old_ext = paths::extension(rel);
+    if !name.to_lowercase().ends_with(&format!(".{old_ext}")) {
+        name = format!("{name}.{old_ext}");
+    }
+    let folder = match folder.map(str::trim) {
+        None => paths::parent(rel).to_string(),
+        Some("") => String::new(),
+        Some(f) => paths::sanitize(f).ok_or("Invalid folder name")?,
+    };
+    Ok(if folder.is_empty() {
+        name
+    } else {
+        format!("{folder}/{name}")
+    })
 }
 
 #[derive(Deserialize)]
@@ -818,26 +880,11 @@ async fn rename(State(state): State<AppState>, Form(form): Form<RenameForm>) -> 
     let Some((rel, old_path)) = state.library.book_path(&form.path) else {
         return admin_redirect("", None, Some("Book not found"));
     };
-    let Some(mut name) = paths::sanitize_name(&form.name) else {
-        return admin_redirect(paths::parent(&rel), None, Some("Invalid name"));
+    let new_rel = match renamed_path(&rel, &form.name, form.folder.as_deref()) {
+        Ok(new_rel) => new_rel,
+        Err(err) => return admin_redirect(paths::parent(&rel), None, Some(err)),
     };
-    let old_ext = paths::extension(&rel);
-    if !name.to_lowercase().ends_with(&format!(".{old_ext}")) {
-        name = format!("{name}.{old_ext}");
-    }
-    let folder = match form.folder.as_deref().map(str::trim) {
-        None => paths::parent(&rel).to_string(),
-        Some("") => String::new(),
-        Some(f) => match paths::sanitize(f) {
-            Some(f) => f,
-            None => return admin_redirect(paths::parent(&rel), None, Some("Invalid folder name")),
-        },
-    };
-    let new_rel = if folder.is_empty() {
-        name
-    } else {
-        format!("{folder}/{name}")
-    };
+    let folder = paths::parent(&new_rel).to_string();
     if new_rel == rel {
         return admin_redirect(&folder, None, None);
     }
@@ -845,6 +892,42 @@ async fn rename(State(state): State<AppState>, Form(form): Form<RenameForm>) -> 
         Ok(()) => admin_redirect(&folder, Some(&format!("Renamed to {new_rel}")), None),
         Err(err) => admin_redirect(paths::parent(&rel), None, Some(&format!("Rename failed: {err}"))),
     }
+}
+
+#[derive(Deserialize)]
+struct RenameRequest {
+    path: String,
+    name: String,
+    /// Another folder to move it to (`""` for the root); left out, it stays in its own.
+    folder: Option<String>,
+}
+
+/// Renames or moves one book for the panel and the apps. Answers its new path.
+async fn api_rename_book(State(state): State<AppState>, Json(request): Json<RenameRequest>) -> Response {
+    let Some((rel, old_path)) = state.library.book_path(&request.path) else {
+        return api_error(StatusCode::NOT_FOUND, "not_found", "Book not found");
+    };
+    let new_rel = match renamed_path(&rel, &request.name, request.folder.as_deref()) {
+        Ok(new_rel) => new_rel,
+        Err(err) => return api_error(StatusCode::BAD_REQUEST, "invalid_name", err),
+    };
+    if new_rel != rel {
+        if let Err(err) = move_book(&state, &rel, &old_path, &new_rel).await {
+            let exists = state.library.root().join(&new_rel).exists();
+            return if exists {
+                api_error(StatusCode::CONFLICT, "exists", &err)
+            } else {
+                api_error(StatusCode::INTERNAL_SERVER_ERROR, "io", &err)
+            };
+        }
+    }
+    Json(json!({ "path": new_rel, "from": rel })).into_response()
+}
+
+/// A JSON error for the apps and the panel: `code` says what went wrong in
+/// a way a program can tell apart, `error` says it in words.
+fn api_error(status: StatusCode, code: &str, error: &str) -> Response {
+    (status, Json(json!({ "error": error, "code": code }))).into_response()
 }
 
 /// Deletes or moves several books at once. The form repeats `path` once per book.
@@ -875,7 +958,10 @@ async fn bulk(State(state): State<AppState>, body: axum::body::Bytes) -> Respons
     };
 
     let (done, failed) = match action.as_str() {
-        "move" => move_books(&state, &selected, &folder).await,
+        "move" => {
+            let (moved, failed) = move_books(&state, &selected, &folder).await;
+            (moved.len(), failed)
+        }
         "delete" => {
             let mut done = 0;
             let mut failed = Vec::new();
@@ -931,9 +1017,10 @@ async fn create_folder(state: &AppState, parent: &str, name: &str) -> Result<Str
     Ok(rel)
 }
 
-/// Moves books into `folder` (`""` for the root). Answers how many moved and what failed.
-async fn move_books(state: &AppState, selected: &[String], folder: &str) -> (usize, Vec<String>) {
-    let mut done = 0;
+/// Moves books into `folder` (`""` for the root). Answers where each book went
+/// (from, to; the same for a book already there) and what failed.
+async fn move_books(state: &AppState, selected: &[String], folder: &str) -> (Vec<(String, String)>, Vec<String>) {
+    let mut moved = Vec::new();
     let mut failed = Vec::new();
     for path in selected {
         let Some((rel, file)) = state.library.book_path(path) else {
@@ -946,16 +1033,15 @@ async fn move_books(state: &AppState, selected: &[String], folder: &str) -> (usi
         } else {
             format!("{folder}/{name}")
         };
-        if new_rel == rel {
-            done += 1;
-            continue;
+        if new_rel != rel {
+            if let Err(err) = move_book(state, &rel, &file, &new_rel).await {
+                failed.push(format!("{name}: {err}"));
+                continue;
+            }
         }
-        match move_book(state, &rel, &file, &new_rel).await {
-            Ok(()) => done += 1,
-            Err(err) => failed.push(format!("{name}: {err}")),
-        }
+        moved.push((rel, new_rel));
     }
-    (done, failed)
+    (moved, failed)
 }
 
 // ---------------------------------------------------------------------------
@@ -1004,52 +1090,238 @@ async fn api_move_books(State(state): State<AppState>, Json(request): Json<MoveR
         },
     };
     let (moved, failed) = move_books(&state, &request.paths, &folder).await;
-    let status = if moved == 0 && !failed.is_empty() {
+    let status = if moved.is_empty() && !failed.is_empty() {
         StatusCode::BAD_REQUEST
     } else {
         StatusCode::OK
     };
+    let paths: Vec<_> = moved
+        .iter()
+        .map(|(from, to)| json!({ "from": from, "to": to }))
+        .collect();
     (
         status,
-        Json(json!({ "moved": moved, "folder": folder, "failed": failed })),
+        Json(json!({ "moved": moved.len(), "folder": folder, "failed": failed, "paths": paths })),
     )
         .into_response()
+}
+
+/// Why a folder cannot be renamed, moved or deleted: an HTTP status, a code
+/// for programs and a message in English (translated by the panel).
+struct Refusal(StatusCode, &'static str, String);
+
+impl Refusal {
+    fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
+        Self(status, code, message.into())
+    }
+
+    fn into_api(self) -> Response {
+        api_error(self.0, self.1, &self.2)
+    }
+}
+
+/// Moves the folder `from` into `parent` (`""` for the root) as `name`, which
+/// renames it when the parent stays the same. Every book inside, in any
+/// subfolder, takes its saved data along. Answers the folder's new path.
+async fn move_folder(state: &AppState, from: &str, parent: &str, name: &str) -> Result<String, Refusal> {
+    let not_found = || Refusal::new(StatusCode::NOT_FOUND, "not_found", "Folder not found");
+    let Some((from, source)) = state.library.folder_path(from).filter(|(rel, _)| !rel.is_empty()) else {
+        return Err(not_found());
+    };
+    let Some((parent, _)) = state.library.folder_path(parent) else {
+        return Err(not_found());
+    };
+    let Some(name) = paths::sanitize_name(name.trim()) else {
+        return Err(Refusal::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_name",
+            "Invalid folder name",
+        ));
+    };
+    let to = if parent.is_empty() {
+        name
+    } else {
+        format!("{parent}/{name}")
+    };
+    if to == from {
+        return Ok(to);
+    }
+    if paths::is_within(&to, &from) {
+        return Err(Refusal::new(
+            StatusCode::BAD_REQUEST,
+            "into_itself",
+            "A folder cannot be moved into itself",
+        ));
+    }
+    let dest = state.library.root().join(&to);
+    // Only a change of case on a disk that ignores case finds itself here
+    if dest.exists() && !same_entry(&source, &dest) {
+        return Err(Refusal::new(
+            StatusCode::CONFLICT,
+            "exists",
+            format!("{to} already exists"),
+        ));
+    }
+    let snapshot = state.library.snapshot().await;
+    let books: Vec<Book> = snapshot
+        .books
+        .iter()
+        .filter(|b| paths::is_within(&b.folder, &from))
+        .cloned()
+        .collect();
+    if let Err(err) = tokio::fs::rename(&source, &dest).await {
+        tracing::warn!("cannot move folder {from} to {to}: {err}");
+        return Err(Refusal::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "io",
+            format!("Cannot move the folder: {err}"),
+        ));
+    }
+    carry_over(state, &books, &from, &to);
+    tracing::info!("moved folder {from} to {to} with {} book(s)", books.len());
+    Ok(to)
+}
+
+/// Deletes a folder that holds no files at all, only maybe empty subfolders.
+/// A folder with books, or any other file, is never deleted.
+async fn delete_folder(state: &AppState, path: &str) -> Result<String, Refusal> {
+    let Some((rel, dir)) = state.library.folder_path(path).filter(|(rel, _)| !rel.is_empty()) else {
+        return Err(Refusal::new(StatusCode::NOT_FOUND, "not_found", "Folder not found"));
+    };
+    let result = tokio::task::spawn_blocking(move || -> Result<(), Refusal> {
+        let not_empty = || Refusal::new(StatusCode::CONFLICT, "not_empty", "Only empty folders can be deleted");
+        let mut dirs = Vec::new();
+        for entry in walkdir::WalkDir::new(&dir).contents_first(true) {
+            let entry = entry.map_err(|_| not_empty())?;
+            if !entry.file_type().is_dir() {
+                return Err(not_empty());
+            }
+            dirs.push(entry.into_path());
+        }
+        // Children come first; remove_dir refuses a folder a file was just added to
+        for dir in dirs {
+            std::fs::remove_dir(&dir).map_err(|err| match err.kind() {
+                std::io::ErrorKind::DirectoryNotEmpty => not_empty(),
+                _ => Refusal::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "io",
+                    format!("Cannot delete the folder: {err}"),
+                ),
+            })?;
+        }
+        Ok(())
+    })
+    .await
+    .unwrap_or_else(|_| {
+        Err(Refusal::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "io",
+            "Cannot delete the folder",
+        ))
+    });
+    state.library.invalidate();
+    result?;
+    tracing::info!("deleted folder {rel}");
+    Ok(rel)
+}
+
+#[derive(Deserialize)]
+struct FolderRename {
+    path: String,
+    name: String,
+}
+
+async fn api_rename_folder(State(state): State<AppState>, Json(request): Json<FolderRename>) -> Response {
+    let parent = paths::sanitize(&request.path)
+        .map(|p| paths::parent(&p).to_string())
+        .unwrap_or_default();
+    folder_moved(
+        &request.path,
+        move_folder(&state, &request.path, &parent, &request.name).await,
+    )
+}
+
+#[derive(Deserialize)]
+struct FolderMove {
+    path: String,
+    /// The folder to move it into, `""` for the root.
+    #[serde(default)]
+    parent: String,
+    /// A new name; left out, it keeps its own.
+    name: Option<String>,
+}
+
+async fn api_move_folder(State(state): State<AppState>, Json(request): Json<FolderMove>) -> Response {
+    let own = paths::sanitize(&request.path)
+        .map(|p| paths::file_name(&p).to_string())
+        .unwrap_or_default();
+    let name = request.name.unwrap_or(own);
+    folder_moved(
+        &request.path,
+        move_folder(&state, &request.path, &request.parent, &name).await,
+    )
+}
+
+fn folder_moved(from: &str, result: Result<String, Refusal>) -> Response {
+    match result {
+        Ok(path) => Json(json!({ "path": path, "from": paths::sanitize(from).unwrap_or_default() })).into_response(),
+        Err(refusal) => refusal.into_api(),
+    }
+}
+
+#[derive(Deserialize)]
+struct FolderPath {
+    path: String,
+}
+
+async fn api_delete_folder(State(state): State<AppState>, Json(request): Json<FolderPath>) -> Response {
+    match delete_folder(&state, &request.path).await {
+        Ok(path) => Json(json!({ "deleted": path })).into_response(),
+        Err(refusal) => refusal.into_api(),
+    }
 }
 
 #[derive(Deserialize)]
 struct FolderForm {
     csrf: String,
     action: String,
-    /// The folder to delete, or the one to create the new folder in (`""` for the root).
+    /// The folder to delete, rename or move, or the one to create the new folder in (`""` for the root).
     #[serde(default)]
     path: String,
     #[serde(default)]
     name: String,
+    /// Where `move` takes the folder (`""` for the root).
+    #[serde(default)]
+    parent: String,
 }
 
-/// Creates a folder, or deletes one that has nothing in it.
+/// Creates, renames or moves a folder, or deletes one that has nothing in it.
 async fn folder_action(State(state): State<AppState>, Form(form): Form<FolderForm>) -> Response {
     if !state.auth.check_csrf(&form.csrf) {
         return (StatusCode::FORBIDDEN, "Invalid CSRF token").into_response();
     }
+    let here = paths::sanitize(&form.path).unwrap_or_default();
     match form.action.as_str() {
         "create" => match create_folder(&state, &form.path, &form.name).await {
             Ok(rel) => admin_redirect(&rel, Some(&format!("Created folder {rel}")), None),
-            Err(err) => admin_redirect(paths::sanitize(&form.path).as_deref().unwrap_or(""), None, Some(&err)),
+            Err(err) => admin_redirect(&here, None, Some(&err)),
         },
-        "delete" => {
-            let Some((rel, dir)) = state.library.folder_path(&form.path).filter(|(rel, _)| !rel.is_empty()) else {
-                return admin_redirect("", None, Some("Folder not found"));
+        "rename" | "move" => {
+            let (parent, name) = if form.action == "rename" {
+                (paths::parent(&here).to_string(), form.name.clone())
+            } else {
+                (form.parent.clone(), paths::file_name(&here).to_string())
             };
-            // remove_dir refuses folders with anything in them, so no book is ever lost here
-            if let Err(err) = tokio::fs::remove_dir(&dir).await {
-                tracing::warn!("cannot delete folder {rel}: {err}");
-                return admin_redirect(&rel, None, Some("Only empty folders can be deleted"));
+            match move_folder(&state, &form.path, &parent, &name).await {
+                Ok(rel) => admin_redirect(&rel, Some(&format!("Moved folder to {rel}")), None),
+                Err(Refusal(_, _, err)) => admin_redirect(&here, None, Some(&err)),
             }
-            state.library.invalidate();
-            tracing::info!("deleted folder {rel}");
-            admin_redirect(paths::parent(&rel), Some(&format!("Deleted folder {rel}")), None)
         }
+        "delete" => match delete_folder(&state, &form.path).await {
+            Ok(rel) => admin_redirect(paths::parent(&rel), Some(&format!("Deleted folder {rel}")), None),
+            Err(Refusal(status, _, err)) if status == StatusCode::NOT_FOUND => admin_redirect("", None, Some(&err)),
+            Err(Refusal(_, _, err)) => admin_redirect(&here, None, Some(&err)),
+        },
         _ => (StatusCode::BAD_REQUEST, "Unknown action").into_response(),
     }
 }

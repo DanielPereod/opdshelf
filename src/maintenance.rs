@@ -137,6 +137,34 @@ fn save_dismissed(dir: &Path, keys: &HashSet<String>) -> std::io::Result<()> {
     std::fs::rename(tmp, file)
 }
 
+/// Keeps the groups marked as "not duplicates" when a book, or a folder with
+/// books in it, moves: their keys name the books by path.
+pub fn rename_dismissed(dir: &Path, from: &str, to: &str) {
+    let keys = dismissed(dir);
+    let mut changed = false;
+    let renamed: HashSet<String> = keys
+        .into_iter()
+        .map(|key| {
+            let Some((kind, list)) = key.split_once(':') else {
+                return key;
+            };
+            let mut paths: Vec<String> = list
+                .split('\n')
+                .map(|p| crate::paths::relocate(p, from, to).unwrap_or_else(|| p.to_string()))
+                .collect();
+            paths.sort();
+            let new = format!("{kind}:{}", paths.join("\n"));
+            changed |= new != key;
+            new
+        })
+        .collect();
+    if changed {
+        if let Err(err) = save_dismissed(dir, &renamed) {
+            tracing::warn!("cannot save the dismissed duplicates: {err}");
+        }
+    }
+}
+
 /// Saved data of books that are no longer in the library.
 #[derive(Debug, Default, PartialEq, Serialize)]
 pub struct Orphans {
@@ -357,6 +385,22 @@ pub async fn clean(State(state): State<AppState>, Form(form): Form<CleanForm>) -
 mod tests {
     use super::*;
     use crate::metadata::BookMeta;
+
+    #[test]
+    fn dismissed_groups_follow_moved_books() {
+        let dir = tempfile::tempdir().unwrap();
+        let keys: HashSet<String> = [
+            "same:A/x.epub\nB/y.epub".to_string(),
+            "title:C/z.epub\nD/w.epub".to_string(),
+        ]
+        .into();
+        save_dismissed(dir.path(), &keys).unwrap();
+        rename_dismissed(dir.path(), "A", "Z/A");
+        let mut after: Vec<String> = dismissed(dir.path()).into_iter().collect();
+        after.sort();
+        // The paths of a group stay sorted, as group_key makes them
+        assert_eq!(after, ["same:B/y.epub\nZ/A/x.epub", "title:C/z.epub\nD/w.epub"]);
+    }
 
     fn book(path: &str, title: &str, authors: &[&str]) -> Book {
         Book {

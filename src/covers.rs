@@ -105,6 +105,21 @@ pub fn resize(data: &[u8]) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+/// Moves the cached cover and thumbnail of a book to its new path, so they
+/// are not made again (a PDF cover is slow to draw).
+pub fn rename_cached(store: &Store, book: &Book, new_path: &str) {
+    let mut moved = book.clone();
+    moved.path = new_path.to_string();
+    for (old, new) in [
+        (pdf_cover_path(store, book), pdf_cover_path(store, &moved)),
+        (thumb_path(store, book), thumb_path(store, &moved)),
+    ] {
+        if old.exists() {
+            let _ = std::fs::rename(old, new);
+        }
+    }
+}
+
 /// Deletes cached images of books that changed or no longer exist.
 pub fn prune(store: &Store, snapshot: &Snapshot) {
     let keep: HashSet<String> = snapshot.books.iter().map(|b| format!("{}.jpg", cache_key(b))).collect();

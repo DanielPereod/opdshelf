@@ -698,16 +698,14 @@ async fn download(State(state): State<AppState>, Path(path): Path<String>, reque
         .query()
         .is_some_and(|q| q.split('&').any(|p| p == "inline=1"));
     let mime = crate::library::mime_for(&rel);
-    let mut response = match ServeFile::new_with_mime(
+    // Serving a file never fails: errors become responses (the error type is Infallible)
+    let Ok(response) = ServeFile::new_with_mime(
         &file,
         &mime.parse().unwrap_or(mime_guess::mime::APPLICATION_OCTET_STREAM),
     )
     .oneshot(request)
-    .await
-    {
-        Ok(response) => response.map(Body::new),
-        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
-    };
+    .await;
+    let mut response = response.map(Body::new);
     let name = paths::file_name(&rel);
     let ascii: String = name
         .chars()

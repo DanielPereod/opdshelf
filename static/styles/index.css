@@ -3776,3 +3776,29 @@ a.nav-item {
     animation: none !important;
   }
 }
+
+/* Every highlight of the library */
+.all-hl {
+  max-width: 820px;
+}
+
+.all-hl .hl-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
+.all-hl .hl-group h4 {
+  background: var(--bg);
+}
+
+@media (max-width: 600px) {
+  .all-hl .hl-tools {
+    flex-wrap: wrap;
+  }
+
+  .all-hl .hl-search {
+    flex-basis: 100%;
+  }
+}

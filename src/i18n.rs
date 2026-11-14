@@ -551,6 +551,16 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("Green", "Verde"),
     ("Olive", "Oliva"),
     ("Gray", "Gris"),
+    ("Highlights - OPDShelf", "Subrayados - OPDShelf"),
+    ("Daily review", "Repaso del día"),
+    ("All highlights", "Todos los subrayados"),
+    ("By book", "Por libro"),
+    ("Unknown book", "Libro desconocido"),
+    ("Highlights of this book", "Subrayados de este libro"),
+    ("Show more", "Ver más"),
+    ("Cannot load the highlights.", "No se pueden cargar los subrayados."),
+    ("A few highlights to read again, different every day", "Unos pocos subrayados para releer, distintos cada día"),
+    ("{n} highlights · {m} with a note · {b} books", "{n} subrayados · {m} con nota · {b} libros"),
 ];
 
 #[cfg(test)]

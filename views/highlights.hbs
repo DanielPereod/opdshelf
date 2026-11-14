@@ -1,0 +1,231 @@
+<main class="main sync-page" id="highlightsView" tabindex="-1" {{#unless highlightsView}}hidden{{/unless}}>
+  <header class="toolbar">
+    <button type="button" class="icon-btn menu-btn" data-menu title="{{t "Shelves"}}" aria-label="{{t "Shelves"}}"><i
+        class="fas fa-bars"></i></button>
+    <h1>{{t "Highlights"}}<small id="allHlCount"></small></h1>
+    <span class="spacer"></span>
+    <div class="hl-export" id="allHlExport">
+      <button type="button" class="btn btn-small" id="allHlExportBtn" aria-haspopup="true" aria-expanded="false"><i
+          class="fas fa-arrow-up-from-bracket"></i>{{t "Export"}}</button>
+      <div class="hl-menu" id="allHlMenu" hidden>
+        <a href="/api/highlights/export?format=markdown"><i class="fab fa-markdown"></i>{{t "Markdown file"}}</a>
+        <a href="/api/highlights/export?format=json"><i class="fas fa-code"></i>{{t "JSON file"}}</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="sync-scroll">
+    <div class="sync-wrap all-hl">
+      <section class="panel-section" aria-labelledby="reviewTitle" id="reviewSection" hidden>
+        <div class="section-head">
+          <h2 id="reviewTitle">{{t "Daily review"}}</h2>
+          <small class="muted">{{t "A few highlights to read again, different every day"}}</small>
+        </div>
+        <div class="hl-group"><ul id="reviewList"></ul></div>
+      </section>
+
+      <section class="panel-section" aria-labelledby="allHlTitle">
+        <div class="section-head">
+          <h2 id="allHlTitle">{{t "All highlights"}}</h2>
+          <small class="muted" id="allHlStats"></small>
+        </div>
+        <div class="hl-head" id="allHlTools" hidden>
+          <div class="hl-tools">
+            <input type="search" class="input hl-search" id="allHlSearch" placeholder="{{t "Search highlights and notes"}}"
+              aria-label="{{t "Search highlights and notes"}}">
+            <select class="input hl-sort" id="allHlBook" aria-label="{{t "Book"}}">
+              <option value="">{{t "All books"}}</option>
+            </select>
+            <select class="input hl-sort" id="allHlSort" aria-label="{{t "Order"}}">
+              <option value="newest">{{t "Newest first"}}</option>
+              <option value="book">{{t "By book"}}</option>
+            </select>
+          </div>
+          <div class="hl-filters" id="allHlFilters"></div>
+        </div>
+        <div class="hl-list" id="allHlList" aria-live="polite"></div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script>
+  (function () {
+    const $ = (id) => document.getElementById(id);
+    const squeeze = (s) => (s || '').replace(/\s+/g, ' ').trim();
+    const PAGE = 200;
+    const ui = { query: '', book: '', color: null, onlyNotes: false, sort: 'newest', shown: PAGE };
+    let all = [];
+    let loaded = false;
+
+    function el(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text != null) node.textContent = text;
+      return node;
+    }
+    function iconBtn(iconName, label, onClick, href) {
+      const b = el(href ? 'a' : 'button', 'icon-btn');
+      if (href) b.href = href; else b.type = 'button';
+      b.title = label;
+      b.setAttribute('aria-label', label);
+      b.append(el('i', iconName));
+      if (onClick) b.addEventListener('click', onClick);
+      return b;
+    }
+    const enc = (path) => path.split('/').map(encodeURIComponent).join('/');
+
+    function item(a) {
+      const li = el('li', 'hl-item');
+      li.dataset.color = a.color;
+      const quote = el('blockquote', 'hl-text', squeeze(a.text) || t('(no text)'));
+      if (a.style === 'underscore') quote.classList.add('underline');
+      if (a.style === 'strikeout') quote.classList.add('strike');
+      li.append(quote);
+      if (a.note && a.note.trim()) li.append(el('p', 'hl-note', a.note.trim()));
+      const foot = el('div', 'hl-foot');
+      const meta = [a.title || t('Unknown book')];
+      if (a.authors) meta.push(a.authors);
+      if (a.chapter) meta.push(a.chapter);
+      meta.push(timeAgo(a.created || a.updated));
+      const info = el('small', 'hl-meta', meta.filter(Boolean).join(' · '));
+      info.title = meta.join(' · ');
+      const actions = el('div', 'hl-actions');
+      if (a.path) {
+        actions.append(iconBtn('fas fa-arrow-right-to-bracket', t('Go to the highlight'), null, '/read/' + enc(a.path) + '#note=' + encodeURIComponent(a.id)));
+        actions.append(iconBtn('fas fa-highlighter', t('Highlights of this book'), null, '/info/' + enc(a.path) + '?tab=notes'));
+      }
+      actions.append(iconBtn('far fa-copy', t('Copy'), async () => {
+        const text = '“' + squeeze(a.text) + '”' + (a.title ? ' — ' + a.title : '') + (a.note ? '\n\n' + a.note.trim() : '');
+        try { await navigator.clipboard.writeText(text); showToast(t('Copied')); } catch { }
+      }));
+      foot.append(info, actions);
+      li.append(foot);
+      return li;
+    }
+
+    function filtered() {
+      const q = squeeze(ui.query).toLowerCase();
+      let items = all.filter((a) => (!ui.book || a.document === ui.book)
+        && (!ui.color || a.color === ui.color)
+        && (!ui.onlyNotes || (a.note && a.note.trim()))
+        && (!q || [a.text, a.note, a.chapter, a.title, a.authors].join(' ').toLowerCase().includes(q)));
+      if (ui.sort === 'book') {
+        items = items.slice().sort((x, y) => (x.title || '').localeCompare(y.title || '')
+          || (x.percentage || 0) - (y.percentage || 0));
+      }
+      return items;
+    }
+
+    function paintFilters() {
+      const box = $('allHlFilters');
+      box.replaceChildren();
+      const chip = (label, pressed, onClick, color) => {
+        const b = el('button', 'hl-chip');
+        b.type = 'button';
+        if (color) { const dot = el('span', 'hl-dot'); dot.dataset.color = color; b.append(dot); }
+        b.append(document.createTextNode(label));
+        b.setAttribute('aria-pressed', pressed);
+        b.addEventListener('click', () => { onClick(); ui.shown = PAGE; paint(); });
+        box.append(b);
+      };
+      chip(t('All'), !ui.color && !ui.onlyNotes, () => { ui.color = null; ui.onlyNotes = false; });
+      chip(t('With a note'), ui.onlyNotes, () => { ui.onlyNotes = !ui.onlyNotes; });
+      const used = Notes.COLORS.filter((c) => all.some((a) => a.color === c));
+      if (used.length > 1) used.forEach((c) => chip(t(Notes.NAMES[c]), ui.color === c, () => { ui.color = ui.color === c ? null : c; }, c));
+    }
+
+    function paintBooks() {
+      const select = $('allHlBook');
+      const books = new Map();
+      all.forEach((a) => { if (!books.has(a.document)) books.set(a.document, a.title || t('Unknown book')); });
+      select.replaceChildren(new Option(t('All books'), ''));
+      Array.from(books).sort((x, y) => x[1].localeCompare(y[1]))
+        .forEach(([doc, title]) => select.append(new Option(title, doc, false, doc === ui.book)));
+      if (!books.has(ui.book)) ui.book = '';
+    }
+
+    function paint() {
+      const list = $('allHlList');
+      const withNotes = all.filter((a) => a.note && a.note.trim()).length;
+      const books = new Set(all.map((a) => a.document)).size;
+      $('allHlCount').textContent = all.length || '';
+      $('allHlStats').textContent = all.length
+        ? t('{n} highlights · {m} with a note · {b} books', { n: all.length, m: withNotes, b: books }) : '';
+      $('allHlTools').hidden = all.length === 0;
+      paintFilters();
+      list.replaceChildren();
+      if (!all.length) {
+        const empty = el('div', 'empty small hl-empty');
+        empty.append(el('i', 'fas fa-highlighter'), el('strong', null, t('No highlights yet')),
+          el('p', null, t('Select text while reading, on the web, in the app or in KOReader, to highlight it or add a note. They show up here on every device.')));
+        list.append(empty);
+        return;
+      }
+      const items = filtered();
+      if (!items.length) { list.append(el('p', 'muted hl-none', t('Nothing matches.'))); return; }
+      let group = null;
+      let ul = null;
+      items.slice(0, ui.shown).forEach((a) => {
+        const name = ui.sort === 'book' ? (a.title || t('Unknown book')) : '';
+        if (!ul || name !== group) {
+          group = name;
+          const section = el('section', 'hl-group');
+          if (name) section.append(el('h4', null, name));
+          ul = el('ul');
+          section.append(ul);
+          list.append(section);
+        }
+        ul.append(item(a));
+      });
+      if (items.length > ui.shown) {
+        const more = el('button', 'btn btn-small', t('Show more'));
+        more.type = 'button';
+        more.addEventListener('click', () => { ui.shown += PAGE; paint(); });
+        list.append(more);
+      }
+    }
+
+    function localDay() {
+      const d = new Date();
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    async function load() {
+      try {
+        const [list, review] = await Promise.all([
+          fetch('/api/highlights', { headers: { Accept: 'application/json' } }).then((r) => r.json()),
+          fetch('/api/highlights/review?date=' + localDay(), { headers: { Accept: 'application/json' } }).then((r) => r.json()),
+        ]);
+        all = list.highlights || [];
+        loaded = true;
+        $('reviewList').replaceChildren(...(review.highlights || []).map(item));
+        $('reviewSection').hidden = !(review.highlights || []).length;
+        paintBooks();
+        paint();
+      } catch {
+        $('allHlList').textContent = t('Cannot load the highlights.');
+      }
+    }
+
+    const visible = () => !$('highlightsView').hidden;
+    let pending = null;
+    $('allHlSearch').addEventListener('input', (e) => { ui.query = e.target.value; ui.shown = PAGE; paint(); });
+    $('allHlBook').addEventListener('change', (e) => { ui.book = e.target.value; ui.shown = PAGE; paint(); });
+    $('allHlSort').addEventListener('change', (e) => { ui.sort = e.target.value; paint(); });
+    $('allHlExportBtn').addEventListener('click', () => {
+      $('allHlMenu').hidden = !$('allHlMenu').hidden;
+      $('allHlExportBtn').setAttribute('aria-expanded', !$('allHlMenu').hidden);
+    });
+    document.addEventListener('click', (e) => {
+      if (!$('allHlExport').contains(e.target)) { $('allHlMenu').hidden = true; $('allHlExportBtn').setAttribute('aria-expanded', 'false'); }
+    });
+    document.addEventListener('pagechange', (e) => { if (e.detail.page === 'highlights') load(); });
+    document.addEventListener('remoteannotations', () => {
+      if (!visible() && !loaded) return;
+      clearTimeout(pending);
+      pending = setTimeout(load, 500);
+    });
+    if (visible()) load();
+  })();
+</script>

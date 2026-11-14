@@ -6,6 +6,7 @@ pub mod config;
 pub mod covers;
 pub mod documents;
 pub mod edit;
+pub mod highlights;
 pub mod i18n;
 pub mod library;
 pub mod lookup;

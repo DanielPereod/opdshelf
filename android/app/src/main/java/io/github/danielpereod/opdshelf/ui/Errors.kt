@@ -24,5 +24,8 @@ fun Context.describe(e: Throwable): String = when (e) {
         e.reason == "not_found" -> getString(R.string.error_not_found)
         else -> e.message ?: e.code.toString()
     }
+    // OkHttp refuses an address it cannot read with an English message
+    is IllegalArgumentException -> getString(R.string.error_address)
+    is java.net.MalformedURLException -> getString(R.string.error_address)
     else -> e.message ?: e.toString()
 }

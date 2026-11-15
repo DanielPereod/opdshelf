@@ -108,9 +108,44 @@ fun formatSize(bytes: Long?): String? {
     return if (unit == 0) "$bytes B" else String.format(Locale.getDefault(), "%.1f %s", value, units[unit])
 }
 
-/** "5 min ago", "yesterday"… in the device's language. */
-fun relativeTime(millis: Long): String =
-    DateUtils.getRelativeTimeSpanString(millis, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
+/** How long ago a time was, in the unit it is said in. */
+sealed interface Age {
+    data object JustNow : Age
+    data class Minutes(val n: Int) : Age
+    data class Hours(val n: Int) : Age
+    data class Days(val n: Int) : Age
+    /** A week or more: said as a date. */
+    data object Older : Age
+}
+
+/** [millis] against [now]: under a minute (or in the future, from a clock ahead) is just now. */
+fun ageOf(millis: Long, now: Long): Age {
+    val seconds = (now - millis) / 1000
+    return when {
+        seconds < 60 -> Age.JustNow
+        seconds < 3600 -> Age.Minutes((seconds / 60).toInt())
+        seconds < 86400 -> Age.Hours((seconds / 3600).toInt())
+        seconds < 7 * 86400 -> Age.Days((seconds / 86400).toInt())
+        else -> Age.Older
+    }
+}
+
+/**
+ * "just now", "5 minutes ago", "3 days ago", or a date, in the device's
+ * language and in lower case, as it goes in the middle of a sentence
+ * ("Changes synced 4 minutes ago"); never "0 minutes ago".
+ */
+@Composable
+fun relativeTime(millis: Long): String = when (val age = ageOf(millis, System.currentTimeMillis())) {
+    Age.JustNow -> stringResource(R.string.time_just_now)
+    is Age.Minutes -> pluralStringResource(R.plurals.time_minutes_ago, age.n, age.n)
+    is Age.Hours -> pluralStringResource(R.plurals.time_hours_ago, age.n, age.n)
+    is Age.Days -> pluralStringResource(R.plurals.time_days_ago, age.n, age.n)
+    Age.Older -> DateUtils.formatDateTime(
+        androidx.compose.ui.platform.LocalContext.current, millis,
+        DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH,
+    )
+}
 
 /** "42 %" or "42%", as the device's language writes percentages. */
 fun percent(fraction: Double): String =

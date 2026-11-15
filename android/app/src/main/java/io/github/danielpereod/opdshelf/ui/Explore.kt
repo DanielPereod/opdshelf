@@ -51,8 +51,10 @@ import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.RemoveDone
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -125,11 +127,15 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
     val loader = rememberImageLoader()
     val state = stack.lastOrNull()
     var query by rememberSaveable { mutableStateOf("") }
-    var grid by rememberSaveable { mutableStateOf(true) }
+    // Remembered in the settings: a theme change recreates the screen, and so does a restart
+    val settings = LocalContext.current.app.settings
+    var grid by remember { mutableStateOf(settings.exploreGrid) }
+    fun setGrid(value: Boolean) { grid = value; settings.exploreGrid = value }
     // In Folders, folders can be made and books moved between them
     val folder = library.currentFolder(stack)
     var newFolder by rememberSaveable { mutableStateOf(false) }
     var moving by remember { mutableStateOf<Entry?>(null) }
+    var removing by remember { mutableStateOf<LocalBook?>(null) }
     val folders by library.folders.collectAsState()
     // Folders of the list being renamed, moved or deleted
     var renamingFolder by remember { mutableStateOf<String?>(null) }
@@ -155,6 +161,15 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
         FolderPickerDialog(
             title = entry.title, folders = folders, current = entry.serverPath?.substringBeforeLast('/', ""),
             onPick = { moving = null; library.moveToFolder(entry, it) }, onDismiss = { moving = null },
+        )
+    }
+    removing?.let { book ->
+        ConfirmDialog(
+            title = stringResource(R.string.remove_title),
+            text = stringResource(R.string.remove_text, book.title),
+            confirm = stringResource(R.string.remove),
+            onConfirm = { removing = null; library.delete(book) },
+            onDismiss = { removing = null },
         )
     }
     val entries = state?.feed?.entries.orEmpty()
@@ -225,6 +240,12 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
                 onBack = { clearSelection() },
                 backIcon = Icons.Outlined.Close, backLabel = stringResource(R.string.clear_selection), titleMaxLines = 1,
                 actions = {
+                    val selectable = entries.filter { it.acquisition != null }
+                    if (selectable.any { it.id !in selection }) {
+                        IconButton(onClick = { picked = (picked + selectable.map { it.id }).distinct(); pickedIn = state?.url }) {
+                            Icon(Icons.Outlined.SelectAll, stringResource(R.string.select_all), tint = shelf.fg)
+                        }
+                    }
                     if (toDownload.isNotEmpty()) {
                         IconButton(onClick = { toDownload.forEach { library.download(it) }; clearSelection() }) {
                             Icon(Icons.Outlined.Download, stringResource(R.string.download_selected), tint = shelf.fg)
@@ -247,7 +268,7 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
                         Icon(Icons.Outlined.CreateNewFolder, stringResource(R.string.new_folder), tint = shelf.fg)
                     }
                 }
-                if (hasBooks) ViewSwitch(grid) { grid = it }
+                if (hasBooks) ViewSwitch(grid) { setGrid(it) }
                 IconButton(onClick = { pickBooks.launch(bookMimeTypes) }) {
                     Icon(Icons.Outlined.UploadFile, stringResource(R.string.add_books), tint = shelf.fg)
                 }
@@ -382,11 +403,19 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
                                 else -> null
                             },
                             MenuAction(stringResource(R.string.details), Icons.Outlined.Info) { library.showDetail(entry, entry.id) },
+                            // On this device: the same as its tile in My books and its details
+                            local?.let { book ->
+                                if (book.finished) MenuAction(stringResource(R.string.mark_unfinished), Icons.Outlined.RemoveDone) { library.setFinished(book, false) }
+                                else MenuAction(stringResource(R.string.mark_finished), Icons.Outlined.DoneAll) { library.setFinished(book, true) }
+                            },
                             entry.serverPath?.let {
                                 MenuAction(stringResource(R.string.move_to_folder), Icons.AutoMirrored.Outlined.DriveFileMove) {
                                     library.loadFolders()
                                     moving = entry
                                 }
+                            },
+                            local?.let { book ->
+                                MenuAction(stringResource(R.string.remove_from_device), Icons.Outlined.Delete, destructive = true) { removing = book }
                             },
                         )
                         val pickable = entry.acquisition != null

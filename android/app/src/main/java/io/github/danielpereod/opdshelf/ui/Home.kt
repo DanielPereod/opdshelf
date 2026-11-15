@@ -9,6 +9,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.RemoveDone
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
@@ -107,6 +108,21 @@ fun HomeScreen(
     androidx.activity.compose.BackHandler(selecting) { picked = emptyList() }
     fun toggle(book: LocalBook) { picked = if (book.id in picked) picked - book.id else picked + book.id }
 
+    // The books shown, as filtered, searched and sorted
+    val shown = remember(books, sort, filter, query) {
+        val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        books.filter(filter.test).filter { book ->
+            val haystack = (book.title + " " + book.authors.joinToString(" ")).lowercase()
+            words.all { it in haystack }
+        }.let { list ->
+            when (sort) {
+                Sort.Recent -> list.sortedByDescending { maxOf(it.lastOpenedAt, it.addedAt) }
+                Sort.Title -> list.sortedBy { it.title.lowercase() }
+                Sort.Progress -> list.sortedByDescending { it.percentage }
+            }
+        }
+    }
+
     Column(modifier.fillMaxSize().background(shelf.bg)) {
         if (selecting) {
             val allFinished = books.filter { it.id in picked }.all { it.finished }
@@ -115,6 +131,11 @@ fun HomeScreen(
                 onBack = { picked = emptyList() },
                 backIcon = Icons.Outlined.Close, backLabel = stringResource(R.string.clear_selection), titleMaxLines = 1,
                 actions = {
+                    if (shown.any { it.id !in picked }) {
+                        IconButton(onClick = { picked = (picked + shown.map { it.id }).distinct() }) {
+                            Icon(Icons.Outlined.SelectAll, stringResource(R.string.select_all), tint = shelf.fg)
+                        }
+                    }
                     IconButton(onClick = { library.setFinished(picked, !allFinished); picked = emptyList() }) {
                         Icon(
                             if (allFinished) Icons.Outlined.RemoveDone else Icons.Outlined.DoneAll,
@@ -166,19 +187,6 @@ fun HomeScreen(
         val current = remember(books) {
             books.filter { it.lastOpenedAt > 0 && !it.finished }.maxByOrNull { it.lastOpenedAt }
                 ?: books.filter { it.percentage > 0 && !it.finished }.maxByOrNull { it.percentage }
-        }
-        val shown = remember(books, sort, filter, query) {
-            val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
-            books.filter(filter.test).filter { book ->
-                val haystack = (book.title + " " + book.authors.joinToString(" ")).lowercase()
-                words.all { it in haystack }
-            }.let { list ->
-                when (sort) {
-                    Sort.Recent -> list.sortedByDescending { maxOf(it.lastOpenedAt, it.addedAt) }
-                    Sort.Title -> list.sortedBy { it.title.lowercase() }
-                    Sort.Progress -> list.sortedByDescending { it.percentage }
-                }
-            }
         }
         val counts = remember(books) { Filter.entries.associateWith { f -> books.count(f.test) } }
         val used = remember(books) { formatSize(context.app.store.usedBytes()) }

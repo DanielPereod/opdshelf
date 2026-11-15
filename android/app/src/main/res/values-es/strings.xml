@@ -345,4 +345,11 @@
     <string name="koreader_title">KOReader</string>
     <string name="koreader_plugin">Descarga el plugin de OPDShelf para KOReader desde el panel web, en Ajustes › Apps y conexiones. Viene configurado para este servidor y sincroniza posiciones y subrayados por sí solo, así que no hace falta el Progress sync de KOReader.</string>
     <string name="koreader_manual">Dirección del servidor, para configurar el plugin a mano</string>
+    <string name="time_just_now">ahora mismo</string>
+    <plurals name="time_minutes_ago"><item quantity="one">hace %1$d minuto</item><item quantity="many">hace %1$d minutos</item><item quantity="other">hace %1$d minutos</item></plurals>
+    <plurals name="time_hours_ago"><item quantity="one">hace %1$d hora</item><item quantity="many">hace %1$d horas</item><item quantity="other">hace %1$d horas</item></plurals>
+    <plurals name="time_days_ago"><item quantity="one">hace %1$d día</item><item quantity="many">hace %1$d días</item><item quantity="other">hace %1$d días</item></plurals>
+    <string name="error_address">Esto no es una dirección de servidor. Escríbela como 192.168.1.10:3000 o libros.ejemplo.com.</string>
+    <string name="error_port">El puerto, tras los dos puntos, debe ser un número del 1 al 65535, como en 192.168.1.10:3000.</string>
+    <string name="select_all">Seleccionar todo</string>
 </resources>

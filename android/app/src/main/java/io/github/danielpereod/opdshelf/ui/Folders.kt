@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -149,7 +150,7 @@ private fun FolderOption(
             Text(label, color = color, fontSize = TextSize.bodySmall, lineHeight = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (here) Text(stringResource(R.string.already_here), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
         }
-        if (count != null) Text(count.toString(), color = shelf.muted, fontSize = TextSize.caption)
+        if (count != null) Text(pluralStringResource(R.plurals.book_count, count, count), color = shelf.muted, fontSize = TextSize.caption)
     }
 }
 

@@ -129,7 +129,15 @@ fun ConnectForm(
     val scope = rememberCoroutineScope()
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
     val submit = {
-        if (!checking && server.isNotBlank()) {
+        val problem = io.github.danielpereod.opdshelf.data.addressProblem(io.github.danielpereod.opdshelf.data.normalizeServerUrl(server))
+        if (!checking && server.isNotBlank() && problem != null) {
+            // Said in words before trying, instead of the network library's English
+            error = context.getString(
+                if (problem == io.github.danielpereod.opdshelf.data.AddressProblem.Port) R.string.error_port else R.string.error_address,
+            )
+            badServer = true
+            badLogin = false
+        } else if (!checking && server.isNotBlank()) {
             focus.clearFocus()
             settings.serverUrl = server
             settings.username = username

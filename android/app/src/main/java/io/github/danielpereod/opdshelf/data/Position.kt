@@ -32,6 +32,8 @@ data class Position(
 data class ProgressResponse(
     val document: String = "",
     val current: Position? = null,
+    /** Marked as finished or not on some device. */
+    val mark: ReadMark? = null,
 )
 
 /** This device's last position for a book, and whether the server has it yet. */

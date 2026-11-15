@@ -65,4 +65,39 @@ class OpdsTest {
         assertEquals("Sport/El año.epub", moved.serverPath)
         assertNull(entry.copy(acquisition = null).serverPath)
     }
+
+    @Test
+    fun folderNamesLoseTheServersEmoji() {
+        val xml = """
+            <feed xmlns="http://www.w3.org/2005/Atom"><title>Folders</title>
+            <entry><id>urn:opdshelf:folder:Comics%20y%20m%C3%A1s</id><title>📁 Comics y más</title><content type="text">0 books</content>
+              <link rel="subsection" href="/opds/folders/Comics%20y%20m%C3%A1s" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/></entry>
+            <entry><id>urn:opdshelf:folder:Novela/Negra</id><title>📁 Negra</title><content type="text">3 libros</content>
+              <link rel="subsection" href="/opds/folders/Novela/Negra" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/></entry>
+            <entry><id>urn:opdshelf:author:x</id><title>Ana</title>
+              <link rel="subsection" href="/opds/authors/Ana" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/></entry>
+            <entry><id>urn:opdshelf:book:x.epub</id><title>📁 A book that starts so</title>
+              <link rel="http://opds-spec.org/acquisition" href="/download/x.epub" type="application/epub+zip"/></entry>
+            </feed>
+        """.trimIndent()
+        val (comics, negra, author, book) = parseFeed(xml.byteInputStream(), "http://h:3000/opds/folders").entries
+        assertEquals("Comics y más", comics.title)
+        assertEquals("Comics y más", comics.folderPath)
+        assertEquals(0, comics.folderBookCount)
+        assertEquals("Negra", negra.title)
+        assertEquals("Novela/Negra", negra.folderPath)
+        assertEquals(3, negra.folderBookCount)
+        assertNull("authors are not folders", author.folderPath)
+        assertEquals("a book keeps its title as it is", "📁 A book that starts so", book.title)
+        assertNull(book.folderPath)
+        assertEquals("Plain", folderTitle("Plain"))
+    }
+
+    @Test
+    fun booksFollowTheirFolderWhenItMoves() {
+        val id = "urn:opdshelf:book:Novela%20negra/Sub/El%20a%C3%B1o.epub"
+        assertEquals("urn:opdshelf:book:Cl%C3%A1sicos/Negra/Sub/El%20a%C3%B1o.epub", bookIdAfterFolderMove(id, "Novela negra", "Clásicos/Negra"))
+        assertNull(bookIdAfterFolderMove(id, "Novela", "Otra"))
+        assertNull(bookIdAfterFolderMove("urn:opdshelf:book:Novela%20negra.epub", "Novela negra", "X"))
+    }
 }

@@ -17,7 +17,8 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-class HttpError(val code: Int, message: String) : IOException(message)
+/** [reason] is the server's code for what went wrong, such as `not_empty`, when it gives one. */
+class HttpError(val code: Int, message: String, val reason: String? = null) : IOException(message)
 
 val json = Json { ignoreUnknownKeys = true; encodeDefaults = false; explicitNulls = false }
 
@@ -79,10 +80,50 @@ class Api(private val settings: Settings) {
         if (!tmp.renameTo(target)) throw IOException("Cannot save ${target.name}")
     }
 
-    suspend fun getProgress(document: String): Position? = withContext(Dispatchers.IO) {
+    suspend fun getProgress(document: String): Position? = bookProgress(document).current
+
+    /** A book's current position and its finished mark, if it has one. */
+    suspend fun bookProgress(document: String): ProgressResponse = withContext(Dispatchers.IO) {
         client.newCall(Request.Builder().url(url("/api/progress/$document")).build()).execute().use {
             if (!it.isSuccessful) throw HttpError(it.code, "${it.code} ${it.message}")
-            json.decodeFromString(ProgressResponse.serializer(), it.body!!.string()).current
+            json.decodeFromString(ProgressResponse.serializer(), it.body!!.string())
+        }
+    }
+
+    /** Every book's current position and finished mark. */
+    suspend fun libraryProgress(): LibraryProgress = withContext(Dispatchers.IO) {
+        client.newCall(Request.Builder().url(url("/api/progress")).build()).execute().use {
+            if (!it.isSuccessful) throw HttpError(it.code, "${it.code} ${it.message}")
+            json.decodeFromString(LibraryProgress.serializer(), it.body!!.string())
+        }
+    }
+
+    /**
+     * Marks a book (by document id) as finished or not, as of [ReadMark.at] on this
+     * device. Answers the book's mark on the server afterwards: a newer one made
+     * elsewhere stays.
+     */
+    suspend fun putMark(document: String, mark: ReadMark): ReadMark? = withContext(Dispatchers.IO) {
+        val body = JsonObject(
+            mapOf(
+                "documents" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive(document))),
+                "state" to JsonPrimitive(mark.state),
+                "at" to JsonPrimitive(mark.at),
+                "sent_at" to JsonPrimitive(System.currentTimeMillis() / 1000),
+            )
+        ).toString().toRequestBody("application/json".toMediaType())
+        client.newCall(Request.Builder().url(url("/api/marks")).put(body).build()).execute().use {
+            val text = it.body?.string().orEmpty()
+            if (!it.isSuccessful) throw HttpError(it.code, serverError(text) ?: "${it.code} ${it.message}")
+            json.decodeFromString(MarksResponse.serializer(), text).marks[document]
+        }
+    }
+
+    /** Reading statistics of every device. */
+    suspend fun stats(): ReadingStats = withContext(Dispatchers.IO) {
+        client.newCall(Request.Builder().url(url("/api/stats")).header("Accept", "application/json").build()).execute().use {
+            if (!it.isSuccessful) throw HttpError(it.code, "${it.code} ${it.message}")
+            json.decodeFromString(ReadingStats.serializer(), it.body!!.string())
         }
     }
 
@@ -169,6 +210,31 @@ class Api(private val settings: Settings) {
         }
     }
 
+    /** Renames a folder in place; answers its new path. */
+    suspend fun renameFolder(path: String, name: String): String =
+        postFolder("/api/folders/rename", mapOf("path" to JsonPrimitive(path), "name" to JsonPrimitive(name))).path
+
+    /** Moves a folder, with everything in it, into [parent] ("" for the top); answers its new path. */
+    suspend fun moveFolder(path: String, parent: String): String =
+        postFolder("/api/folders/move", mapOf("path" to JsonPrimitive(path), "parent" to JsonPrimitive(parent))).path
+
+    /** Deletes a folder; the server only deletes empty ones (`not_empty` otherwise). */
+    suspend fun deleteFolder(path: String) {
+        postFolder("/api/folders/delete", mapOf("path" to JsonPrimitive(path)))
+    }
+
+    private suspend fun postFolder(path: String, fields: Map<String, JsonPrimitive>): FolderAnswer = withContext(Dispatchers.IO) {
+        val body = JsonObject(fields).toString().toRequestBody("application/json".toMediaType())
+        client.newCall(Request.Builder().url(url(path)).post(body).build()).execute().use {
+            val text = it.body?.string().orEmpty()
+            if (!it.isSuccessful) {
+                val error = runCatching { json.decodeFromString(ErrorResponse.serializer(), text) }.getOrNull()
+                throw HttpError(it.code, error?.error ?: "${it.code} ${it.message}", error?.code)
+            }
+            runCatching { json.decodeFromString(FolderAnswer.serializer(), text) }.getOrDefault(FolderAnswer())
+        }
+    }
+
     private fun serverError(text: String): String? =
         runCatching { json.decodeFromString(ErrorResponse.serializer(), text).error }.getOrNull()
 
@@ -235,7 +301,22 @@ private data class FoldersResponse(val folders: List<ServerFolder> = emptyList()
 private data class CreatedFolder(val path: String)
 
 @kotlinx.serialization.Serializable
-private data class ErrorResponse(val error: String? = null)
+private data class ErrorResponse(val error: String? = null, val code: String? = null)
 
 @kotlinx.serialization.Serializable
-data class MoveResult(val moved: Int = 0, val folder: String = "", val failed: List<String> = emptyList())
+private data class FolderAnswer(val path: String = "")
+
+@kotlinx.serialization.Serializable
+private data class MarksResponse(val marks: Map<String, ReadMark?> = emptyMap())
+
+@kotlinx.serialization.Serializable
+data class MovedPath(val from: String, val to: String)
+
+@kotlinx.serialization.Serializable
+data class MoveResult(
+    val moved: Int = 0,
+    val folder: String = "",
+    val failed: List<String> = emptyList(),
+    /** Where each book went. */
+    val paths: List<MovedPath> = emptyList(),
+)

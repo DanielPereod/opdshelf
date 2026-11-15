@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -69,22 +70,23 @@ fun rememberImageLoader(): ImageLoader {
 @Composable
 fun Cover(model: Any?, title: String, label: String?, loader: ImageLoader, modifier: Modifier, large: Boolean = false) {
     val shape = RoundedCornerShape(4.dp)
-    Box(
+    BoxWithConstraints(
         modifier.clip(shape).background(shelf.soft).border(1.dp, shelf.line, shape),
         contentAlignment = Alignment.Center,
     ) {
         var loaded by remember(model) { mutableStateOf(false) }
+        val text = placeholderText(maxWidth.value, large)
         if (!loaded) Column(Modifier.padding(if (large) Space.m else Space.xs), horizontalAlignment = Alignment.CenterHorizontally) {
-            if (large) {
+            if (text.titleSp != null) {
                 Text(
-                    title, color = shelf.fg, fontSize = TextSize.body, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center, maxLines = 4, overflow = TextOverflow.Ellipsis,
+                    title, color = shelf.fg, fontSize = text.titleSp.sp, lineHeight = text.titleLineSp.sp, fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center, maxLines = text.titleLines, overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(Space.s))
+                Spacer(Modifier.height(if (large) Space.s else Space.xs))
             }
             Text(
                 (label ?: stringResource(R.string.cover_book)).uppercase(), color = shelf.muted,
-                fontSize = if (large) TextSize.overline else 8.sp,
+                fontSize = text.tagSp.sp,
                 fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, maxLines = 1,
             )
         }
@@ -97,6 +99,28 @@ fun Cover(model: Any?, title: String, label: String?, loader: ImageLoader, modif
         }
     }
 }
+
+/** What a cover without a picture says: its title in [titleLines] lines (none when null) and the format as a small tag. */
+data class PlaceholderText(val titleSp: Int?, val titleLineSp: Int, val titleLines: Int, val tagSp: Int)
+
+/**
+ * The placeholder's text for a tile [widthDp] wide: the title as large tiles
+ * show it, three readable lines on a grid's tile, and only the format on a
+ * list's small cover, whose row has the title beside it.
+ */
+fun placeholderText(widthDp: Float, large: Boolean): PlaceholderText = when {
+    large || widthDp >= 120f -> PlaceholderText(titleSp = 15, titleLineSp = 20, titleLines = 4, tagSp = 11)
+    widthDp >= 64f -> PlaceholderText(titleSp = 12, titleLineSp = 16, titleLines = 3, tagSp = 10)
+    else -> PlaceholderText(titleSp = null, titleLineSp = 0, titleLines = 0, tagSp = 10)
+}
+
+/** Whether every one of [visible] is picked. */
+fun allPicked(picked: List<String>, visible: List<String>): Boolean =
+    visible.isNotEmpty() && visible.all { it in picked }
+
+/** Select all of [visible], or deselect them all when they are all picked already; picks not shown stay. */
+fun toggleAll(picked: List<String>, visible: List<String>): List<String> =
+    if (allPicked(picked, visible)) picked - visible.toSet() else (picked + visible).distinct()
 
 fun formatSize(bytes: Long?): String? {
     if (bytes == null || bytes <= 0) return null

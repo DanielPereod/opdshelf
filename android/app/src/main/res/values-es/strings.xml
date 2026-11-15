@@ -352,6 +352,7 @@
     <string name="error_address">Esto no es una dirección de servidor. Escríbela como 192.168.1.10:3000 o libros.ejemplo.com.</string>
     <string name="error_port">El puerto, tras los dos puntos, debe ser un número del 1 al 65535, como en 192.168.1.10:3000.</string>
     <string name="select_all">Seleccionar todo</string>
+    <string name="deselect_all">Deseleccionar todo</string>
     <!-- On a cover tile with no picture, when the format is unknown -->
     <string name="cover_book">Libro</string>
 </resources>

@@ -54,6 +54,7 @@ import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.RemoveDone
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material.icons.outlined.Deselect
 import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material3.HorizontalDivider
@@ -241,9 +242,13 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
                 backIcon = Icons.Outlined.Close, backLabel = stringResource(R.string.clear_selection), titleMaxLines = 1,
                 actions = {
                     val selectable = entries.filter { it.acquisition != null }
-                    if (selectable.any { it.id !in selection }) {
-                        IconButton(onClick = { picked = (picked + selectable.map { it.id }).distinct(); pickedIn = state?.url }) {
-                            Icon(Icons.Outlined.SelectAll, stringResource(R.string.select_all), tint = shelf.fg)
+                    if (selectable.isNotEmpty()) {
+                        val all = allPicked(selection, selectable.map { it.id })
+                        IconButton(onClick = { picked = toggleAll(selection, selectable.map { it.id }); pickedIn = state?.url }) {
+                            Icon(
+                                if (all) Icons.Outlined.Deselect else Icons.Outlined.SelectAll,
+                                stringResource(if (all) R.string.deselect_all else R.string.select_all), tint = shelf.fg,
+                            )
                         }
                     }
                     if (toDownload.isNotEmpty()) {

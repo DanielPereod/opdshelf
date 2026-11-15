@@ -9,6 +9,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.RemoveDone
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Deselect
 import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
@@ -131,9 +132,13 @@ fun HomeScreen(
                 onBack = { picked = emptyList() },
                 backIcon = Icons.Outlined.Close, backLabel = stringResource(R.string.clear_selection), titleMaxLines = 1,
                 actions = {
-                    if (shown.any { it.id !in picked }) {
-                        IconButton(onClick = { picked = (picked + shown.map { it.id }).distinct() }) {
-                            Icon(Icons.Outlined.SelectAll, stringResource(R.string.select_all), tint = shelf.fg)
+                    if (shown.isNotEmpty()) {
+                        val all = allPicked(picked, shown.map { it.id })
+                        IconButton(onClick = { picked = toggleAll(picked, shown.map { it.id }) }) {
+                            Icon(
+                                if (all) Icons.Outlined.Deselect else Icons.Outlined.SelectAll,
+                                stringResource(if (all) R.string.deselect_all else R.string.select_all), tint = shelf.fg,
+                            )
                         }
                     }
                     IconButton(onClick = { library.setFinished(picked, !allFinished); picked = emptyList() }) {

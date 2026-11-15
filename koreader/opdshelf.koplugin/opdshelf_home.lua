@@ -51,6 +51,7 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local lfs = require("libs/libkoreader-lfs")
+local util = require("util")
 local logger = require("logger")
 local Browser = require("opdshelf_browser")
 local Menu = require("opdshelf_menu")
@@ -382,13 +383,26 @@ end
 -- Everything sits between the side margins: `w` is the width between them.
 function Home:header(w)
     local sp = self.sp
-    local menu = Button:new{
-        icon = "appbar.menu", bordersize = 0, padding = 0, show_parent = self,
-        callback = function() self:showMenu() end,
-    }
     local name = TextWidget:new{ text = _("OPDShelf"), face = Font:getFace("tfont", 22), bold = true }
+    -- The menu's three bars, drawn here so that they start exactly on the
+    -- margin (KOReader's icon has empty room around its lines)
+    local name_h = name:getSize().h
+    local bar_w = math.floor(name_h * 0.8)
+    local thick = math.max(2, Screen:scaleBySize(2))
+    local bar_gap = math.floor((bar_w * 0.7 - 3 * thick) / 2)
+    local bars = VerticalGroup:new{ align = "left" }
+    for i = 1, 3 do
+        if i > 1 then table.insert(bars, VerticalSpan:new{ width = bar_gap }) end
+        table.insert(bars, LineWidget:new{ background = Blitbuffer.COLOR_BLACK, dimen = Geom:new{ w = bar_w, h = thick } })
+    end
+    local title = HorizontalGroup:new{ align = "center", bars, HorizontalSpan:new{ width = sp.G }, name }
     local status = self:statusGroup()
-    local row_h = math.max(menu:getSize().h, name:getSize().h, status:getSize().h)
+    local row_h = math.max(Screen:scaleBySize(40), name_h, status:getSize().h)
+    local menu = Item:new{
+        width = title:getSize().w + sp.G, height = row_h,
+        callback = function() self:showMenu() end,
+        LeftContainer:new{ dimen = Geom:new{ w = title:getSize().w + sp.G, h = row_h }, title },
+    }
     -- Tapped a little left of the status too, but drawn up to the right margin
     local status_w = status:getSize().w + sp.G
     self.status_bar = Item:new{
@@ -401,7 +415,7 @@ function Home:header(w)
         dimen = Geom:new{ w = w, h = row_h },
         LeftContainer:new{
             dimen = Geom:new{ w = w, h = row_h },
-            HorizontalGroup:new{ align = "center", menu, HorizontalSpan:new{ width = sp.S }, name },
+            menu,
         },
         RightContainer:new{ dimen = Geom:new{ w = w, h = row_h }, self.status_bar },
     }
@@ -837,12 +851,19 @@ function Home:sectionHeader(w, text, link, callback)
         local more = TextWidget:new{ text = link .. " ›", face = Font:getFace("smallinfofont", 14), fgcolor = GRAY,
             max_width = math.floor(w * 0.33) }
         local more_w = more:getSize().w
+        -- On the label's baseline, not in the middle of its height
+        local drop = 0
+        if label.getBaseline and more.getBaseline then
+            drop = math.max(0, math.min(h - more:getSize().h, label:getBaseline() - more:getBaseline()))
+        end
+        local placed = VerticalGroup:new{ align = "right", VerticalSpan:new{ width = drop }, more,
+            VerticalSpan:new{ width = h - drop - more:getSize().h } }
         -- Tapped a little around it, drawn up to the margin
         local tap_w = more_w + sp.G
         table.insert(group, RightContainer:new{
             dimen = Geom:new{ w = w, h = h },
             Item:new{ width = tap_w, height = h, callback = callback,
-                RightContainer:new{ dimen = Geom:new{ w = tap_w, h = h }, more } },
+                RightContainer:new{ dimen = Geom:new{ w = tap_w, h = h }, placed } },
         })
     end
     local header = VerticalGroup:new{
@@ -1002,10 +1023,30 @@ function Home:continueCard(w, max_h, tall)
         end
         return top, bottom
     end
-    -- The two parts in a column `h` tall: one at the top, the other at the bottom
-    local function stack(top, bottom, h)
+    -- The two parts in a column `h` tall: one at the top, the other at the
+    -- bottom; between them, the book's description in the whole lines that
+    -- fit G under the first and G over the second, so no empty band is left
+    local description = type(book.description) == "string" and util.htmlToPlainTextIfHtml(book.description) or nil
+    if description then description = description:gsub("%s+", " "):gsub("^ ", ""):gsub(" $", "") end
+    local function stack(top, bottom, h, text_w)
         local between = math.max(sp.G, h - top:getSize().h - bottom:getSize().h)
-        return VerticalGroup:new{ align = "left", top, VerticalSpan:new{ width = between }, bottom }
+        local group = VerticalGroup:new{ align = "left", top }
+        if description and description ~= "" then
+            local line_h = linesHeight(small, 2, text_w) - linesHeight(small, 1, text_w)
+            local lines = math.floor((between - 2 * sp.G) / line_h)
+            if lines >= 1 then
+                local text = TextBoxWidget:new{
+                    text = description, face = small, fgcolor = GRAY, width = text_w,
+                    height = linesHeight(small, lines, text_w), height_overflow_show_ellipsis = true,
+                }
+                table.insert(group, VerticalSpan:new{ width = sp.G })
+                table.insert(group, text)
+                between = between - sp.G - text:getSize().h
+            end
+        end
+        table.insert(group, VerticalSpan:new{ width = between })
+        table.insert(group, bottom)
+        return group
     end
     local open = function() self:openBook(book.path) end
     local hold = function() self:localActions(book) end
@@ -1024,7 +1065,7 @@ function Home:continueCard(w, max_h, tall)
                 align = "left",
                 CenterContainer:new{ dimen = Geom:new{ w = inner_w, h = cover_h }, self:cover(book.title, cover, cover_w, cover_h) },
                 VerticalSpan:new{ width = sp.G },
-                stack(top, bottom, inner_max - cover_h - sp.G),
+                stack(top, bottom, inner_max - cover_h - sp.G, inner_w),
             }
             return frame(HorizontalGroup:new{ HorizontalSpan:new{ width = pad },
                 VerticalGroup:new{ align = "left", VerticalSpan:new{ width = pad }, content } }, max_h, open, hold), max_h, true
@@ -1047,7 +1088,7 @@ function Home:continueCard(w, max_h, tall)
         HorizontalSpan:new{ width = pad },
         self:cover(book.title, cover, cover_w, cover_h),
         HorizontalSpan:new{ width = pad },
-        stack(top, bottom, content_h),
+        stack(top, bottom, content_h, text_w),
     }
     return frame(VerticalGroup:new{ align = "left", VerticalSpan:new{ width = pad }, content }, h, open, hold), h
 end
@@ -1184,8 +1225,8 @@ get smaller: Recently added keeps its titles while its covers stay a good
 size (always with `parts.captions`), else it shows covers only; when they
 would be tiny, Recently added goes. What is left on a tall screen goes to
 more rows of Started, up to `parts.max_rows`, and what is still left is
-spread between the sections (or between the rows, in a column of only
-Started), so the column fills its height.
+spread between the sections and under the last one (or between the rows,
+in a column of only Started), so the column fills its height.
 --]]
 function Home:layout(w, avail, parts)
     local sp = self.sp
@@ -1248,12 +1289,17 @@ function Home:layout(w, avail, parts)
             L.cover_h = n > 0 and math.floor(avail - total(1, 0, true, false)) or natural
         end
     elseif L.started and has_started then
-        -- Room left for more rows of Started, with covers a little smaller if need be
+        -- Room left for more rows of Started, with covers a little smaller if
+        -- need be; much smaller (and more of them in a row) rather than
+        -- leaving an empty band of more than 3 L under one row
+        local band = avail - total(1, natural, true, L.recent)
+        local least = band > 3 * sp.L and 0.45 or 0.75
         for rows = 2, parts.max_rows or 2 do
             if #self.started <= (rows - 1) * L.count then break end
             local cover_h = math.min(natural, math.floor((avail - total(rows, 0, true, L.recent)) / covers(rows, L.recent)))
-            if cover_h < natural * 0.75 then break end
+            if cover_h < natural * least then break end
             L.rows, L.cover_h = rows, cover_h
+            if band <= 3 * sp.L then least = 0.75 end
         end
     end
     L.cover_h = math.max(Screen:scaleBySize(40), math.min(natural, L.cover_h))
@@ -1262,6 +1308,17 @@ function Home:layout(w, avail, parts)
     if L.cover_w < natural_w * 0.8 then
         -- Smaller covers: more of them in a row rather than wide gaps between them
         L.count = math.max(L.count, math.min(12, math.floor((w + gap) / (L.cover_w + gap))))
+        -- Not more in a row than the rows of Started can fill
+        if L.rows > 1 and has_started then L.count = math.min(L.count, math.ceil(#self.started / L.rows)) end
+    end
+    if L.cover_w < Screen:scaleBySize(90) then
+        -- Narrow covers: their titles a little smaller, so words are not cut
+        -- (what that frees goes between the sections or the rows)
+        L.caption_face = Font:getFace("cfont", 12)
+        L.meta_face = Font:getFace("smallinfofont", 12)
+        L.caption_h = linesHeight(L.caption_face, 2, L.cover_w)
+        L.meta_h = TextWidget:new{ text = "0 %", face = L.meta_face }:getSize().h
+        started_extra = 2 * L.space + L.bar_h + L.caption_h + L.meta_h
     end
     L.cell_w = L.cover_w
     L.started_row_h = L.cover_h + started_extra
@@ -1273,7 +1330,11 @@ function Home:layout(w, avail, parts)
     local spare = avail - used
     if spare > 0 then
         if blocks > 1 then
-            L.gap_l = sp.L + math.floor(spare / (blocks - 1))
+            -- The space under the last block (L over the tabs) gets its
+            -- share too, so it is as wide as the gaps between the sections
+            local share = math.floor(spare / blocks)
+            L.gap_l = sp.L + share
+            L.bottom = share
         elseif L.started and has_started and L.rows > 1 then
             L.gap_row = sp.G + math.floor(spare / (L.rows - 1))
         end
@@ -1324,13 +1385,14 @@ function Home:column(w, L)
             end
         end
     end
+    if (L.bottom or 0) > 0 then table.insert(column, VerticalSpan:new{ width = L.bottom }) end
     return column
 end
 
 --[[--
 The whole screen: the header and the tiles, the content and the tabs at the
 bottom, all between the side margins M; the content takes all the height
-between the tiles (G under them) and the tabs (G over them).
+between the tiles (G under them) and the tabs (L over them, as between sections).
 --]]
 function Home:refresh()
     if self.closed then return end
@@ -1346,7 +1408,7 @@ function Home:refresh()
     local header = self:header(w)
     local tabs = self:tabBar()
     local tabs_h = tabs:getSize().h
-    local avail = H - sp.G - header:getSize().h - sp.G - sp.G - tabs_h
+    local avail = H - sp.G - header:getSize().h - sp.G - sp.L - tabs_h
     -- What fetchCovers looks for
     self.shown_entries, self.shown_local = {}, {}
     if self.history[1] then self.shown_local[1] = self.history[1] end
@@ -1364,15 +1426,16 @@ function Home:refresh()
         -- no gap under Started, no squeezed shelf beside it
         if self.history[1] and #self.recent_shown > 0 then
             local both = self:layout(right_w, avail, { started = true, recent = true, captions = true, max_rows = 3 })
-            if both.recent and both.captions and both.rows >= right.rows and both.cover_h >= right.cover_h * 0.8 then
+            if both.recent and both.captions and both.rows >= right.rows and both.cover_h >= right.cover_h * 0.75 then
                 local card = self:layout(left_w, avail, { card = true, tall = true, card_max = avail })
                 if card.card_tall then left, right = card, both end
             end
         end
         -- A short left column: the card grows into the room rather than leaving a band under it
-        if left.card and not left.card_tall and left.gap_l > 3 * sp.L then
+        local room = left.gap_l - sp.L + (left.bottom or 0)
+        if left.card and not left.card_tall and room > 2 * sp.L then
             local grown = self:layout(left_w, avail, { card = true, recent = left.recent, tall = true,
-                card_max = left.card_h + left.gap_l - sp.L })
+                card_max = left.card_h + room })
             if grown.card_tall then left = grown end
         end
         local recent = right.recent and right or left

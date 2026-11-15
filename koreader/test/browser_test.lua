@@ -908,8 +908,8 @@ local function grid(name, w, hgt, scale)
     for i = 2, #gaps do check(near(gaps[i], gaps[1], 2), string.format("%s: the same gap between sections (%d, %d)", name, gaps[1], gaps[i])) end
     local tabs, content = by.tabs[1], by.content[1]
     check(near(tabs.x, 0) and near(tabs.w, w) and near(tabs.y + tabs.h, hgt), name .. ": the tabs across the bottom")
-    check(near(content.y + content.h + sp.G, tabs.y, 4), string.format("%s: the page fills the height down to the tabs (%d + %d of %d)",
-        name, content.y + content.h, sp.G, tabs.y))
+    check(near(content.y + content.h + sp.L, tabs.y, 4), string.format("%s: the page fills the height down to the tabs (%d + %d of %d)",
+        name, content.y + content.h, sp.L, tabs.y))
     print(string.format("  %s: M %d, S %d, G %d, L %d (between sections %s), gap %d, pad %d", name, sp.M, sp.S, sp.G, sp.L,
         table.concat(gaps, "/"), sp.gap, sp.pad))
     s:onClose()

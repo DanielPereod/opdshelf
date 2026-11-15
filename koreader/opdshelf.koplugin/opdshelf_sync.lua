@@ -86,7 +86,9 @@ function Sync.ago(timestamp, now, _, T)
     elseif seconds < 86400 then
         return T(_("%1 h ago"), math.floor(seconds / 3600))
     end
-    return T(_("%1 days ago"), math.floor(seconds / 86400))
+    local days = math.floor(seconds / 86400)
+    if days == 1 then return _("1 day ago") end
+    return T(_("%1 days ago"), days)
 end
 
 --- The same in a few letters, for captions: "now", "5 min", "3 h", "2 d".

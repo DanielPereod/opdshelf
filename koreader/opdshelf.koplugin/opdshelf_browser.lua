@@ -176,30 +176,31 @@ local function seriesLine(entry)
 end
 
 -- A cover from the cache (a file path, or { bb = BlitBuffer } kept by the caller),
--- or a frame with the title while it is not there
-local function coverWidget(entry, path, width, height)
-    if type(path) == "table" and path.bb then
-        return CenterContainer:new{
-            dimen = Geom:new{ w = width, h = height },
-            ImageWidget:new{
-                image = path.bb,
-                image_disposable = false,
-                width = width,
-                height = height,
-                scale_factor = 0,
-            },
-        }
-    elseif path then
-        return CenterContainer:new{
-            dimen = Geom:new{ w = width, h = height },
-            ImageWidget:new{
-                file = path,
-                width = width,
-                height = height,
-                scale_factor = 0,
-                file_do_cache = false,
-            },
-        }
+-- or a frame with the title while it is not there. A picture narrower than
+-- the room is centred in it, or put at its left edge with `left` (in a list,
+-- so that every cover starts on the margin); `left == "shrink"` also makes
+-- the room as narrow as the picture, so what follows it keeps its distance
+local function coverWidget(entry, path, width, height, left)
+    if path and (type(path) ~= "table" or path.bb) then
+        -- `fit`: as large as fits in w x h; else exactly w x h
+        local function image(w, h, fit)
+            if type(path) == "table" then
+                return ImageWidget:new{ image = path.bb, image_disposable = false, width = w, height = h, scale_factor = fit and 0 or nil }
+            end
+            return ImageWidget:new{ file = path, width = w, height = h, scale_factor = fit and 0 or nil, file_do_cache = false }
+        end
+        local picture = image(width, height, true)
+        -- KOReader centres a picture in the size asked for: at the left edge,
+        -- it is asked for at the size it really takes
+        if left and picture.getCurrentWidth then
+            picture:getSize() -- renders it, which getCurrentWidth needs
+            local w, h = math.floor(picture:getCurrentWidth() or 0), math.floor(picture:getCurrentHeight() or 0)
+            if w > 0 and h > 0 and (w < width or h < height) then
+                picture = image(w, h)
+            end
+        end
+        local room_w = left == "shrink" and picture:getSize().w or width
+        return (left and LeftContainer or CenterContainer):new{ dimen = Geom:new{ w = room_w, h = height }, picture }
     end
     local border = Size.border.thin
     return FrameContainer:new{
@@ -447,6 +448,7 @@ local function localBook(path)
         if type(props.authors) == "string" and props.authors ~= "" then
             for author in props.authors:gmatch("[^\n]+") do book.authors[#book.authors + 1] = author end
         end
+        if type(props.description) == "string" and props.description ~= "" then book.description = props.description end
         book.percent = tonumber(settings:readSetting("percent_finished"))
         local summary = settings:readSetting("summary") or {}
         book.finished = summary.status == "complete"
@@ -814,7 +816,7 @@ function Browser:listItem(entry, w, h)
     if entry.is_book then
         local cover_h = inner_h
         local cover_w = math.floor(cover_h / COVER_RATIO)
-        table.insert(row, coverWidget(entry, self:cachedCover(entry), cover_w, cover_h))
+        table.insert(row, coverWidget(entry, self:cachedCover(entry), cover_w, cover_h, true))
         table.insert(row, HorizontalSpan:new{ width = sp.gap })
         text_x = text_x + cover_w + sp.gap
     end
@@ -874,18 +876,25 @@ function Browser:listItem(entry, w, h)
 end
 
 function Browser:gridItem(entry, w, h)
-    local padding = Size.padding.default
+    -- The same block in every cell, from its top: G, the cover's room, S, two
+    -- lines of title and a line of status. A row's covers and titles line up
+    -- whatever their sizes, and what is left stays under them.
+    local sp = spacing()
     local caption_face = Font:getFace("cfont", 14)
-    local caption_h = 2 * caption_face.size + Size.padding.small
+    local status_face = Font:getFace("smallinfofont", 13)
+    local probe = TextBoxWidget:new{ text = "Ag\nAg", face = caption_face, width = w, for_measurement_only = true }
+    local caption_h = probe:getSize().h
+    probe:free()
+    local status_h = TextWidget:new{ text = "Ag", face = status_face }:getSize().h
     local status = entry.is_book and self:readingNote(entry)
-    local status_h = status and (caption_face.size + Size.padding.small) or 0
-    local cover_h = h - 2 * padding - caption_h - status_h
-    local cover_w = math.min(w, math.floor(cover_h / COVER_RATIO))
-    cover_h = math.floor(cover_w * COVER_RATIO)
+    local room_h = math.max(1, h - 2 * sp.G - 2 * sp.S - caption_h - status_h)
+    local cover_w = math.min(w, math.floor(room_h / COVER_RATIO))
+    local cover_h = math.floor(cover_w * COVER_RATIO)
     local column = VerticalGroup:new{
         align = "center",
+        VerticalSpan:new{ width = sp.G + room_h - cover_h },
         coverWidget(entry, entry.is_book and self:cachedCover(entry) or nil, cover_w, cover_h),
-        VerticalSpan:new{ width = Size.padding.small },
+        VerticalSpan:new{ width = sp.S },
         TextBoxWidget:new{
             text = entry.title,
             face = caption_face,
@@ -894,16 +903,17 @@ function Browser:gridItem(entry, w, h)
             height_overflow_show_ellipsis = true,
             alignment = "center",
         },
+        VerticalSpan:new{ width = sp.S },
+        status and TextWidget:new{ text = status, face = status_face, fgcolor = Blitbuffer.COLOR_DARK_GRAY, max_width = w }
+            or VerticalSpan:new{ width = status_h },
+        VerticalSpan:new{ width = sp.G },
     }
-    if status then
-        table.insert(column, TextWidget:new{ text = status, face = caption_face, max_width = w })
-    end
     return Item:new{
         width = w,
         height = h,
         callback = function() self:select(entry) end,
         hold_callback = entry.is_book and function() self:bookActions(entry) end or nil,
-        CenterContainer:new{ dimen = Geom:new{ w = w, h = h }, column },
+        LeftContainer:new{ dimen = Geom:new{ w = w, h = h }, VerticalGroup:new{ align = "center", column } },
     }
 end
 
@@ -1509,9 +1519,10 @@ function Browser:showDetails(entry)
 
     -- With the cover as tall as the room (a turned screen), the description goes
     -- beside it, under the details, rather than under it with no room left
-    local beside_h = cover_room - info:getSize().h - padding
+    local beside_h = cover_room - info:getSize().h - padding - spacing().G
     local summary = entry.summary
     if summary and w > h and beside_h > Screen:scaleBySize(80) then
+        table.insert(info, VerticalSpan:new{ width = spacing().G })
         table.insert(info, ScrollTextWidget:new{
             text = util.htmlToPlainTextIfHtml(entry.summary),
             face = Font:getFace("cfont", 17),
@@ -1519,6 +1530,8 @@ function Browser:showDetails(entry)
             height = beside_h,
             dialog = details,
         })
+        -- The group was measured above: it has to place its children again
+        if info.resetLayout then info:resetLayout() end
         summary = nil
     end
     local top_h = math.max(cover_h, info:getSize().h)
@@ -1530,7 +1543,7 @@ function Browser:showDetails(entry)
         HorizontalGroup:new{
             align = "top",
             HorizontalSpan:new{ width = padding },
-            coverWidget(entry, cover_path, cover_w, cover_h),
+            coverWidget(entry, cover_path, cover_w, cover_h, "shrink"),
             HorizontalSpan:new{ width = padding },
             info,
         },

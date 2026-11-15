@@ -69,6 +69,7 @@ local es = {
     ["%1 %"] = "%1 %",
     ["%1 (this device)"] = "%1 (este dispositivo)",
     ["%1 books in your library"] = "%1 libros en tu biblioteca",
+    ["1 day ago"] = "hace 1 día",
     ["%1 days ago"] = "hace %1 días",
     ["%1 downloaded."] = "%1 descargado.",
     ["%1 h ago"] = "hace %1 h",

@@ -217,6 +217,8 @@ local es = {
     ["Collections"] = "Colecciones",
     ["File search"] = "Buscar archivos",
     ["KOReader menu"] = "Menú de KOReader",
+    ["Not read today"] = "Sin leer hoy",
+    ["Start today"] = "Empieza hoy",
     -- Languages of books
     ["Spanish"] = "Español", ["English"] = "Inglés", ["French"] = "Francés", ["German"] = "Alemán",
     ["Italian"] = "Italiano", ["Portuguese"] = "Portugués", ["Catalan"] = "Catalán", ["Galician"] = "Gallego",

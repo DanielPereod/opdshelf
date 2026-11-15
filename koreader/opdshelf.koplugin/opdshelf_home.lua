@@ -56,6 +56,7 @@ local Browser = require("opdshelf_browser")
 local Menu = require("opdshelf_menu")
 local OPDS = require("opdshelf_opds")
 local Sync = require("opdshelf_sync")
+local LocalStats = require("opdshelf_localstats")
 local T = require("ffi/util").template
 local _ = require("opdshelf_i18n")
 local Input = Device.input
@@ -65,10 +66,28 @@ local Item = Browser.Item
 
 -- Read this far, a book counts as finished (as on the server)
 local FINISHED = 0.99
--- Books of KOReader's history looked at for the Started shelf
-local MAX_LOCAL = 40
 -- Secondary text: dark enough to read on e-ink
 local GRAY = Blitbuffer.COLOR_DARK_GRAY or Blitbuffer.COLOR_GRAY_5
+
+--[[--
+The spacing of the plugin's screens, in dp, used for every distance on them:
+- MARGIN (M): the left and right edge of everything on the screen.
+- STEP_S (S): inside a block: cover, bar and caption; a title and its status.
+- STEP_G (G): between a heading and what it heads, the tiles and the card,
+  two rows of covers.
+- STEP_L (L): between sections. What is left of the screen's height goes
+  into these, evenly, so nothing is squeezed and no band stays empty.
+- GAP: between tiles, and the least between two covers of a row; a row
+  spreads its covers so the last one ends on the right margin.
+- PAD: inside every box with a border (tiles, the card, pills, marks).
+L = 2G = 4S, and PAD ≥ S.
+--]]
+local MARGIN = 16
+local STEP_S = 4
+local STEP_G = 8
+local STEP_L = 16
+local GAP = 12
+local PAD = 8
 
 -- Covers of books on this device, kept while KOReader runs (they take a while to extract)
 local local_covers = {}
@@ -80,9 +99,6 @@ end
 local function fileTitle(path)
     return ((path:match("([^/]+)$") or path):gsub("%.[^.]+$", ""))
 end
-
--- What KOReader knows of a book on this device
-local localBook = Browser.localBook
 
 -- The first letters of the first two words, for a cover that is not there
 local function initials(title)
@@ -194,48 +210,16 @@ end
 
 --[[--
 Started books, the most recently read first: KOReader's history on this
-device merged with what the server knows (`remote`, from remoteStarted).
-A book is the same when its document id matches, or when the library's file
-is the one on this device (`localPathFor(entry)` says where it is, if it is).
-Finished books, books not started and `exclude` (the book in the Continue
-card) are left out.
+device merged with what the server knows (`remote`, from remoteStarted), as
+Browser.mergeBooks merges them: one record per book, by document id, by the
+library's file downloaded here (`localPathFor(entry)` says where it is, if it
+is) or, when one side has no document id, by title and author; the newest
+position wins. Finished books, books not started and `exclude` (the book in
+the Continue card) are left out.
 --]]
 function Home.mergeStarted(locals, remote, exclude, localPathFor)
-    local list, by_document, by_path = {}, {}, {}
-    for _i, book in ipairs(locals or {}) do
-        local record = {
-            title = book.title, authors = book.authors or {}, percent = book.percent or 0,
-            finished = book.finished, time = book.time, time_guess = book.time_guess,
-            document = book.document, path = book.path, pages = book.pages, on_device = true,
-        }
-        list[#list + 1] = record
-        if record.document then by_document[record.document] = record end
-        by_path[record.path] = record
-    end
-    for _i, r in ipairs(remote or {}) do
-        local path = r.entry and localPathFor and localPathFor(r.entry) or nil
-        local record = (r.document and by_document[r.document]) or (path and by_path[path])
-        if record then
-            if r.finished then record.finished = true end
-            -- The newest position wins, wherever it was read
-            if r.time and (record.time_guess or r.time > (record.time or 0)) then
-                record.time, record.time_guess = r.time, false
-                if (r.percent or 0) > 0 then record.percent = r.percent end
-            end
-            record.entry = record.entry or r.entry
-            record.document = record.document or r.document
-        elseif r.entry or path then
-            record = {
-                title = r.title, authors = r.authors or {}, percent = r.percent or 0, finished = r.finished,
-                time = r.time, document = r.document, entry = r.entry, path = path, on_device = path ~= nil,
-            }
-            list[#list + 1] = record
-            if record.document then by_document[record.document] = record end
-            if path then by_path[path] = record end
-        end
-    end
     local out = {}
-    for _i, record in ipairs(list) do
+    for _i, record in ipairs(Browser.mergeBooks(locals, remote, localPathFor)) do
         local excluded = exclude and ((record.path and record.path == exclude.path)
             or (record.document and record.document == exclude.document))
         if not excluded and not record.finished and record.percent > 0 and record.percent < FINISHED then
@@ -249,8 +233,10 @@ function Home.mergeStarted(locals, remote, exclude, localPathFor)
     return out
 end
 
---- The texts of the three tiles (nil when unknown) from the kept statistics.
+--- The texts of the three tiles (nil when unknown) from the kept statistics,
+--- and their captions when they say something else than the tile's name.
 -- `today` is the date as os.date("%Y-%m-%d"): minutes from another day do not count.
+-- Nothing yet is a dash with a word on what to do, not a big zero.
 function Home.statTexts(stats, today)
     stats = type(stats) == "table" and stats or {}
     local texts = {}
@@ -258,7 +244,9 @@ function Home.statTexts(stats, today)
     if seconds and stats.date == today then
         -- Whole minutes, as the streak only counts a day from its first full minute
         local minutes = math.floor(seconds / 60)
-        if minutes < 60 then
+        if seconds <= 0 then
+            texts.today, texts.today_caption = "—", _("Not read today")
+        elseif minutes < 60 then
             texts.today = T(_("%1 min"), minutes)
         elseif minutes % 60 == 0 then
             texts.today = T(_("%1 h"), math.floor(minutes / 60))
@@ -267,9 +255,45 @@ function Home.statTexts(stats, today)
         end
     end
     local streak = tonumber(stats.streak)
-    if streak then texts.streak = streak == 1 and _("1 day") or T(_("%1 days"), streak) end
+    if streak and streak <= 0 then
+        texts.streak, texts.streak_caption = "—", _("Start today")
+    elseif streak then
+        texts.streak = streak == 1 and _("1 day") or T(_("%1 days"), streak)
+    end
     if tonumber(stats.count) then texts.library = tostring(stats.count) end
     return texts
+end
+
+--- The spacing above, in pixels on this screen (also for the library's screens).
+function Home.spacing()
+    local function px(dp) return math.max(1, Screen:scaleBySize(dp)) end
+    return { M = px(MARGIN), S = px(STEP_S), G = px(STEP_G), L = px(STEP_L), gap = px(GAP), pad = px(PAD) }
+end
+
+--[[--
+`n` widths that fill `total` with `gap` between them, as equal as whole
+pixels allow (the first ones get the pixel left over): the last one ends
+exactly at the edge.
+--]]
+function Home.split(total, n, gap)
+    local room = total - (n - 1) * gap
+    local base = math.floor(room / n)
+    local extra = room - base * n
+    local out = {}
+    for i = 1, n do out[i] = base + (i <= extra and 1 or 0) end
+    return out
+end
+
+--- The `n - 1` gaps that spread `n` covers `cover_w` wide across `total`, so
+--- the first starts at the left edge and the last ends at the right one.
+function Home.gaps(total, n, cover_w)
+    local out = {}
+    if n < 2 then return out end
+    local room = total - n * cover_w
+    local base = math.floor(room / (n - 1))
+    local extra = room - base * (n - 1)
+    for i = 1, n - 1 do out[i] = base + (i <= extra and 1 or 0) end
+    return out
 end
 
 -- ---------------------------------------------------------------------------
@@ -292,6 +316,7 @@ function Home:init()
     self.remote_started = state:readSetting("home_started") or {}
     self.stats = state:readSetting("home_stats") or { count = state:readSetting("home_count") }
     self.offline = not NetworkMgr:isOnline()
+    self.sp = Home.spacing()
     self:loadLocal()
     self[1] = FrameContainer:new{ width = self.dimen.w, height = self.dimen.h, bordersize = 0, padding = 0,
         background = Blitbuffer.COLOR_WHITE, VerticalSpan:new{ width = 0 } }
@@ -336,7 +361,7 @@ function Home:statusGroup()
     local wifi = false
     pcall(function() wifi = NetworkMgr:isWifiOn() end)
     if wifi then
-        table.insert(group, HorizontalSpan:new{ width = Size.padding.large })
+        table.insert(group, HorizontalSpan:new{ width = Home.spacing().G })
         table.insert(group, IconWidget:new{ icon = "wifi", width = h, height = h })
     end
     local battery
@@ -347,14 +372,16 @@ function Home:statusGroup()
         end
     end)
     if battery then
-        table.insert(group, HorizontalSpan:new{ width = Size.padding.large })
+        table.insert(group, HorizontalSpan:new{ width = Home.spacing().G })
         table.insert(group, TextWidget:new{ text = battery, face = face })
     end
     return group
 end
 
--- Name and menu on the left, status on the right; then the tiles and any problem
+-- Name and menu on the left, status on the right; then the tiles and any problem.
+-- Everything sits between the side margins: `w` is the width between them.
 function Home:header(w)
+    local sp = self.sp
     local menu = Button:new{
         icon = "appbar.menu", bordersize = 0, padding = 0, show_parent = self,
         callback = function() self:showMenu() end,
@@ -362,7 +389,8 @@ function Home:header(w)
     local name = TextWidget:new{ text = _("OPDShelf"), face = Font:getFace("tfont", 22), bold = true }
     local status = self:statusGroup()
     local row_h = math.max(menu:getSize().h, name:getSize().h, status:getSize().h)
-    local status_w = status:getSize().w + 2 * Size.padding.default
+    -- Tapped a little left of the status too, but drawn up to the right margin
+    local status_w = status:getSize().w + sp.G
     self.status_bar = Item:new{
         width = status_w,
         height = row_h,
@@ -373,23 +401,25 @@ function Home:header(w)
         dimen = Geom:new{ w = w, h = row_h },
         LeftContainer:new{
             dimen = Geom:new{ w = w, h = row_h },
-            HorizontalGroup:new{ align = "center", menu, HorizontalSpan:new{ width = Size.padding.default }, name },
+            HorizontalGroup:new{ align = "center", menu, HorizontalSpan:new{ width = sp.S }, name },
         },
         RightContainer:new{ dimen = Geom:new{ w = w, h = row_h }, self.status_bar },
     }
+    top.home_block = "title"
     local group = VerticalGroup:new{
         align = "left",
         top,
-        VerticalSpan:new{ width = Size.padding.default },
+        VerticalSpan:new{ width = sp.G },
         self:tiles(w),
     }
     local problem, fixable = self:problem()
     if problem then
+        local face = Font:getFace("cfont", 15)
         local line = TextBoxWidget:new{
-            text = problem, face = Font:getFace("cfont", 15), width = w, fgcolor = GRAY,
-            height = linesHeight(Font:getFace("cfont", 15), 2, w), height_adjust = true, height_overflow_show_ellipsis = true,
+            text = problem, face = face, width = w, fgcolor = GRAY,
+            height = linesHeight(face, 2, w), height_adjust = true, height_overflow_show_ellipsis = true,
         }
-        table.insert(group, VerticalSpan:new{ width = Size.padding.default })
+        table.insert(group, VerticalSpan:new{ width = sp.S })
         table.insert(group, fixable and Item:new{
             width = w, height = line:getSize().h,
             callback = function()
@@ -401,30 +431,43 @@ function Home:header(w)
     return group
 end
 
--- Today, Streak and Library, each in a thin frame; "–" while unknown
+-- Today, Streak and Library: three frames as wide as each other, across the
+-- whole width with one gap between them; "–" while unknown
 function Home:tiles(w)
-    local texts = Home.statTexts(self.stats, os.date("%Y-%m-%d"))
-    local gap = self.gap_h
-    local tile_w = math.floor((w - 2 * gap) / 3)
-    local border = Size.border.thin
+    local sp = self.sp
+    local today = os.date("%Y-%m-%d")
+    local yesterday = os.date("%Y-%m-%d", LocalStats.dayStart() - 12 * 3600)
+    -- The server's numbers, with what was read here and has not reached it
+    local stats = LocalStats.combine(self.stats, self.local_today, today, yesterday)
+    local texts = Home.statTexts(stats, today)
+    self.tile_texts = texts
+    local gap = sp.gap
     local tiles = {
-        { _("Today"), texts.today },
-        { _("Streak"), texts.streak },
+        { texts.today_caption or _("Today"), texts.today },
+        { texts.streak_caption or _("Streak"), texts.streak },
         { _("Library"), texts.library, function() self:openLibrary() end },
     }
+    local widths = Home.split(w, #tiles, gap)
+    local border = Size.border.thin
+    local value_face, caption_face = Font:getFace("smallinfofontbold", 19), Font:getFace("smallinfofont", 13)
+    local probe = VerticalGroup:new{ TextWidget:new{ text = "Ag", face = value_face }, TextWidget:new{ text = "Ag", face = caption_face } }
+    -- As tall as their texts and the box's padding, whatever they say
+    local tile_h = probe:getSize().h + 2 * sp.pad + 2 * border
     local row = HorizontalGroup:new{ align = "top" }
     for i, tile in ipairs(tiles) do
+        local tile_w = widths[i]
+        local text_w = math.max(1, tile_w - 2 * sp.pad - 2 * border)
         local column = VerticalGroup:new{
             align = "center",
-            TextWidget:new{ text = tile[2] or "–", face = Font:getFace("smallinfofontbold", 19), max_width = tile_w - 2 * Size.padding.default },
-            TextWidget:new{ text = tile[1], face = Font:getFace("smallinfofont", 13), fgcolor = GRAY, max_width = tile_w - 2 * Size.padding.default },
+            TextWidget:new{ text = tile[2] or "–", face = value_face, max_width = text_w },
+            TextWidget:new{ text = tile[1], face = caption_face, fgcolor = GRAY, max_width = text_w },
         }
-        local tile_h = column:getSize().h + 2 * Size.padding.default
         local frame = FrameContainer:new{
             width = tile_w, height = tile_h, bordersize = border, radius = Size.radius.window, padding = 0, margin = 0,
             background = Blitbuffer.COLOR_WHITE,
             CenterContainer:new{ dimen = Geom:new{ w = tile_w - 2 * border, h = tile_h - 2 * border }, column },
         }
+        frame.home_block = "tile"
         table.insert(row, tile[3] and Item:new{ width = tile_w, height = tile_h, callback = tile[3], frame } or frame)
         if i < #tiles then table.insert(row, HorizontalSpan:new{ width = gap }) end
     end
@@ -444,8 +487,14 @@ function Home:problem()
     end
 end
 
--- The tabs at the bottom, as in a phone app, on the same margins as the page
+--[[--
+The tabs at the bottom, as in a phone app: equal cells across the whole
+width, each with its icon and label in the middle and the same room above
+and below. The labels get smaller rather than cut; the tab shown has a bold
+label and a bar on top.
+--]]
 function Home:tabBar()
+    local sp = self.sp
     local tabs = {
         { "home", _("Home"), function() self:refreshAll() end, true },
         { "book.opened", _("Library"), function() self:openLibrary() end },
@@ -453,20 +502,37 @@ function Home:tabBar()
         { "appbar.filebrowser", _("Files"), function() self:callNative() end },
         { "appbar.menu", _("More"), function() self:showMenu() end },
     }
-    local tab_w = math.floor((self.dimen.w - 2 * self.margin) / #tabs)
+    local W = self.dimen.w
+    local widths = Home.split(W, #tabs, 0)
+    local narrowest = widths[1]
+    for _i, cell in ipairs(widths) do narrowest = math.min(narrowest, cell) end
     local icon = Screen:scaleBySize(28)
-    local face = Font:getFace("smallinfofont", 13)
+    -- The largest size at which every label, in bold, fits its cell
+    local size = 14
+    while size > 9 do
+        local fits = true
+        for _i, tab in ipairs(tabs) do
+            local probe = TextWidget:new{ text = tab[2], face = Font:getFace("smallinfofont", size), bold = true }
+            if probe:getSize().w > narrowest - 2 * sp.S then fits = false end
+            probe:free()
+        end
+        if fits then break end
+        size = size - 1
+    end
+    local face = Font:getFace("smallinfofont", size)
     local label_h = TextWidget:new{ text = "Ag", face = face }:getSize().h
-    local tab_h = icon + label_h + Size.padding.small + 2 * Size.padding.default
-    local marker_h = Screen:scaleBySize(3)
-    local row = HorizontalGroup:new{ align = "top", HorizontalSpan:new{ width = self.margin } }
-    for _i, tab in ipairs(tabs) do
+    local marker_h = Screen:scaleBySize(5)
+    local block_h = icon + sp.S + label_h
+    local tab_h = block_h + 2 * sp.G + marker_h
+    local row = HorizontalGroup:new{ align = "top" }
+    for i, tab in ipairs(tabs) do
         local active = tab[4]
+        local tab_w = widths[i]
         local column = VerticalGroup:new{
             align = "center",
             IconWidget:new{ icon = tab[1], width = icon, height = icon },
-            VerticalSpan:new{ width = Size.padding.small },
-            TextWidget:new{ text = tab[2], face = face, bold = active, max_width = tab_w - Size.padding.small },
+            VerticalSpan:new{ width = sp.S },
+            TextWidget:new{ text = tab[2], face = face, bold = active, max_width = tab_w - sp.S },
         }
         table.insert(row, Item:new{
             width = tab_w,
@@ -474,20 +540,25 @@ function Home:tabBar()
             callback = tab[3],
             OverlapGroup:new{
                 dimen = Geom:new{ w = tab_w, h = tab_h },
-                CenterContainer:new{ dimen = Geom:new{ w = tab_w, h = tab_h }, column },
-                -- The tab shown is marked with a bar on top
+                -- Under the marker's height, the block in the middle of what is left
+                VerticalGroup:new{
+                    VerticalSpan:new{ width = marker_h },
+                    CenterContainer:new{ dimen = Geom:new{ w = tab_w, h = tab_h - marker_h }, column },
+                },
                 active and CenterContainer:new{
                     dimen = Geom:new{ w = tab_w, h = marker_h },
-                    LineWidget:new{ background = Blitbuffer.COLOR_BLACK, dimen = Geom:new{ w = math.floor(tab_w * 0.5), h = marker_h } },
+                    LineWidget:new{ background = Blitbuffer.COLOR_BLACK, dimen = Geom:new{ w = math.floor(tab_w * 0.6), h = marker_h } },
                 } or VerticalSpan:new{ width = 0 },
             },
         })
     end
-    return VerticalGroup:new{
+    local bar = VerticalGroup:new{
         align = "center",
-        LineWidget:new{ background = Blitbuffer.COLOR_LIGHT_GRAY, dimen = Geom:new{ w = self.dimen.w, h = Size.line.thin } },
+        LineWidget:new{ background = Blitbuffer.COLOR_LIGHT_GRAY, dimen = Geom:new{ w = W, h = Size.line.thin } },
         row,
     }
+    bar.home_block = "tabs"
+    return bar
 end
 
 function Home:refreshAll()
@@ -496,20 +567,28 @@ function Home:refreshAll()
     self:loadRemote()
 end
 
--- The books opened on this device, newest first, with what their settings say
+--[[--
+The books opened on this device, newest first, with what their settings say
+(the library's screens shown from here use the same), and what KOReader's
+statistics know: the time read today here, and when each book was last read.
+A page read counts from then on, so a book opened long ago and read since
+says so, rather than when it was opened.
+--]]
 function Home:loadLocal()
-    self.history = {}
     local ok, ReadHistory = pcall(require, "readhistory")
-    if not ok or type(ReadHistory) ~= "table" then return end
-    if ReadHistory.reload then pcall(ReadHistory.reload, ReadHistory) end
-    for _i, item in ipairs(ReadHistory.hist or {}) do
-        if #self.history >= MAX_LOCAL then break end
-        if exists(item.file) then
-            local book = localBook(item.file)
-            -- Opening a book is not reading it: the history's time is only a guess
-            book.time = book.read_at or item.time
-            book.time_guess = book.read_at == nil
-            self.history[#self.history + 1] = book
+    if ok and type(ReadHistory) == "table" and ReadHistory.reload then pcall(ReadHistory.reload, ReadHistory) end
+    self.browser:forgetLocal()
+    self.history = self.browser:localBooks()
+    local md5s = {}
+    for _i, book in ipairs(self.history) do
+        if book.document then md5s[#md5s + 1] = book.document end
+    end
+    local stats = LocalStats.read(LocalStats.dayStart(), md5s)
+    self.local_today = stats and stats.today or nil
+    for _i, book in ipairs(self.history) do
+        local at = stats and book.document and stats.last[book.document]
+        if at and (book.time_guess or not book.time or at > book.time) then
+            book.time, book.time_guess = at, false
         end
     end
 end
@@ -571,7 +650,8 @@ function Home:loadRemote()
     if feed then
         self.recent = {}
         for _i, entry in ipairs(feed.entries) do
-            if entry.is_book and #self.recent < 12 then self.recent[#self.recent + 1] = entry end
+            -- More than a row: the books already on the screen above are left out of it
+            if entry.is_book and #self.recent < 20 then self.recent[#self.recent + 1] = entry end
         end
     end
     -- Time read today on every device, and the streak, on this device's day.
@@ -637,7 +717,7 @@ function Home:downloadThumbnails(entries)
         local path = self.browser:coverPath(entry.thumbnail)
         if path and not exists(path) and not entry.cover_failed then
             local code, data = self.plugin.client:raw("GET", entry.thumbnail, nil, nil, nil, { 3, 6 })
-            if code == 200 and type(data) == "string" and #data > 100 then
+            if code == 200 and Browser.imageData(data) then
                 local file = io.open(path, "wb")
                 if file then file:write(data) file:close() got = got + 1 end
             else
@@ -655,11 +735,12 @@ function Home:localCover(book)
     local cached = local_covers[book.path]
     if cached then return cached end
     local saved = (self.plugin.state:readSetting("covers") or {})[book.path]
-    if exists(saved) then return saved end
+    if exists(saved) and Browser.isImage(saved) then return saved end
     local ok, BookInfoManager = pcall(require, "bookinfomanager")
     if ok and type(BookInfoManager) == "table" and BookInfoManager.getBookInfo then
         local okinfo, info = pcall(BookInfoManager.getBookInfo, BookInfoManager, book.path, true)
-        if okinfo and info and info.cover_bb then
+        -- A blank picture (an empty first page) is no cover: the initials say more
+        if okinfo and info and info.cover_bb and not Browser.blankImage(info.cover_bb) then
             local_covers[book.path] = { bb = info.cover_bb }
             return local_covers[book.path]
         end
@@ -673,7 +754,7 @@ function Home:extractCover(book)
         local FileManagerBookInfo = require("apps/filemanager/filemanagerbookinfo")
         return FileManagerBookInfo:getCoverImage(nil, book.path)
     end)
-    if ok and bb then
+    if ok and bb and not Browser.blankImage(bb) then
         local_covers[book.path] = { bb = bb }
         return true
     end
@@ -697,6 +778,8 @@ function Home:cover(title, cover, w, h, badge)
     local border = Size.border.thin
     local iw, ih = math.max(1, w - 2 * border), math.max(1, h - 2 * border)
     local inner
+    -- Anything that is not a picture shows the initials, never a blank tile
+    if type(cover) == "table" and not cover.bb then cover = nil end
     if type(cover) == "table" and cover.bb then
         inner = ImageWidget:new{ image = cover.bb, image_disposable = false, width = iw, height = ih, scale_factor = 0 }
     elseif cover then
@@ -714,46 +797,63 @@ function Home:cover(title, cover, w, h, badge)
         CenterContainer:new{ dimen = Geom:new{ w = iw, h = ih }, inner },
     }
     if not badge then return frame end
+    -- One mark in the top corner: a small round one with a sign, the same size on every cover
+    local d = math.max(Screen:scaleBySize(12), math.min(Screen:scaleBySize(22), math.floor(w * 0.3)))
     local mark = FrameContainer:new{
-        bordersize = border, radius = Size.radius.window, margin = Size.padding.small,
-        padding = 0, padding_left = Size.padding.small, padding_right = Size.padding.small,
+        width = d, height = d, bordersize = border, radius = math.floor(d / 2), margin = 0, padding = 0,
         background = Blitbuffer.COLOR_WHITE,
-        TextWidget:new{ text = badge, face = Font:getFace("smallinfofontbold", 12), max_width = math.max(1, w - 4 * Size.padding.small) },
+        CenterContainer:new{
+            dimen = Geom:new{ w = d - 2 * border, h = d - 2 * border },
+            TextWidget:new{ text = badge, face = Font:getFace("smallinfofontbold", math.max(8, math.floor(13 * d / Screen:scaleBySize(22)))) },
+        },
     }
+    local inset = Home.spacing().S
     return OverlapGroup:new{
         dimen = Geom:new{ w = w, h = h },
         frame,
-        RightContainer:new{ dimen = Geom:new{ w = w, h = mark:getSize().h }, mark },
+        RightContainer:new{
+            dimen = Geom:new{ w = w, h = d + inset },
+            VerticalGroup:new{ VerticalSpan:new{ width = inset }, HorizontalGroup:new{ mark, HorizontalSpan:new{ width = inset } } },
+        },
     }
 end
 
--- A heading in one style: bold label, "See all ›" on the right, a thin rule under
+--- The marks on covers: ↓ for a book to download, ✓ for a finished one; a
+--- book on this device needs none.
+function Home.badgeFor(on_device, finished)
+    if finished then return "✓" end
+    if not on_device then return "↓" end
+    return nil
+end
+
+-- A heading in one style: the label in bold, "See all ›" smaller and in gray
+-- on the right margin, a thin rule under them and then G to what they head
 function Home:sectionHeader(w, text, link, callback)
+    local sp = self.sp
     local label = TextWidget:new{ text = text, face = Font:getFace("smallinfofontbold", 17), max_width = math.floor(w * 0.65) }
     local h = label:getSize().h
     local group = OverlapGroup:new{ dimen = Geom:new{ w = w, h = h }, LeftContainer:new{ dimen = Geom:new{ w = w, h = h }, label } }
     if link then
-        local button = Button:new{
-            text = link .. " ›",
-            text_font_face = "smallinfofont",
-            text_font_size = 15,
-            text_font_bold = false,
-            bordersize = 0, padding = 0, padding_h = 0, margin = 0,
-            callback = callback,
-            show_parent = self,
-        }
-        h = math.max(h, button:getSize().h)
-        group.dimen.h = h
-        group[1].dimen.h = h
-        table.insert(group, RightContainer:new{ dimen = Geom:new{ w = w, h = h }, button })
+        local more = TextWidget:new{ text = link .. " ›", face = Font:getFace("smallinfofont", 14), fgcolor = GRAY,
+            max_width = math.floor(w * 0.33) }
+        local more_w = more:getSize().w
+        -- Tapped a little around it, drawn up to the margin
+        local tap_w = more_w + sp.G
+        table.insert(group, RightContainer:new{
+            dimen = Geom:new{ w = w, h = h },
+            Item:new{ width = tap_w, height = h, callback = callback,
+                RightContainer:new{ dimen = Geom:new{ w = tap_w, h = h }, more } },
+        })
     end
-    return VerticalGroup:new{
+    local header = VerticalGroup:new{
         align = "left",
         group,
-        VerticalSpan:new{ width = Size.padding.small },
+        VerticalSpan:new{ width = sp.S },
         LineWidget:new{ background = Blitbuffer.COLOR_LIGHT_GRAY, dimen = Geom:new{ w = w, h = Size.line.thin } },
-        VerticalSpan:new{ width = Size.padding.default },
+        VerticalSpan:new{ width = sp.G },
     }
+    header.home_block = "section"
+    return header
 end
 
 -- The progress line under a book
@@ -785,12 +885,18 @@ function Home:progressText(book, long, pages)
     return table.concat(parts, " · ")
 end
 
--- Continue reading: the card on top, as tall as its contents need, up to `max_h`.
--- `tall` fills `max_h` with a large cover over the text, for a column of its
--- own; the third value says whether it did.
+--[[--
+Continue reading: the card on top, `w` wide, as tall as its cover and text
+need, up to `max_h`. The cover is large on the left and the text fills the
+rest of the card: title and author at the top, the bar, the status line and
+"Continue ›" (at the right edge, on the status line) at the bottom.
+`tall` fills `max_h` with a large cover over the text, for a column of its
+own; the third value says whether it did.
+--]]
 function Home:continueCard(w, max_h, tall)
+    local sp = self.sp
     local border = Size.border.thin
-    local pad = Size.padding.large
+    local pad = sp.pad
     local book = self.history[1]
     local function frame(content, h, callback, hold_callback)
         local card = FrameContainer:new{
@@ -798,21 +904,23 @@ function Home:continueCard(w, max_h, tall)
             background = Blitbuffer.COLOR_WHITE,
             content,
         }
+        card.home_block = "card"
         if not callback then return card end
         return Item:new{ width = w, height = h, callback = callback, hold_callback = hold_callback, card }
     end
+    local inner_w = w - 2 * border - 2 * pad
     if not book then
-        local text_w = w - 4 * pad
+        local small = Font:getFace("cfont", 15)
         local inner = VerticalGroup:new{
             align = "center",
-            TextWidget:new{ text = _("Nothing read yet"), face = Font:getFace("tfont", 20), bold = true, max_width = text_w },
-            VerticalSpan:new{ width = Size.padding.small },
+            TextWidget:new{ text = _("Nothing read yet"), face = Font:getFace("tfont", 20), bold = true, max_width = inner_w },
+            VerticalSpan:new{ width = sp.S },
             TextBoxWidget:new{
                 text = _("Find a book in your OPDShelf library and download it to start."),
-                face = Font:getFace("cfont", 15), width = text_w, alignment = "center", fgcolor = GRAY,
-                height = linesHeight(Font:getFace("cfont", 15), 2, text_w), height_adjust = true, height_overflow_show_ellipsis = true,
+                face = small, width = inner_w, alignment = "center", fgcolor = GRAY,
+                height = linesHeight(small, 2, inner_w), height_adjust = true, height_overflow_show_ellipsis = true,
             },
-            VerticalSpan:new{ width = pad },
+            VerticalSpan:new{ width = sp.G },
             Button:new{
                 text = _("Open the library"), width = math.floor(w * 0.5), show_parent = self,
                 callback = function() self:openLibrary() end,
@@ -830,121 +938,131 @@ function Home:continueCard(w, max_h, tall)
         math.floor((tonumber(book.remote.percentage) or 0) * 100 + 0.5),
         Sync.ago(book.remote.timestamp, self.plugin:serverNow(), _, T))
 
-    -- The text of the card `text_w` wide, from everything to the least, until it is `budget` tall at most
-    local function details(text_w, budget)
-        -- Continue ›, as a button on the right of the progress line
-        local function statusRow()
-            local continue = FrameContainer:new{
-                bordersize = 0, radius = Size.radius.window, margin = 0,
-                padding = Size.padding.small, padding_left = pad, padding_right = pad,
-                background = Blitbuffer.COLOR_BLACK,
-                TextWidget:new{ text = _("Continue") .. " ›", face = Font:getFace("smallinfofontbold", 15), fgcolor = Blitbuffer.COLOR_WHITE },
-            }
-            local row_h = continue:getSize().h
-            -- The whole line when it fits; else without the pages left, then when in a few letters
-            local status_w = math.max(1, text_w - continue:getSize().w - pad)
-            local status_text
-            for _i, form in ipairs({ { true, true }, { true, false }, { false, false } }) do
-                status_text = self:progressText(book, form[1], form[2])
-                local probe = TextWidget:new{ text = status_text, face = small }
-                local fits = probe:getSize().w <= status_w
-                probe:free()
-                if fits then break end
-            end
-            return OverlapGroup:new{
-                dimen = Geom:new{ w = text_w, h = row_h },
-                LeftContainer:new{
-                    dimen = Geom:new{ w = text_w, h = row_h },
-                    TextWidget:new{ text = status_text, face = small, max_width = status_w },
-                },
-                RightContainer:new{ dimen = Geom:new{ w = text_w, h = row_h }, continue },
-            }
+    -- Continue ›, as a pill at the right edge of the status line, on its middle
+    local function statusRow(text_w)
+        local continue = FrameContainer:new{
+            bordersize = 0, radius = Size.radius.window, margin = 0,
+            padding = sp.S, padding_left = pad, padding_right = pad,
+            background = Blitbuffer.COLOR_BLACK,
+            TextWidget:new{ text = _("Continue") .. " ›", face = Font:getFace("smallinfofontbold", 15), fgcolor = Blitbuffer.COLOR_WHITE },
+        }
+        local row_h = continue:getSize().h
+        -- The whole line when it fits; else without the pages left, then when in a few letters
+        local status_w = math.max(1, text_w - continue:getSize().w - sp.G)
+        local status_text
+        for _i, form in ipairs({ { true, true }, { true, false }, { false, false } }) do
+            status_text = self:progressText(book, form[1], form[2])
+            local probe = TextWidget:new{ text = status_text, face = small }
+            local fits = probe:getSize().w <= status_w
+            probe:free()
+            if fits then break end
         end
-        local info
-        for level = 0, 4 do
-            if info then info:free() end
-            info = VerticalGroup:new{ align = "left" }
-            local function add(widget, space)
-                if space and #info > 0 then table.insert(info, VerticalSpan:new{ width = space }) end
-                table.insert(info, widget)
-            end
-            if level < 2 then
-                add(TextWidget:new{ text = _("CONTINUE READING"), face = Font:getFace("smallinfofont", 12), fgcolor = GRAY, max_width = text_w })
-            end
-            local title_lines = level < 3 and 2 or 1
-            add(TextBoxWidget:new{
+        return OverlapGroup:new{
+            dimen = Geom:new{ w = text_w, h = row_h },
+            LeftContainer:new{
+                dimen = Geom:new{ w = text_w, h = row_h },
+                TextWidget:new{ text = status_text, face = small, max_width = status_w },
+            },
+            RightContainer:new{ dimen = Geom:new{ w = text_w, h = row_h }, continue },
+        }
+    end
+    -- The text `text_w` wide in two parts (what the book is; how far it was
+    -- read), from everything to the least, until they are `budget` tall at most
+    local function details(text_w, budget)
+        local top, bottom
+        for level = 0, 3 do
+            if top then top:free() bottom:free() end
+            top = VerticalGroup:new{ align = "left" }
+            table.insert(top, TextBoxWidget:new{
                 text = book.title, face = title_face, bold = true, width = text_w,
-                height = linesHeight(title_face, title_lines, text_w), height_adjust = true, height_overflow_show_ellipsis = true,
-            }, Size.padding.small)
-            if #book.authors > 0 and level < 3 then
-                add(TextWidget:new{ text = table.concat(book.authors, ", "), face = Font:getFace("cfont", 16), fgcolor = GRAY, max_width = text_w }, Size.padding.small)
+                height = linesHeight(title_face, level < 2 and 2 or 1, text_w), height_adjust = true, height_overflow_show_ellipsis = true,
+            })
+            if #book.authors > 0 and level < 2 then
+                table.insert(top, VerticalSpan:new{ width = sp.S })
+                table.insert(top, TextWidget:new{ text = table.concat(book.authors, ", "), face = Font:getFace("cfont", 16), fgcolor = GRAY, max_width = text_w })
             end
-            add(ProgressWidget:new{
-                width = text_w, height = Screen:scaleBySize(7), percentage = book.finished and 1 or (book.percent or 0),
-                margin_h = 0, margin_v = 0, radius = Screen:scaleBySize(3), bordersize = Size.border.thin,
-                fillcolor = Blitbuffer.COLOR_BLACK,
-            }, Size.padding.large)
-            add(statusRow(), Size.padding.default)
-            if remote_text and level < 4 then
-                add(TextBoxWidget:new{
+            bottom = VerticalGroup:new{
+                align = "left",
+                ProgressWidget:new{
+                    width = text_w, height = Screen:scaleBySize(7), percentage = book.finished and 1 or (book.percent or 0),
+                    margin_h = 0, margin_v = 0, radius = Screen:scaleBySize(3), bordersize = Size.border.thin,
+                    fillcolor = Blitbuffer.COLOR_BLACK,
+                },
+                VerticalSpan:new{ width = sp.S },
+                statusRow(text_w),
+            }
+            if remote_text and level < 3 then
+                table.insert(bottom, VerticalSpan:new{ width = sp.S })
+                table.insert(bottom, TextBoxWidget:new{
                     text = remote_text, face = small, bold = true, width = text_w,
                     height = linesHeight(small, level == 0 and 2 or 1, text_w), height_adjust = true, height_overflow_show_ellipsis = true,
-                }, Size.padding.default)
+                })
             end
-            if info:getSize().h <= budget then break end
+            if top:getSize().h + sp.G + bottom:getSize().h <= budget then break end
         end
-        return info
+        return top, bottom
+    end
+    -- The two parts in a column `h` tall: one at the top, the other at the bottom
+    local function stack(top, bottom, h)
+        local between = math.max(sp.G, h - top:getSize().h - bottom:getSize().h)
+        return VerticalGroup:new{ align = "left", top, VerticalSpan:new{ width = between }, bottom }
     end
     local open = function() self:openBook(book.path) end
     local hold = function() self:localActions(book) end
+    local cover = self:localCover(book)
 
     if tall then
         -- A column of its own: the cover large on top, the text under it, as tall as the column
-        local text_w = w - 2 * border - 2 * pad
         local min_cover = Screen:scaleBySize(120)
-        local info = details(text_w, inner_max - min_cover - pad)
-        local cover_h = inner_max - info:getSize().h - pad
-        local cover_w = math.min(text_w, math.floor(cover_h / Browser.COVER_RATIO))
+        local top, bottom = details(inner_w, inner_max - min_cover - sp.G)
+        local text_h = top:getSize().h + sp.G + bottom:getSize().h
+        local cover_h = inner_max - text_h - sp.G
+        local cover_w = math.min(inner_w, math.floor(cover_h / Browser.COVER_RATIO))
         cover_h = math.min(cover_h, math.floor(cover_w * Browser.COVER_RATIO))
         if cover_h >= min_cover then
             local content = VerticalGroup:new{
                 align = "left",
-                CenterContainer:new{ dimen = Geom:new{ w = text_w, h = cover_h },
-                    self:cover(book.title, self:localCover(book), cover_w, cover_h) },
-                VerticalSpan:new{ width = pad },
-                info,
+                CenterContainer:new{ dimen = Geom:new{ w = inner_w, h = cover_h }, self:cover(book.title, cover, cover_w, cover_h) },
+                VerticalSpan:new{ width = sp.G },
+                stack(top, bottom, inner_max - cover_h - sp.G),
             }
-            local inner = HorizontalGroup:new{ HorizontalSpan:new{ width = pad },
-                VerticalGroup:new{ align = "left", VerticalSpan:new{ width = pad }, content } }
-            return frame(LeftContainer:new{ dimen = Geom:new{ w = w - 2 * border, h = max_h - 2 * border }, inner },
-                max_h, open, hold), max_h, true
+            return frame(HorizontalGroup:new{ HorizontalSpan:new{ width = pad },
+                VerticalGroup:new{ align = "left", VerticalSpan:new{ width = pad }, content } }, max_h, open, hold), max_h, true
         end
-        info:free()
+        top:free()
+        bottom:free()
     end
 
-    local cover_w = math.max(Screen:scaleBySize(60), math.min(Screen:scaleBySize(150), math.floor(w * 0.24)))
-    local text_w = w - 2 * border - 3 * pad - cover_w
-    local info = details(text_w, inner_max)
-    -- As tall as the text; the cover follows
-    local content_h = math.min(inner_max, math.max(info:getSize().h, Screen:scaleBySize(100)))
+    -- Beside the text: a large cover, as tall as the card allows
+    local cover_w = math.max(Screen:scaleBySize(70), math.min(Screen:scaleBySize(180), math.floor(w * 0.26)))
+    local cover_h = math.min(inner_max, math.floor(cover_w * Browser.COVER_RATIO))
+    cover_w = math.floor(cover_h / Browser.COVER_RATIO)
+    local text_w = inner_w - cover_w - pad
+    local top, bottom = details(text_w, inner_max)
+    -- As tall as the cover, or as the text when that needs more
+    local content_h = math.min(inner_max, math.max(cover_h, top:getSize().h + sp.G + bottom:getSize().h))
     local h = content_h + 2 * pad + 2 * border
-    local cover_h = content_h
-    cover_w = math.min(cover_w, math.floor(cover_h / Browser.COVER_RATIO))
     local content = HorizontalGroup:new{
-        align = "center",
+        align = "top",
         HorizontalSpan:new{ width = pad },
-        self:cover(book.title, self:localCover(book), cover_w, cover_h),
+        self:cover(book.title, cover, cover_w, cover_h),
         HorizontalSpan:new{ width = pad },
-        info,
+        stack(top, bottom, content_h),
     }
-    return frame(LeftContainer:new{ dimen = Geom:new{ w = w - 2 * border, h = h - 2 * border }, content }, h, open, hold), h
+    return frame(VerticalGroup:new{ align = "left", VerticalSpan:new{ width = pad }, content }, h, open, hold), h
 end
 
--- One row of covers. `kind` is "started" (with progress and a line under the
--- title) or "recent" (with the title only when there is room).
+-- One row of covers across the whole width `L.w`: the first at the left
+-- margin, the last at the right one, the gaps between them as equal as
+-- pixels allow. A shorter row keeps the same places, from the left. `kind`
+-- is "started" (with progress and a line under the title) or "recent" (with
+-- the title only when there is room).
 function Home:shelf(items, L, kind)
     local row = HorizontalGroup:new{ align = "top" }
+    row.home_block = "shelf"
+    row.home_count, row.home_items = L.count, #items
     local row_h = kind == "started" and L.started_row_h or L.recent_row_h
+    local gaps = Home.gaps(L.w, L.count, L.cover_w)
     for i, item in ipairs(items) do
         local column = VerticalGroup:new{ align = "center", self:cover(item.title, item.cover, L.cover_w, L.cover_h, item.badge) }
         if kind == "started" then
@@ -954,21 +1072,24 @@ function Home:shelf(items, L, kind)
         if kind == "started" or L.captions then
             table.insert(column, VerticalSpan:new{ width = L.space })
             table.insert(column, TextBoxWidget:new{
-                text = item.title, face = L.caption_face, width = L.cell_w, height = L.caption_h,
+                text = item.title, face = L.caption_face, width = L.cover_w, height = L.caption_h,
                 height_overflow_show_ellipsis = true, alignment = "center",
             })
         end
         if kind == "started" then
-            table.insert(column, TextWidget:new{ text = item.meta, face = L.meta_face, fgcolor = GRAY, max_width = L.cell_w })
+            table.insert(column, CenterContainer:new{
+                dimen = Geom:new{ w = L.cover_w, h = L.meta_h },
+                TextWidget:new{ text = item.meta, face = L.meta_face, fgcolor = GRAY, max_width = L.cover_w },
+            })
         end
         table.insert(row, Item:new{
-            width = L.cell_w,
+            width = L.cover_w,
             height = row_h,
             callback = item.callback,
             hold_callback = item.hold_callback,
-            CenterContainer:new{ dimen = Geom:new{ w = L.cell_w, h = row_h }, column },
+            LeftContainer:new{ dimen = Geom:new{ w = L.cover_w, h = row_h }, VerticalGroup:new{ align = "center", column } },
         })
-        if i < #items then table.insert(row, HorizontalSpan:new{ width = L.gap_h }) end
+        if i < #items then table.insert(row, HorizontalSpan:new{ width = gaps[i] }) end
     end
     return row
 end
@@ -982,13 +1103,25 @@ function Home:emptyLine(w, h, text)
     }
 end
 
-function Home:startedItem(record)
+--- The line under a started book's cover: "43 % · 22 h ago", or only how far
+--- when that does not fit in `width` with `face`.
+function Home:caption(record, face, width)
+    local percent = T(_("%1 %"), math.floor((record.percent or 0) * 100 + 0.5))
+    if not record.time then return percent end
+    local text = percent .. " · " .. Sync.ago(record.time, os.time(), _, T)
+    local probe = TextWidget:new{ text = text, face = face }
+    local fits = probe:getSize().w <= width
+    probe:free()
+    return fits and text or percent
+end
+
+function Home:startedItem(record, L)
     return {
         title = record.title,
         cover = self:recordCover(record),
         percent = record.percent,
-        meta = self:progressText(record, false),
-        badge = not record.on_device and "↓" or nil,
+        meta = L and self:caption(record, L.meta_face, L.cell_w) or self:progressText(record, false),
+        badge = Home.badgeFor(record.on_device, record.finished),
         callback = function() self:openRecord(record) end,
         hold_callback = function() self:recordActions(record) end,
     }
@@ -996,14 +1129,13 @@ end
 
 function Home:recentItems(count)
     local items = {}
-    for i = 1, math.min(count, #self.recent) do
-        local entry = self.recent[i]
-        local _path, downloaded = self.browser:localFile(entry)
+    for i = 1, math.min(count, #self.recent_shown) do
+        local entry = self.recent_shown[i]
+        local state = self.browser:progressFor(entry)
         items[#items + 1] = {
             title = entry.title,
             cover = self.browser:cachedCover(entry),
-            -- In words: ✓ is only for finished books, ↓ for books still to download
-            badge = downloaded and _("Downloaded") or nil,
+            badge = Home.badgeFor(self.browser:onDevice(entry) ~= nil, state and state.finished),
             callback = function() self.browser:showDetails(entry) end,
             hold_callback = function() self.browser:bookActions(entry) end,
         }
@@ -1012,31 +1144,67 @@ function Home:recentItems(count)
 end
 
 --[[--
+The newest books of the library without those already on this screen: the
+book of the Continue card and the started books. The same book is found by
+the library's path, where it is on this device, its document id or, when
+one has none, its title and author.
+--]]
+function Home:recentNotShown()
+    local shown = {}
+    if self.history[1] then shown[1] = self.history[1] end
+    for _i, record in ipairs(self.started or {}) do shown[#shown + 1] = record end
+    local out = {}
+    for _i, entry in ipairs(self.recent or {}) do
+        local lib = Home.libraryPath(entry)
+        local here = self.browser:onDevice(entry)
+        local known = self.browser:bookFor(entry)
+        local document = known and known.document
+        local repeated = false
+        for _j, record in ipairs(shown) do
+            if (lib and (record.lib_path == lib or Home.libraryPath(record.entry) == lib))
+                    or (here and record.path == here)
+                    or (document and document == record.document)
+                    or ((not record.document or not document) and Browser.sameBook(entry, record)) then
+                repeated = true
+                break
+            end
+        end
+        if not repeated then out[#out + 1] = entry end
+    end
+    return out
+end
+
+--[[--
 Where everything goes in a column `w` wide and `avail` tall, holding the
 parts asked for (`parts.card`, `parts.started`, `parts.recent`). The card
 takes what its text needs, up to `parts.card_max`; the shelves get covers as
 wide as their columns allow. When that does not fit, the second row of
-Started goes first (it is only added when there is room), then the captions of
-Recently added, then the covers get smaller (with more of them in a row); when
-they would be tiny, Recently added goes. What is left on a tall screen goes to
-more rows of Started, up to `parts.max_rows`.
+Started goes first (it is only added when there is room), then the covers
+get smaller: Recently added keeps its titles while its covers stay a good
+size (always with `parts.captions`), else it shows covers only; when they
+would be tiny, Recently added goes. What is left on a tall screen goes to
+more rows of Started, up to `parts.max_rows`, and what is still left is
+spread between the sections (or between the rows, in a column of only
+Started), so the column fills its height.
 --]]
 function Home:layout(w, avail, parts)
-    local L = { space = Size.padding.small, bar_h = Screen:scaleBySize(4), parts = parts }
-    L.gap_h = self.gap_h
-    L.gap_v = Size.padding.large
-    L.count = math.max(3, math.min(8, math.floor((w + L.gap_h) / (Screen:scaleBySize(105) + L.gap_h))))
-    L.cell_w = math.floor((w - (L.count - 1) * L.gap_h) / L.count)
+    local sp = self.sp
+    local L = { w = w, space = sp.S, bar_h = Screen:scaleBySize(4), parts = parts, gap_l = sp.L, gap_row = sp.G }
+    local gap = sp.gap
+    L.gap_h = gap
+    L.count = math.max(3, math.min(8, math.floor((w + gap) / (Screen:scaleBySize(105) + gap))))
+    local natural_w = math.floor((w - (L.count - 1) * gap) / L.count)
     L.caption_face = Font:getFace("cfont", 14)
     L.meta_face = Font:getFace("smallinfofont", 13)
-    L.caption_h = linesHeight(L.caption_face, 2, L.cell_w)
+    L.caption_h = linesHeight(L.caption_face, 2, natural_w)
     L.meta_h = TextWidget:new{ text = "0 %", face = L.meta_face }:getSize().h
     L.section_h = self:sectionHeader(w, "Ag", "Ag"):getSize().h
     L.empty_h = linesHeight(Font:getFace("cfont", 15), 2, w)
-    local natural = math.floor(L.cell_w * Browser.COVER_RATIO)
+    local natural = math.floor(natural_w * Browser.COVER_RATIO)
     L.natural = natural
+    local small = Screen:scaleBySize(70)
     local has_started = #self.started > 0
-    local has_recent = #self.recent > 0
+    local has_recent = #self.recent_shown > 0
     local started_extra = 2 * L.space + L.bar_h + L.caption_h + L.meta_h
     local function recentExtra(captions) return captions and (L.space + L.caption_h) or 0 end
     L.card_h = 0
@@ -1044,38 +1212,40 @@ function Home:layout(w, avail, parts)
         L.card, L.card_h, L.card_tall = self:continueCard(w, math.max(Screen:scaleBySize(110), parts.card_max), parts.tall)
     end
     L.started, L.recent = parts.started, parts.recent
+    -- The blocks of the column, one under the other, L apart; rows of Started G apart
     local function total(rows, cover_h, captions, recent)
-        local t, first = 0, true
+        local t, blocks = 0, 0
         local function add(h)
-            if not first then t = t + L.gap_v end
-            t, first = t + h, false
+            if blocks > 0 then t = t + sp.L end
+            t, blocks = t + h, blocks + 1
         end
         if L.card then add(L.card_h) end
         if L.started then
-            add(L.section_h + (has_started and (rows * (cover_h + started_extra) + (rows - 1) * L.gap_v) or L.empty_h))
+            add(L.section_h + (has_started and (rows * (cover_h + started_extra) + (rows - 1) * sp.G) or L.empty_h))
         end
         if recent then
             add(L.section_h + (has_recent and (cover_h + recentExtra(captions)) or L.empty_h))
         end
-        return t
+        return t, blocks
     end
     local function covers(rows, recent)
         return (L.started and has_started and rows or 0) + (recent and has_recent and 1 or 0)
     end
     L.rows, L.cover_h, L.captions = 1, natural, true
     if total(1, natural, true, L.recent) > avail then
-        -- `parts.captions`: smaller covers rather than no titles
-        L.captions = not L.recent or parts.captions or false
-        if total(1, natural, L.captions, L.recent) > avail then
-            -- Smaller covers for every shelf
-            local n = covers(1, L.recent)
-            L.cover_h = n > 0 and math.floor((avail - total(1, 0, L.captions, L.recent)) / n) or natural
-            if L.cover_h < Screen:scaleBySize(70) and L.started and L.recent then
-                -- Too small for two shelves: only Started stays
-                L.recent, L.captions = false, true
-                n = covers(1, false)
-                L.cover_h = n > 0 and math.floor(avail - total(1, 0, true, false)) or natural
-            end
+        local n = covers(1, L.recent)
+        local with_captions = n > 0 and math.floor((avail - total(1, 0, true, L.recent)) / n) or natural
+        if parts.captions or not L.recent or with_captions >= math.max(small, natural * 0.6) then
+            L.cover_h = with_captions
+        else
+            L.captions = false
+            L.cover_h = n > 0 and math.floor((avail - total(1, 0, false, L.recent)) / n) or natural
+        end
+        if L.cover_h < small and L.started and L.recent then
+            -- Too small for two shelves: only Started stays
+            L.recent, L.captions = false, true
+            n = covers(1, false)
+            L.cover_h = n > 0 and math.floor(avail - total(1, 0, true, false)) or natural
         end
     elseif L.started and has_started then
         -- Room left for more rows of Started, with covers a little smaller if need be
@@ -1087,18 +1257,27 @@ function Home:layout(w, avail, parts)
         end
     end
     L.cover_h = math.max(Screen:scaleBySize(40), math.min(natural, L.cover_h))
-    L.cover_w = math.min(L.cell_w, math.floor(L.cover_h / Browser.COVER_RATIO))
-    if L.cover_w < L.cell_w * 0.8 then
-        -- Smaller covers: more of them in a row rather than gaps between them
-        L.count = math.max(L.count, math.min(12, math.floor((w + L.gap_h) / (L.cover_w + L.gap_h))))
-        L.cell_w = math.floor((w - (L.count - 1) * L.gap_h) / L.count)
+    L.cover_w = math.min(natural_w, math.floor(L.cover_h / Browser.COVER_RATIO))
+    L.cover_h = math.floor(L.cover_w * Browser.COVER_RATIO)
+    if L.cover_w < natural_w * 0.8 then
+        -- Smaller covers: more of them in a row rather than wide gaps between them
+        L.count = math.max(L.count, math.min(12, math.floor((w + gap) / (L.cover_w + gap))))
     end
+    L.cell_w = L.cover_w
     L.started_row_h = L.cover_h + started_extra
     L.recent_row_h = L.cover_h + recentExtra(L.captions)
-    -- Some of what is left loosens the gaps between the sections
-    L.used = total(L.rows, L.cover_h, L.captions, L.recent)
-    local spare = avail - L.used
-    if spare > 0 then L.gap_v = L.gap_v + math.min(math.floor(spare / 3), Screen:scaleBySize(16)) end
+    -- What is left of the height goes between the sections, evenly, or
+    -- between the rows of a column that only has Started
+    local used, blocks = total(L.rows, L.cover_h, L.captions, L.recent)
+    L.used = used
+    local spare = avail - used
+    if spare > 0 then
+        if blocks > 1 then
+            L.gap_l = sp.L + math.floor(spare / (blocks - 1))
+        elseif L.started and has_started and L.rows > 1 then
+            L.gap_row = sp.G + math.floor(spare / (L.rows - 1))
+        end
+    end
     return L
 end
 
@@ -1106,7 +1285,7 @@ end
 function Home:column(w, L)
     local column = VerticalGroup:new{ align = "left" }
     local function add(widget)
-        if #column > 0 then table.insert(column, VerticalSpan:new{ width = L.gap_v }) end
+        if #column > 0 then table.insert(column, VerticalSpan:new{ width = L.gap_l }) end
         table.insert(column, widget)
     end
     if L.card then add(L.card) end
@@ -1121,12 +1300,12 @@ function Home:column(w, L)
             local items = {}
             for i = (r - 1) * L.count + 1, math.min(r * L.count, shown) do
                 local record = self.started[i]
-                items[#items + 1] = self:startedItem(record)
+                items[#items + 1] = self:startedItem(record, L)
                 if record.on_device then table.insert(self.shown_local, record) end
                 if record.entry and record.entry.thumbnail then table.insert(self.shown_entries, record.entry) end
             end
             if #items > 0 then
-                if r > 1 then table.insert(column, VerticalSpan:new{ width = L.gap_v }) end
+                if r > 1 then table.insert(column, VerticalSpan:new{ width = L.gap_row }) end
                 table.insert(column, self:shelf(items, L, "started"))
             end
         end
@@ -1135,32 +1314,39 @@ function Home:column(w, L)
         add(self:sectionHeader(w, _("Recently added to the library"), self.plugin:ready() and _("See all") or nil, function()
             self:openLibrary(false, self.recent_url or (self.plugin.client.server .. "/opds/books"), _("Recently added"))
         end))
-        if #self.recent == 0 then
+        if #self.recent_shown == 0 then
             table.insert(column, self:emptyLine(w, L.empty_h, self.plugin:ready() and _("The library's newest books will show here.")
                 or _("Set up your OPDShelf server in the menu to see your library here.")))
         else
             table.insert(column, self:shelf(self:recentItems(L.count), L, "recent"))
-            for i = 1, math.min(L.count, #self.recent) do
-                if self.recent[i].thumbnail then table.insert(self.shown_entries, self.recent[i]) end
+            for i = 1, math.min(L.count, #self.recent_shown) do
+                if self.recent_shown[i].thumbnail then table.insert(self.shown_entries, self.recent_shown[i]) end
             end
         end
     end
     return column
 end
 
+--[[--
+The whole screen: the header and the tiles, the content and the tabs at the
+bottom, all between the side margins M; the content takes all the height
+between the tiles (G under them) and the tabs (G over them).
+--]]
 function Home:refresh()
     if self.closed then return end
     if self[1] then self[1]:free() end
     local W, H = self.dimen.w, self.dimen.h
-    self.margin = Size.padding.large * 2
-    self.gap_h = Size.padding.large
-    local w = W - 2 * self.margin
+    local sp = Home.spacing()
+    self.sp = sp
+    self.margin = sp.M
+    self.gap_h = sp.gap
+    local w = W - 2 * sp.M
     self.started = self:startedBooks()
-    local top_space = Size.padding.default
+    self.recent_shown = self:recentNotShown()
     local header = self:header(w)
     local tabs = self:tabBar()
     local tabs_h = tabs:getSize().h
-    local avail = H - top_space - header:getSize().h - Size.padding.large - tabs_h - Size.padding.default
+    local avail = H - sp.G - header:getSize().h - sp.G - sp.G - tabs_h
     -- What fetchCovers looks for
     self.shown_entries, self.shown_local = {}, {}
     if self.history[1] then self.shown_local[1] = self.history[1] end
@@ -1168,7 +1354,7 @@ function Home:refresh()
     local content
     if W > H then
         -- Landscape: the card and the newest books on the left, Started on the right
-        local gap = 2 * Size.padding.large
+        local gap = sp.L
         local left_w = math.floor((w - gap) * 0.42)
         local right_w = w - gap - left_w
         local left = self:layout(left_w, avail, { card = true, recent = true, card_max = math.floor(avail * 0.5) })
@@ -1176,17 +1362,23 @@ function Home:refresh()
         -- With room under Started, the newest books go there, a full row with
         -- their titles, and the card takes its column with a large cover:
         -- no gap under Started, no squeezed shelf beside it
-        if self.history[1] and #self.recent > 0 then
+        if self.history[1] and #self.recent_shown > 0 then
             local both = self:layout(right_w, avail, { started = true, recent = true, captions = true, max_rows = 3 })
             if both.recent and both.captions and both.rows >= right.rows and both.cover_h >= right.cover_h * 0.8 then
                 local card = self:layout(left_w, avail, { card = true, tall = true, card_max = avail })
                 if card.card_tall then left, right = card, both end
             end
         end
+        -- A short left column: the card grows into the room rather than leaving a band under it
+        if left.card and not left.card_tall and left.gap_l > 3 * sp.L then
+            local grown = self:layout(left_w, avail, { card = true, recent = left.recent, tall = true,
+                card_max = left.card_h + left.gap_l - sp.L })
+            if grown.card_tall then left = grown end
+        end
         local recent = right.recent and right or left
         self.layout_info = { left = left, right = right, count = right.count, rows = right.rows,
             cover_w = right.cover_w, cover_h = right.cover_h, captions = recent.recent and recent.captions,
-            recent = left.recent or right.recent, recent_beside = right.recent or nil }
+            recent = left.recent or right.recent, recent_beside = right.recent or nil, avail = avail }
         content = HorizontalGroup:new{
             align = "top",
             self:column(left_w, left),
@@ -1198,15 +1390,17 @@ function Home:refresh()
             card = true, started = true, recent = true, max_rows = 2,
             card_max = math.floor(math.min(H * 0.27, avail * 0.4)),
         })
+        L.avail = avail
         self.layout_info = L
         content = self:column(w, L)
     end
+    content.home_block = "content"
 
     local body = VerticalGroup:new{
         align = "left",
-        VerticalSpan:new{ width = top_space },
+        VerticalSpan:new{ width = sp.G },
         header,
-        VerticalSpan:new{ width = Size.padding.large },
+        VerticalSpan:new{ width = sp.G },
         content,
     }
     self[1] = FrameContainer:new{
@@ -1217,7 +1411,7 @@ function Home:refresh()
         background = Blitbuffer.COLOR_WHITE,
         OverlapGroup:new{
             dimen = self.dimen:copy(),
-            HorizontalGroup:new{ HorizontalSpan:new{ width = self.margin }, body },
+            HorizontalGroup:new{ HorizontalSpan:new{ width = sp.M }, body },
             VerticalGroup:new{
                 align = "left",
                 VerticalSpan:new{ width = H - tabs_h },
@@ -1253,10 +1447,11 @@ end
 
 function StartedList:row(record, w, h)
     local home = self.home
-    local pad = Size.padding.large
-    local inner_h = h - 2 * Size.padding.default - Size.line.thin
+    local sp = Home.spacing()
+    local inner_h = h - 2 * sp.G - Size.line.thin
     local cover_w = math.floor(inner_h / Browser.COVER_RATIO)
-    local text_w = w - 3 * pad - cover_w
+    -- Between the screen's margins, as on the home screen
+    local text_w = w - 2 * sp.M - sp.gap - cover_w
     local face = Font:getFace("cfont", 18)
     local small = Font:getFace("cfont", 15)
     local lines = VerticalGroup:new{
@@ -1266,12 +1461,12 @@ function StartedList:row(record, w, h)
     }
     local function add(text, f, color)
         if not text or text == "" then return end
-        table.insert(lines, VerticalSpan:new{ width = Size.padding.small })
+        table.insert(lines, VerticalSpan:new{ width = sp.S })
         table.insert(lines, TextWidget:new{ text = text, face = f or small, fgcolor = color, max_width = text_w })
     end
     add(table.concat(record.authors or {}, ", "), small, GRAY)
     add(home:progressText(record, true) .. " · " .. (record.on_device and _("on this device") or _("in the library")))
-    table.insert(lines, VerticalSpan:new{ width = Size.padding.small })
+    table.insert(lines, VerticalSpan:new{ width = sp.S })
     table.insert(lines, bar(math.min(text_w, Screen:scaleBySize(160)), Screen:scaleBySize(4), record.percent))
     return VerticalGroup:new{
         align = "left",
@@ -1283,9 +1478,9 @@ function StartedList:row(record, w, h)
                 dimen = Geom:new{ w = w, h = h - Size.line.thin },
                 HorizontalGroup:new{
                     align = "center",
-                    HorizontalSpan:new{ width = pad },
-                    home:cover(record.title, home:recordCover(record), cover_w, inner_h, not record.on_device and "↓" or nil),
-                    HorizontalSpan:new{ width = pad },
+                    HorizontalSpan:new{ width = sp.M },
+                    home:cover(record.title, home:recordCover(record), cover_w, inner_h, Home.badgeFor(record.on_device, record.finished)),
+                    HorizontalSpan:new{ width = sp.gap },
                     lines,
                 },
             },

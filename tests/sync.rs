@@ -888,3 +888,19 @@ async fn web_reader_bookmarks_are_kept_per_book() {
     let (status, _) = t.api("GET", "/api/bookmarks/not-an-id!", None).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn statistics_follow_the_range_asked_for() {
+    let t = app();
+    for (range, unit, parts) in [("7d", "day", 7), ("30d", "day", 30), ("12m", "month", 12)] {
+        let (status, body) = t.api("GET", &format!("/api/stats?range={range}"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["range"], range);
+        assert_eq!(body["chart"]["unit"], unit);
+        assert_eq!(body["chart"]["parts"].as_array().unwrap().len(), parts);
+        // What the Android app reads stays the last 30 days
+        assert_eq!(body["days"].as_array().unwrap().len(), 30);
+    }
+    let (_, body) = t.api("GET", "/api/stats", None).await;
+    assert_eq!(body["range"], "30d");
+}

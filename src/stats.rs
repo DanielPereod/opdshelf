@@ -6,7 +6,7 @@
 //! session starts. Time is added to the day it was read on (server time zone)
 //! and kept in DATA_DIR/stats.json: a small summary per day, not every position.
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Json, Response};
 use chrono::{Datelike, Local, NaiveDate, TimeZone};
 use serde::{Deserialize, Serialize};
@@ -210,42 +210,167 @@ pub fn streaks(days: &BTreeMap<String, Day>, today: NaiveDate) -> (u32, u32) {
 // ---------------------------------------------------------------------------
 // HTTP
 
-/// Everything the panel's statistics page shows.
-pub async fn summary(State(state): State<AppState>) -> Response {
+/// The stretch of time the statistics page looks at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Range {
+    Week,
+    Month,
+    Year,
+    All,
+}
+
+impl Range {
+    pub fn parse(value: Option<&str>) -> Self {
+        match value {
+            Some("7d") => Self::Week,
+            Some("12m") => Self::Year,
+            Some("all") => Self::All,
+            _ => Self::Month,
+        }
+    }
+
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Week => "7d",
+            Self::Month => "30d",
+            Self::Year => "12m",
+            Self::All => "all",
+        }
+    }
+}
+
+/// Time read in each part of a range, oldest first: days for a week or a
+/// month, months for a year, and months or years for all time. Answers the
+/// kind of part (`day`, `month` or `year`) and (key, seconds) for each.
+pub fn buckets(days: &BTreeMap<String, Day>, today: NaiveDate, range: Range) -> (&'static str, Vec<(String, i64)>) {
+    let by_day = |n: u64| -> Vec<(String, i64)> {
+        (0..n)
+            .rev()
+            .filter_map(|i| today.checked_sub_days(chrono::Days::new(i)))
+            .map(|date| {
+                let key = date.format("%Y-%m-%d").to_string();
+                let seconds = days.get(&key).map_or(0, |d| d.seconds);
+                (key, seconds)
+            })
+            .collect()
+    };
+    let sum_by = |len: usize, keys: Vec<String>| -> Vec<(String, i64)> {
+        let mut out: BTreeMap<String, i64> = keys.into_iter().map(|k| (k, 0)).collect();
+        for (date, day) in days {
+            if let Some(total) = date.get(..len).and_then(|k| out.get_mut(k)) {
+                *total += day.seconds;
+            }
+        }
+        out.into_iter().collect()
+    };
+    let months_back = |n: u32| -> Vec<String> {
+        let (mut year, mut month) = (today.year(), today.month());
+        let mut keys = Vec::new();
+        for _ in 0..n {
+            keys.push(format!("{year:04}-{month:02}"));
+            (year, month) = if month == 1 { (year - 1, 12) } else { (year, month - 1) };
+        }
+        keys
+    };
+    match range {
+        Range::Week => ("day", by_day(7)),
+        Range::Month => ("day", by_day(30)),
+        Range::Year => ("month", sum_by(7, months_back(12))),
+        Range::All => {
+            let first = days
+                .iter()
+                .find(|(_, d)| d.seconds > 0)
+                .and_then(|(date, _)| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok())
+                .unwrap_or(today);
+            let months = (today.year() - first.year()) * 12 + today.month() as i32 - first.month() as i32 + 1;
+            if months <= 24 {
+                // At least a year, so a short history still reads as months
+                ("month", sum_by(7, months_back(months.max(12) as u32)))
+            } else {
+                let years = (first.year()..=today.year()).map(|y| format!("{y:04}")).collect();
+                ("year", sum_by(4, years))
+            }
+        }
+    }
+}
+
+#[derive(Deserialize, Default)]
+pub struct SummaryQuery {
+    /// `7d`, `30d` (the default), `12m` or `all`.
+    range: Option<String>,
+}
+
+/// Everything the panel's statistics page shows. `days` and `top_books` without
+/// a range are the last 30 days, as the Android app reads them; `chart`,
+/// `period` and `top_books` follow the range asked for.
+pub async fn summary(State(state): State<AppState>, Query(query): Query<SummaryQuery>) -> Response {
+    let range = Range::parse(query.range.as_deref());
     let stats = state.progress.stats();
     let today = Local::now().date_naive();
     let days = stats.days();
     let (current, longest) = streaks(&days, today);
     let books = crate::sync::books_by_document(&state).await;
+    let snapshot = state.library.snapshot().await;
     let title = |document: &str| books.get(document).map(|b| b.1.clone()).filter(|t| !t.is_empty());
 
     // The last 30 days, with the ones without reading
-    let recent: Vec<_> = (0..30)
-        .rev()
-        .filter_map(|i| today.checked_sub_days(chrono::Days::new(i)))
-        .map(|date| {
-            let key = date.format("%Y-%m-%d").to_string();
-            json!({ "date": key, "seconds": days.get(&key).map_or(0, |d| d.seconds) })
-        })
+    let recent: Vec<_> = buckets(&days, today, Range::Month)
+        .1
+        .into_iter()
+        .map(|(date, seconds)| json!({ "date": date, "seconds": seconds }))
         .collect();
-    // Time per book in those 30 days
-    let since = today
-        .checked_sub_days(chrono::Days::new(29))
-        .unwrap_or(today)
-        .format("%Y-%m-%d")
-        .to_string();
+    let (unit, chart) = buckets(&days, today, range);
+    let chart: Vec<_> = chart
+        .into_iter()
+        .map(|(key, seconds)| json!({ "key": key, "seconds": seconds }))
+        .collect();
+
+    // Time per book, days read and sessions in the range
+    let since = match range {
+        Range::Week => today.checked_sub_days(chrono::Days::new(6)),
+        Range::Month => today.checked_sub_days(chrono::Days::new(29)),
+        Range::Year => today
+            .checked_sub_months(chrono::Months::new(11))
+            .and_then(|d| d.with_day(1)),
+        Range::All => None,
+    }
+    .map(|d| d.format("%Y-%m-%d").to_string())
+    .unwrap_or_default();
     let mut per_book: HashMap<&str, i64> = HashMap::new();
-    for (_, day) in days.range(since..) {
+    let (mut seconds, mut sessions, mut reading_days) = (0, 0, 0);
+    for (_, day) in days.range(since.clone()..) {
+        seconds += day.seconds;
+        sessions += day.sessions;
+        if day.seconds >= STREAK_SECONDS {
+            reading_days += 1;
+        }
         for (document, seconds) in &day.books {
             *per_book.entry(document).or_default() += seconds;
         }
     }
     let mut top: Vec<_> = per_book.into_iter().filter(|b| b.1 > 0).collect();
-    top.sort_by_key(|b| std::cmp::Reverse(b.1));
+    top.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
     let top: Vec<_> = top
         .into_iter()
-        .take(5)
-        .map(|(document, seconds)| json!({ "document": document, "title": title(document), "seconds": seconds }))
+        .take(8)
+        .map(|(document, seconds)| {
+            let path = books.get(document).map(|b| b.0.as_str());
+            let book = path.and_then(|p| snapshot.books.iter().find(|b| b.path == p));
+            json!({
+                "document": document,
+                "title": title(document),
+                "seconds": seconds,
+                "path": path,
+                "authors": book.map(|b| b.author_line()),
+                "format": book.map(|b| b.format.clone()),
+                "readable": book.is_some_and(|b| b.readable),
+                "cover": book.filter(|b| b.has_cover).map(|b| format!(
+                    "/thumb/{}?v={}",
+                    crate::paths::url_encode(&b.path),
+                    crate::covers::version(b)
+                )),
+            })
+        })
         .collect();
 
     // Books finished in each of the last 12 months
@@ -258,7 +383,9 @@ pub async fn summary(State(state): State<AppState>) -> Response {
     months.reverse();
     let mut finished: BTreeMap<String, Vec<serde_json::Value>> =
         months.iter().map(|m| (m.clone(), Vec::new())).collect();
-    for (document, at) in finished_books(stats.finished(), state.marks.all()) {
+    let all_finished = finished_books(stats.finished(), state.marks.all());
+    let finished_in_range = all_finished.values().filter(|at| day_of(**at) >= since).count();
+    for (document, at) in all_finished {
         let month = day_of(at).get(..7).unwrap_or_default().to_string();
         if let Some(list) = finished.get_mut(&month) {
             list.push(json!({ "document": document, "title": title(&document), "at": at }));
@@ -276,6 +403,14 @@ pub async fn summary(State(state): State<AppState>) -> Response {
         "reading_days": days.values().filter(|d| d.seconds >= STREAK_SECONDS).count(),
         "streak": { "current": current, "longest": longest },
         "days": recent,
+        "range": range.code(),
+        "chart": { "unit": unit, "parts": chart },
+        "period": {
+            "seconds": seconds,
+            "sessions": sessions,
+            "reading_days": reading_days,
+            "finished": finished_in_range,
+        },
         "top_books": top,
         "finished": finished,
     }))
@@ -416,5 +551,34 @@ mod tests {
         // Nothing read today yet: the streak from yesterday is still alive
         assert_eq!(streaks(&days, date("2026-11-14")), (2, 3));
         assert_eq!(streaks(&days, date("2026-11-15")), (0, 3));
+    }
+
+    #[test]
+    fn ranges_add_up_by_day_month_or_year() {
+        let day = |seconds| Day {
+            seconds,
+            ..Default::default()
+        };
+        let days: BTreeMap<String, Day> = [
+            ("2024-03-05", day(100)),
+            ("2026-10-31", day(60)),
+            ("2026-11-01", day(30)),
+            ("2026-11-14", day(300)),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        let today = NaiveDate::from_ymd_opt(2026, 11, 14).unwrap();
+        let (unit, week) = buckets(&days, today, Range::Week);
+        assert_eq!((unit, week.len()), ("day", 7));
+        assert_eq!(week.last().unwrap(), &("2026-11-14".to_string(), 300));
+        let (unit, year) = buckets(&days, today, Range::Year);
+        assert_eq!((unit, year.len()), ("month", 12));
+        assert_eq!(year[10], ("2026-10".to_string(), 60));
+        assert_eq!(year[11], ("2026-11".to_string(), 330));
+        let (unit, all) = buckets(&days, today, Range::All);
+        assert_eq!(unit, "year");
+        assert_eq!(all, [("2024".into(), 100), ("2025".into(), 0), ("2026".into(), 390)]);
+        assert_eq!(Range::parse(Some("bogus")), Range::Month);
     }
 }

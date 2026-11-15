@@ -2595,12 +2595,26 @@ a.nav-item {
 }
 
 /* Statistics page */
-.chart {
-  display: flex;
-  align-items: stretch;
-  gap: 3px;
-  height: 180px;
-  padding: var(--sp-3);
+.stats-range {
+  align-self: flex-start;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.stats-range .icon-btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+.stats-empty {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--pane);
+}
+
+.chart-box {
+  padding: var(--sp-3) var(--sp-4) var(--sp-2);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--pane);
@@ -2611,19 +2625,38 @@ a.nav-item {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
   align-items: stretch;
-  gap: 4px;
+  padding: 0;
+  border-radius: var(--r-sm);
 }
 
-.chart-bar span {
+.chart-bar:hover .chart-col,
+.chart-bar[aria-current="true"] .chart-col {
+  background: var(--hover);
+}
+
+.chart-col {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+}
+
+.chart-col i {
   display: block;
   min-height: 2px;
-  border-radius: 2px 2px 0 0;
+  border-radius: 4px 4px 0 0;
   background: var(--fg);
 }
 
-.chart-bar span.zero {
+.chart-bar[aria-current="true"] .chart-col i {
+  opacity: 1;
+}
+
+.chart-col i.zero {
   background: var(--line-strong);
 }
 
@@ -2636,19 +2669,13 @@ a.nav-item {
   white-space: nowrap;
 }
 
-.chart-months {
-  gap: var(--sp-2);
+.chart-bar[aria-current="true"] small {
+  color: var(--fg);
+  font-weight: 700;
 }
 
-@media (max-width: 700px) {
-  /* Every other day's number, so they fit */
-  #stDays .chart-bar small {
-    overflow: visible;
-  }
-
-  #stDays .chart-bar:nth-last-child(even) small {
-    visibility: hidden;
-  }
+.chart.dense .chart-col em {
+  display: none;
 }
 
 .top-books {
@@ -2662,19 +2689,53 @@ a.nav-item {
 
 .top-books li {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-2) 0 0;
+}
+
+.top-books li.top-none {
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.top-book {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
   gap: var(--sp-3);
   padding: var(--sp-2) var(--sp-4);
 }
 
-.top-books li span {
+.top-book .thumb {
+  width: 32px;
+  flex: none;
+}
+
+.top-text {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.top-books li small {
+.top-text b {
+  font-weight: 600;
+}
+
+.top-text small {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.top-text .track {
+  flex: none;
+  max-width: 160px;
+  margin-top: 4px;
+}
+
+.top-time {
   flex: none;
   color: var(--muted);
 }
@@ -2692,7 +2753,14 @@ a.nav-item {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
   gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-4);
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
+  border-radius: var(--r-sm);
+  color: inherit;
+  text-decoration: none;
+}
+
+a.top-book:hover {
+  background: var(--hover);
   font-size: var(--fs-sm);
 }
 
@@ -2765,6 +2833,72 @@ a.nav-item {
   width: 16px;
   text-align: center;
   color: var(--muted);
+/* The value of the bar picked, readable without hovering */
+.chart-readout {
+  min-height: 1.5em;
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-readout b {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart {
+  position: relative;
+  height: 200px;
+  padding: 16px 0 0 44px;
+}
+
+.chart-months {
+  height: 160px;
+  padding-left: 28px;
+}
+
+/* Two recessive lines, at the top value and at half, labelled on the left */
+.chart-grid {
+  position: absolute;
+  top: 16px;
+  left: 0;
+  right: 0;
+  bottom: 20px;
+  pointer-events: none;
+}
+
+.chart-grid span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed var(--line);
+}
+
+.chart-grid span::before {
+  content: attr(data-value);
+  position: absolute;
+  left: 0;
+  top: -6px;
+  padding-right: 4px;
+  background: var(--pane);
+  font-size: 10px;
+  line-height: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-plot {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 100%;
+}
+
 }
 
 .connect-item p {
@@ -2777,16 +2911,33 @@ a.nav-item {
   align-items: center;
   gap: var(--sp-1);
   margin-bottom: var(--sp-1);
+  width: min(100%, 36px);
   padding: 2px 2px 2px var(--sp-3);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
+  opacity: 0.78;
   background: var(--bg);
 }
 
 .connect-qr {
+  opacity: 1;
+}
+
+.chart-col em {
+  margin-bottom: 3px;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   margin-top: var(--sp-2);
   font-size: var(--fs-sm);
 }
+  flex: none;
+  height: 20px;
+  padding-top: 5px;
 
 .connect-qr summary {
   cursor: pointer;
@@ -2804,7 +2955,7 @@ a.nav-item {
 .copy-row code {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2828,6 +2979,13 @@ a.nav-item {
 .connect-note {
   margin: var(--sp-3) 0 0;
   font-size: var(--fs-xs);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.top-text b,
+.top-text small {
 }
 
 .connect-item > :last-child {
@@ -2836,6 +2994,8 @@ a.nav-item {
 
 /* Devices: the way to the apps, in one line */
 .connect-link {
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
   display: flex;
   align-items: center;
   gap: var(--sp-3);

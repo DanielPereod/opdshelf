@@ -315,6 +315,33 @@ p:onSuspend()
 check(p.stream == nil, "closes it when the device sleeps")
 p:onCloseDocument()
 
+-- 10b. Opening a book is not reading
+state():saveSetting("live", false)
+page_first = 100
+p = open()
+respond(200, { current = remote("KOBO-ID", 100) })
+runScheduled()
+local sync_state = p:docState()
+local three_days_ago = os.time() - 3 * 86400
+sync_state.read_at, sync_state.moved = three_days_ago, false
+-- KOReader says the page changed on opening, laying out and drawing dialogs
+p:onPageUpdate(); p:onPosUpdate(); p:onPageUpdate()
+check(#scheduled == 0 and not sync_state.moved and sync_state.read_at == three_days_ago and p.last_move == nil,
+    "opening a book, or drawing its page again, is not reading")
+-- Read here earlier while offline, and on a phone meanwhile
+sync_state.moved = true
+local n4 = #requests
+p:handleRemote(remote("Phone", 90), "open")
+check(shown[#shown].kind == "choose" and shown[#shown].text:find("Here: 25 %, 3 days ago", 1, true),
+    "the conflict says when it was really read here, not \"just now\"")
+p:onPageUpdate()
+shown[#shown].cancel_callback()
+check(#requests == n4 and #scheduled == 0 and sync_state.read_at == three_days_ago, "seeing it and cancelling sends nothing and changes no time")
+page_first = 101; p:onPageUpdate()
+check(#scheduled == 1 and p.last_move and sync_state.read_at >= os.time() - 1, "turning a page is reading")
+p:onCloseDocument()
+scheduled = {}
+
 
 -- 11. Highlights and notes
 state():saveSetting("live", false)

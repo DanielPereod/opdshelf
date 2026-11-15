@@ -860,6 +860,8 @@ function OPDShelf:onReaderReady()
     if not self.document then return end
     self.mark = self.ui.doc_settings:readSetting("opdshelf_mark")
     self.last_sent = self:position()
+    -- Where the book opened: reading starts when the position leaves it
+    self.seen_position = self.last_sent
     self:patchProgressSync()
     self.push_task = function() self:push() end
     self.started = true
@@ -887,12 +889,19 @@ function OPDShelf:onMoved()
             self:setMark(nil)
         end
     end
+    local progress = self:position()
     -- Moving to a position from another device is not reading
     if self.following and (self:showing(self.following) or (self.following_at and os.time() - self.following_at < 2)) then
         self.following_at = nil
+        self.seen_position = progress
         return
     end
     self.following = nil
+    -- KOReader also says the page changed when nothing moved: on opening the
+    -- book, laying it out again or drawing a dialog over it. Only a new
+    -- position is reading; otherwise "read just now" would be shown, and sent.
+    if progress == self.seen_position then return end
+    self.seen_position = progress
     self.last_move = os.time()
     local state = self:docState()
     if not state.moved then

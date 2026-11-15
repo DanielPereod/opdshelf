@@ -95,17 +95,49 @@
     // Two pages side by side from 600px, so wide margins keep the spread
     const rendition = book.renderTo('viewer', { width: '100%', height: '100%', spread: 'auto', minSpreadWidth: 600 });
 
+    // The page colour goes in one style sheet of each page, rewritten when it
+    // changes. (epub.js's themes add a sheet per colour and never take one out,
+    // so after trying them all the last one added won whatever was chosen.)
     const papers = {
       light: { background: '#ffffff', color: '#111111', link: '#111111' },
       gray: { background: '#e9e9e9', color: '#1e1e1e', link: '#1e1e1e' },
       dark: { background: '#0b0b0b', color: '#d0d0d0', link: '#ececec' },
     };
-    Object.entries(papers).forEach(([name, p]) => rendition.themes.register(name, {
-      'body': { 'background': p.background + ' !important', 'color': p.color + ' !important' },
-      'a': { 'color': p.link + ' !important' },
-    }));
-    rendition.themes.select(readerPaper());
-    document.addEventListener('paperchange', (e) => rendition.themes.select(e.detail.paper));
+    let paper = readerPaper();
+    const paperCss = () => {
+      const p = papers[paper] || papers.light;
+      const css = [
+        `html, body { background: ${p.background} !important; color: ${p.color} !important; }`,
+        `a, a * { color: ${p.link} !important; }`,
+      ];
+      if (paper === 'dark') {
+        // A book's own colours are meant for white paper: on a dark page its
+        // boxes, gray titles and dark text would be unreadable, so they follow
+        // the page; pictures get a light ground for line art without one
+        css.push(
+          `body *:not(a) { color: inherit !important; }`,
+          `body * { background-color: transparent !important; border-color: #3a3a3a !important; }`,
+          `img, svg { background-color: #e9e9e9 !important; }`,
+        );
+      }
+      return css.join('\n');
+    };
+    const injectPaper = (contents) => {
+      const doc = contents.document;
+      let style = doc.getElementById('opdshelf-paper');
+      if (!style) {
+        style = doc.createElement('style');
+        style.id = 'opdshelf-paper';
+      }
+      style.textContent = paperCss();
+      // Last in the head, after the book's own sheets
+      doc.head.append(style);
+    };
+    rendition.hooks.content.register(injectPaper);
+    document.addEventListener('paperchange', (e) => {
+      paper = e.detail.paper;
+      rendition.getContents().forEach(injectPaper);
+    });
 
     let fontSize = parseInt(storeGet('opdshelf:fontsize') || '100', 10);
     const applyFont = () => { rendition.themes.fontSize(fontSize + '%'); storeSet('opdshelf:fontsize', fontSize); };

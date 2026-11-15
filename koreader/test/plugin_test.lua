@@ -486,7 +486,11 @@ write(dir .. "/opdshelf_setup.json", setup)
 q = OPDShelf:new{ ui = ui, dialog = {}, view = {}, path = dir }
 check(state():readSetting("server") == "http://new.example" and state():readSetting("username") == "dani"
     and state():readSetting("password") == "pw" and q:ready(), "a plugin from the panel comes set up")
-check(q:version() == 202601010000 and Update.describe(q:version()) == "2026-01-01 00:00", "knows its version")
+check(q:installedVersion() == 202601010000 and Update.describe(q:installedVersion()) == "2026-01-01 00:00", "knows its version")
+-- KOReader's plugin loader copies the _meta.lua fields but name onto the plugin: none may hide a method
+for _, key in ipairs({ "version", "fullname", "description" }) do
+    check(OPDShelf[key] == nil, "no method is called like the _meta.lua field " .. key)
+end
 
 shown = {}
 respond(200, { koreader = { version = 202601010000 } })

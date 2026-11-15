@@ -53,9 +53,43 @@ local COVER_RATIO = 1.5 -- height / width of a book cover
 local function formatSize(bytes)
     if not bytes then return nil end
     if bytes >= 1024 * 1024 then
-        return string.format("%.1f MB", bytes / 1024 / 1024)
+        local text = string.format("%.1f MB", bytes / 1024 / 1024)
+        -- "1,6 MB" in Spanish
+        if _.spanish() then text = text:gsub("%.", ",") end
+        return text
     end
     return string.format("%d KB", math.max(1, math.floor(bytes / 1024)))
+end
+
+-- The names of the languages books are most often in; others show their code
+local LANGUAGES = {
+    es = "Spanish", en = "English", fr = "French", de = "German", it = "Italian", pt = "Portuguese",
+    ca = "Catalan", gl = "Galician", eu = "Basque", nl = "Dutch", ru = "Russian", ja = "Japanese",
+    zh = "Chinese", la = "Latin", el = "Greek", pl = "Polish", sv = "Swedish", ar = "Arabic",
+    spa = "Spanish", eng = "English", fre = "French", fra = "French", ger = "German", deu = "German",
+    ita = "Italian", por = "Portuguese", cat = "Catalan",
+}
+
+local function languageName(code)
+    if not code or code == "" then return nil end
+    local base = code:lower():match("^(%a+)")
+    local name = base and LANGUAGES[base]
+    return name and _(name) or code
+end
+
+-- A title cut to about `lines` lines of `face` at `width`, with an ellipsis,
+-- for places that cannot limit their lines themselves (a dialog's title)
+local function shortTitle(text, face, width, lines)
+    text = text or ""
+    local probe = TextWidget:new{ text = text, face = face }
+    local full = probe:getSize().w
+    probe:free()
+    local room = width * (lines or 2) * 0.9
+    if full <= room then return text end
+    local chars = {}
+    for c in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do chars[#chars + 1] = c end
+    local keep = math.max(1, math.floor(#chars * room / full) - 1)
+    return (table.concat(chars, "", 1, math.min(keep, #chars)):gsub("%s+$", "")) .. "…"
 end
 
 local function formatName(acquisition)
@@ -310,14 +344,34 @@ function Browser:localFile(entry)
     return path, lfs.attributes(path, "mode") == "file", acquisition
 end
 
--- How far a downloaded book was read here, from its KOReader settings
-local function readPercent(path)
-    local ok, percent = pcall(function()
+-- How far a downloaded book was read here, and whether it is finished, from its KOReader settings
+local function readState(path)
+    local ok, percent, finished = pcall(function()
         local DocSettings = require("docsettings")
         if not DocSettings:hasSidecarFile(path) then return nil end
-        return DocSettings:open(path):readSetting("percent_finished")
+        local settings = DocSettings:open(path)
+        local summary = settings:readSetting("summary") or {}
+        return settings:readSetting("percent_finished"), summary.status == "complete"
     end)
-    return ok and percent or nil
+    if not ok then return nil, false end
+    return percent, finished or false
+end
+
+local function readPercent(path)
+    return (readState(path))
+end
+
+-- What the library says of a book on this device: finished, how far read, or only downloaded
+function Browser:readingNote(entry)
+    local path, downloaded = self:localFile(entry)
+    if not downloaded then return nil end
+    local percent, finished = readState(path)
+    if finished then
+        return _("✓ Finished")
+    elseif percent and percent > 0 then
+        return T(_("%1 % read"), math.floor(percent * 100 + 0.5))
+    end
+    return _("✓ downloaded")
 end
 
 function Browser:statusLine(entry)
@@ -327,15 +381,7 @@ function Browser:statusLine(entry)
         parts[#parts + 1] = formatName(acquisition)
         parts[#parts + 1] = formatSize(acquisition.length)
     end
-    local path, downloaded = self:localFile(entry)
-    if downloaded then
-        local percent = readPercent(path)
-        if percent and percent > 0 then
-            parts[#parts + 1] = T(_("✓ read %1 %"), math.floor(percent * 100 + 0.5))
-        else
-            parts[#parts + 1] = _("✓ downloaded")
-        end
-    end
+    parts[#parts + 1] = self:readingNote(entry)
     local text = {}
     for _i, p in ipairs(parts) do
         if p and p ~= "" then text[#text + 1] = p end
@@ -415,7 +461,7 @@ function Browser:gridItem(entry, w, h)
     local padding = Size.padding.default
     local caption_face = Font:getFace("cfont", 14)
     local caption_h = 2 * caption_face.size + Size.padding.small
-    local status = entry.is_book and self:statusLine(entry):match("✓[^·]*")
+    local status = entry.is_book and self:readingNote(entry)
     local status_h = status and (caption_face.size + Size.padding.small) or 0
     local cover_h = h - 2 * padding - caption_h - status_h
     local cover_w = math.min(w - 2 * padding, math.floor(cover_h / COVER_RATIO))
@@ -843,12 +889,7 @@ function Browser:bookActions(entry)
         buttons[#buttons + 1] = item(_("Download only"), function() self:quickDownload(entry) end)
     end
     buttons[#buttons + 1] = item(_("Book details"), function() self:showDetails(entry) end)
-    dialog = ButtonDialog:new{
-        title = entry.title,
-        title_align = "center",
-        shrink_unneeded_width = true,
-        buttons = buttons,
-    }
+    dialog = ButtonDialog:new(Browser.holdDialog(entry.title, buttons))
     UIManager:show(dialog)
     return dialog
 end
@@ -925,7 +966,7 @@ function Browser:showDetails(entry)
         table.insert(info, VerticalSpan:new{ width = Size.padding.default })
     end
     line(nil, seriesLine(entry))
-    line(_("Language:"), entry.language)
+    line(_("Language:"), languageName(entry.language))
     line(_("Publisher:"), entry.publisher)
     line(_("Published:"), entry.issued and entry.issued:sub(1, 10))
     if #entry.categories > 0 then line(_("Subjects:"), table.concat(entry.categories, ", ")) end
@@ -1017,7 +1058,24 @@ function Browser:showDetails(entry)
     UIManager:show(details, "flashui")
 end
 
+--- What a book's hold menu is made of: wide enough for its title, which
+--- takes two lines at most (otherwise a narrow dialog puts a word per line).
+function Browser.holdDialog(title, buttons)
+    local width = math.floor(math.min(Screen:getWidth(), Screen:getHeight()) * 0.8)
+    return {
+        -- ButtonDialog's title face with its default info style
+        title = shortTitle(title, Font:getFace("infofont"), width - 4 * Size.padding.large, 2),
+        title_align = "center",
+        width = width,
+        buttons = buttons,
+    }
+end
+
 -- Shared with the home screen
+Browser.languageName = languageName
+Browser.formatSize = formatSize
+Browser.readState = readState
+Browser.shortTitle = shortTitle
 Browser.coverWidget = coverWidget
 Browser.Item = Item
 Browser.readPercent = readPercent

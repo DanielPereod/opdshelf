@@ -89,4 +89,17 @@ function Sync.ago(timestamp, now, _, T)
     return T(_("%1 days ago"), math.floor(seconds / 86400))
 end
 
+--- The same in a few letters, for captions: "now", "5 min", "3 h", "2 d".
+function Sync.shortAgo(timestamp, now, _, T)
+    local seconds = math.max(0, (now or os.time()) - (timestamp or 0))
+    if seconds < 60 then
+        return _("now")
+    elseif seconds < 3600 then
+        return T(_("%1 min"), math.floor(seconds / 60))
+    elseif seconds < 86400 then
+        return T(_("%1 h"), math.floor(seconds / 3600))
+    end
+    return T(_("%1 d"), math.floor(seconds / 86400))
+end
+
 return Sync

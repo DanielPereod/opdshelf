@@ -187,6 +187,42 @@ local es = {
     ["just now"] = "ahora mismo",
     ["✓ downloaded"] = "✓ descargado",
     ["✓ read %1 %"] = "✓ leído %1 %",
+    ["✓ Finished"] = "✓ Terminado",
+    -- Home screen
+    ["%1 min"] = "%1 min",
+    ["%1 h"] = "%1 h",
+    ["%1 h %2 min"] = "%1 h %2 min",
+    ["%1 d"] = "%1 d",
+    ["now"] = "ahora",
+    ["1 day"] = "1 día",
+    ["%1 days"] = "%1 días",
+    ["Today"] = "Hoy",
+    ["Streak"] = "Racha",
+    ["More"] = "Más",
+    ["Not set up: tap here to connect to your OPDShelf server."] = "Sin configurar: toca aquí para conectar con tu servidor de OPDShelf.",
+    ["Cannot reach the server: showing what is on this device"] = "No se puede contactar con el servidor: se muestra lo que hay en el dispositivo",
+    ["The server did not accept the username or password. Tap here to check them."] = "El servidor no aceptó el usuario o la contraseña. Toca aquí para revisarlos.",
+    ["1 page left"] = "Queda 1 página",
+    ["%1 pages left"] = "Quedan %1 páginas",
+    ["Continue"] = "Seguir",
+    ["Started"] = "Empezados",
+    ["Books you start, here or on your other devices, will show here."] = "Aquí aparecerán los libros que empieces, aquí o en tus otros dispositivos.",
+    ["on this device"] = "en este dispositivo",
+    ["in the library"] = "en la biblioteca",
+    ["1 book"] = "1 libro",
+    ["This book is no longer in the library."] = "Este libro ya no está en la biblioteca.",
+    ["KOReader"] = "KOReader",
+    ["File browser"] = "Explorador de archivos",
+    ["Favorites"] = "Favoritos",
+    ["Collections"] = "Colecciones",
+    ["File search"] = "Buscar archivos",
+    ["KOReader menu"] = "Menú de KOReader",
+    -- Languages of books
+    ["Spanish"] = "Español", ["English"] = "Inglés", ["French"] = "Francés", ["German"] = "Alemán",
+    ["Italian"] = "Italiano", ["Portuguese"] = "Portugués", ["Catalan"] = "Catalán", ["Galician"] = "Gallego",
+    ["Basque"] = "Euskera", ["Dutch"] = "Neerlandés", ["Russian"] = "Ruso", ["Japanese"] = "Japonés",
+    ["Chinese"] = "Chino", ["Latin"] = "Latín", ["Greek"] = "Griego", ["Polish"] = "Polaco",
+    ["Swedish"] = "Sueco", ["Arabic"] = "Árabe",
 }
 
 local function language()
@@ -206,4 +242,9 @@ end
 
 -- For the tests: which texts have a translation
 local M = setmetatable({ es = es }, { __call = function(_self, text) return translate(text) end })
+
+--- Whether texts are shown in Spanish (numbers then take a decimal comma).
+function M.spanish()
+    return language():match("^es") ~= nil
+end
 return M

@@ -80,4 +80,7 @@ check(decide{ remote = r("web", now, { manual = true }), ahead = true } == "ask"
 check(decide{ remote = r("phone", now), synced = r("phone", now), reason = "manual" } == "ask", "syncing by hand offers it again")
 check(Sync.ago(now - 30, now, function(s) return s end, function(s, n) return (s:gsub("%%1", n)) end) == "just now"
     and Sync.ago(now - 7200, now, function(s) return s end, function(s, n) return (s:gsub("%%1", n)) end) == "2 h ago", "says how long ago")
+local same, fill = function(s) return s end, function(s, n) return (s:gsub("%%1", n)) end
+check(Sync.shortAgo(now - 30, now, same, fill) == "now" and Sync.shortAgo(now - 300, now, same, fill) == "5 min"
+    and Sync.shortAgo(now - 7200, now, same, fill) == "2 h" and Sync.shortAgo(now - 3 * 86400, now, same, fill) == "3 d", "and in a few letters")
 print("all good")

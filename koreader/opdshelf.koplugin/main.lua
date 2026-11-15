@@ -15,7 +15,8 @@ OPDShelf for KOReader.
 - A library browser for the server's OPDS catalog, with covers as a list or
   a grid, search, book details and downloads.
 - A home screen that can replace KOReader's start screen: the book to
-  continue, the newest books on the server and the last ones read here.
+  continue, the books started on any device, the newest books on the server
+  and KOReader's own screens one tap away.
 - Comes set up when downloaded from the server's panel, updates itself from
   the server, and has a status screen with what is waiting to be sent.
 

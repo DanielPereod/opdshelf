@@ -353,4 +353,6 @@
     <string name="error_address">This is not a server address. Write it like 192.168.1.10:3000 or books.example.com.</string>
     <string name="error_port">The port, after the colon, must be a number from 1 to 65535, like 192.168.1.10:3000.</string>
     <string name="select_all">Select all</string>
+    <!-- On a cover tile with no picture, when the format is unknown -->
+    <string name="cover_book">Book</string>
 </resources>

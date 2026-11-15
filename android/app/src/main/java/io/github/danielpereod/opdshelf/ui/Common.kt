@@ -65,25 +65,27 @@ fun rememberImageLoader(): ImageLoader {
     return remember { ImageLoader.Builder(context).okHttpClient(context.app.api.client).crossfade(android.os.Build.FINGERPRINT != "robolectric").build() }
 }
 
-/** A cover, or a soft tile with the title on it when there is none. */
+/** A cover, or a soft tile with the title on it when there is none. Covers share one small radius. */
 @Composable
 fun Cover(model: Any?, title: String, label: String?, loader: ImageLoader, modifier: Modifier, large: Boolean = false) {
+    val shape = RoundedCornerShape(4.dp)
     Box(
-        modifier.clip(RoundedCornerShape(3.dp)).background(shelf.soft).border(1.dp, shelf.line, RoundedCornerShape(3.dp)),
+        modifier.clip(shape).background(shelf.soft).border(1.dp, shelf.line, shape),
         contentAlignment = Alignment.Center,
     ) {
         var loaded by remember(model) { mutableStateOf(false) }
-        if (!loaded) Column(Modifier.padding(if (large) 12.dp else 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        if (!loaded) Column(Modifier.padding(if (large) Space.m else Space.xs), horizontalAlignment = Alignment.CenterHorizontally) {
             if (large) {
                 Text(
-                    title, color = shelf.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                    title, color = shelf.fg, fontSize = TextSize.body, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold,
                     textAlign = TextAlign.Center, maxLines = 4, overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(Space.s))
             }
             Text(
-                (label ?: "BOOK").uppercase(), color = shelf.muted, fontSize = if (large) 10.sp else 8.sp,
-                fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp,
+                (label ?: stringResource(R.string.cover_book)).uppercase(), color = shelf.muted,
+                fontSize = if (large) TextSize.overline else 8.sp,
+                fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, maxLines = 1,
             )
         }
         if (model != null) {

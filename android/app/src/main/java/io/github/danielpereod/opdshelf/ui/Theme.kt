@@ -416,7 +416,7 @@ fun LabeledField(
                 if (autofill != null) Modifier.semantics { contentType = autofill } else Modifier,
             ),
         )
-        if (help != null) Text(help, color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
+        if (help != null) Text(help, color = if (isError) shelf.danger else shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
     }
 }
 

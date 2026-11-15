@@ -43,6 +43,15 @@ import io.github.danielpereod.opdshelf.R
 import io.github.danielpereod.opdshelf.data.ServerFolder
 
 /**
+ * Whether [name] can name one folder: not empty, and without the "/" or "\\" that would
+ * make folders inside folders, nor "." or "..".
+ */
+fun isFolderName(name: String): Boolean {
+    val trimmed = name.trim()
+    return trimmed.isNotEmpty() && '/' !in trimmed && '\\' !in trimmed && trimmed != "." && trimmed != ".."
+}
+
+/**
  * Where to move a book: one tap on a folder (or the library's top level) moves it there,
  * and a new name creates the folder and moves it in. [folders] is null while they load.
  */
@@ -56,6 +65,9 @@ fun FolderPickerDialog(
     heading: String = stringResource(R.string.move_to_folder),
 ) {
     var name by rememberSaveable { mutableStateOf("") }
+    val validName = isFolderName(name)
+    // Said only once something is typed, not for an empty field
+    val wrongName = name.isNotBlank() && !validName
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -91,17 +103,19 @@ fun FolderPickerDialog(
                     value = name,
                     onChange = { name = it },
                     placeholder = stringResource(R.string.folder_name),
+                    help = if (wrongName) stringResource(R.string.folder_name_one_level) else null,
+                    isError = wrongName,
                     imeAction = ImeAction.Done,
-                    onImeAction = { if (name.isNotBlank()) onPick(name.trim()) },
+                    onImeAction = { if (validName) onPick(name.trim()) },
                     capitalization = KeyboardCapitalization.Sentences,
                 )
             }
         },
         confirmButton = {
-            TextButton(onClick = { onPick(name.trim()) }, enabled = name.isNotBlank()) {
+            TextButton(onClick = { onPick(name.trim()) }, enabled = validName) {
                 Text(
                     stringResource(R.string.create_and_move),
-                    color = if (name.isNotBlank()) shelf.fg else shelf.muted, fontWeight = FontWeight.SemiBold,
+                    color = if (validName) shelf.fg else shelf.muted, fontWeight = FontWeight.SemiBold,
                 )
             }
         },
@@ -155,7 +169,8 @@ fun FolderNameDialog(title: String, confirm: String, onDone: (String) -> Unit, o
     }
     val focus = androidx.compose.runtime.remember { androidx.compose.ui.focus.FocusRequester() }
     androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
-    val valid = name.text.isNotBlank()
+    val valid = isFolderName(name.text)
+    val wrong = name.text.isNotBlank() && !valid
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title, color = shelf.fg) },
@@ -163,7 +178,7 @@ fun FolderNameDialog(title: String, confirm: String, onDone: (String) -> Unit, o
             Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
                 Text(stringResource(R.string.folder_name), color = shelf.fg, fontSize = TextSize.label, fontWeight = FontWeight.SemiBold)
                 androidx.compose.material3.OutlinedTextField(
-                    value = name, onValueChange = { name = it }, singleLine = true,
+                    value = name, onValueChange = { name = it }, singleLine = true, isError = wrong,
                     shape = RoundedCornerShape(6.dp),
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                         imeAction = ImeAction.Done, capitalization = KeyboardCapitalization.Sentences,
@@ -173,9 +188,14 @@ fun FolderNameDialog(title: String, confirm: String, onDone: (String) -> Unit, o
                         focusedBorderColor = shelf.fg, unfocusedBorderColor = shelf.lineStrong,
                         focusedContainerColor = shelf.pane, unfocusedContainerColor = shelf.pane,
                         cursorColor = shelf.fg, focusedTextColor = shelf.fg, unfocusedTextColor = shelf.fg,
+                        errorBorderColor = shelf.danger, errorContainerColor = shelf.pane, errorCursorColor = shelf.fg,
+                        errorTextColor = shelf.fg,
                     ),
                     modifier = Modifier.fillMaxWidth().focusRequester(focus),
                 )
+                if (wrong) {
+                    Text(stringResource(R.string.folder_name_one_level), color = shelf.danger, fontSize = TextSize.caption, lineHeight = 16.sp)
+                }
             }
         },
         confirmButton = {

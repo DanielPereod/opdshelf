@@ -92,9 +92,9 @@
     <string name="sort_progress">Progreso</string>
     <string name="start_reading">Empieza a leer</string>
     <string name="summary">Sinopsis</string>
-    <string name="sync_done">Posiciones sincronizadas %1$s</string>
-    <string name="sync_ready">Las posiciones se sincronizan solas</string>
-    <string name="sync_sending">Enviando posiciones…</string>
+    <string name="sync_done">Cambios sincronizados %1$s</string>
+    <string name="sync_ready">Los cambios se sincronizan solos</string>
+    <string name="sync_sending">Enviando cambios…</string>
     <string name="sync_now">Sincronizar</string>
     <string name="sync_explained">Por dónde vas en cada libro se guarda en este dispositivo y se envía al servidor en cuanto hay conexión. Al abrir un libro, la app va a la posición más reciente de cualquier dispositivo.</string>
     <string name="tab_home">Mis libros</string>
@@ -269,6 +269,7 @@
     <string name="share_highlight">Compartir subrayado</string>
     <string name="new_folder">Nueva carpeta</string>
     <string name="folder_name">Nombre de la carpeta</string>
+    <string name="folder_name_one_level">El nombre de una carpeta no puede llevar / ni \\.</string>
     <string name="create">Crear</string>
     <string name="folder_created">Carpeta %1$s creada</string>
     <string name="move_to_folder">Mover a carpeta</string>

@@ -258,7 +258,7 @@ pub async fn summary(State(state): State<AppState>) -> Response {
     months.reverse();
     let mut finished: BTreeMap<String, Vec<serde_json::Value>> =
         months.iter().map(|m| (m.clone(), Vec::new())).collect();
-    for (document, at) in stats.finished() {
+    for (document, at) in finished_books(stats.finished(), state.marks.all()) {
         let month = day_of(at).get(..7).unwrap_or_default().to_string();
         if let Some(list) = finished.get_mut(&month) {
             list.push(json!({ "document": document, "title": title(&document), "at": at }));
@@ -280,6 +280,27 @@ pub async fn summary(State(state): State<AppState>) -> Response {
         "finished": finished,
     }))
     .into_response()
+}
+
+/// When each book was finished: read to the end, or marked as read in the
+/// panel or the app. A book marked as unread after it was finished no longer
+/// counts.
+fn finished_books(read: BTreeMap<String, i64>, marks: HashMap<String, crate::marks::Mark>) -> BTreeMap<String, i64> {
+    use crate::marks::State as Mark;
+    let mut out = read;
+    for (document, mark) in marks {
+        match mark.state {
+            Mark::Read => {
+                out.entry(document).or_insert(mark.at);
+            }
+            Mark::Unread => {
+                if out.get(&document).is_some_and(|at| *at <= mark.at) {
+                    out.remove(&document);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Just today, for the e-reader's home screen.
@@ -337,6 +358,41 @@ mod tests {
         assert_eq!(s.day(&day_of(t)).seconds, 120);
         s.record("web", "doc", "c", 1.0, t + 9000);
         assert_eq!(s.finished()["doc"], t + 120);
+    }
+
+    #[test]
+    fn marks_count_as_finished_or_not() {
+        use crate::marks::{Mark, State};
+        let read: BTreeMap<String, i64> = [("a".to_string(), 100), ("b".to_string(), 100)].into();
+        let marks: HashMap<String, Mark> = [
+            // Finished before, so it keeps that date
+            (
+                "a".to_string(),
+                Mark {
+                    state: State::Read,
+                    at: 500,
+                },
+            ),
+            // Marked as not finished after finishing it
+            (
+                "b".to_string(),
+                Mark {
+                    state: State::Unread,
+                    at: 200,
+                },
+            ),
+            // Never read to the end here, but marked as finished
+            (
+                "c".to_string(),
+                Mark {
+                    state: State::Read,
+                    at: 300,
+                },
+            ),
+        ]
+        .into();
+        let finished = finished_books(read, marks);
+        assert_eq!(finished, [("a".to_string(), 100), ("c".to_string(), 300)].into());
     }
 
     #[test]

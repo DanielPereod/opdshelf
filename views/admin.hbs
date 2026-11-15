@@ -2375,6 +2375,11 @@
         source.addEventListener('annotations', (e) => {
           document.dispatchEvent(new CustomEvent('remoteannotations', { detail: JSON.parse(e.data) }));
         });
+        // A book marked as finished or not on another device, such as the Android app
+        source.addEventListener('marks', () => {
+          clearTimeout(pending);
+          pending = setTimeout(loadProgress, 300);
+        });
         source.addEventListener('resync', () => { loadProgress(); if (panelNotes) panelNotes.load(); });
         source.onerror = () => {
           source.close();

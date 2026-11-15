@@ -744,3 +744,111 @@ async fn highlights_sync_between_devices() {
     let (status, _) = app.api("GET", "/api/annotations/not-valid!", None).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn apps_mark_books_by_document_and_the_newest_mark_wins() {
+    let app = app();
+    let events = app
+        .app
+        .clone()
+        .oneshot(
+            Request::get(format!("/api/progress/events?documents={DOC}"))
+                .header(header::AUTHORIZATION, basic())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut events = events.into_body();
+    async fn next(body: &mut Body) -> String {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), body.frame())
+            .await
+            .expect("an event")
+            .unwrap()
+            .unwrap();
+        String::from_utf8(frame.into_data().unwrap().to_vec()).unwrap()
+    }
+    assert!(next(&mut events).await.starts_with("event: hello\n"));
+
+    // Marked as finished on a phone whose clock runs 10 minutes behind, an hour ago
+    let now = chrono::Utc::now().timestamp();
+    let (status, body) = app
+        .api(
+            "PUT",
+            "/api/marks",
+            Some(json!({ "documents": [DOC], "state": "read", "at": now - 600 - 3600, "sent_at": now - 600 })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let at = body["marks"][DOC]["at"].as_i64().unwrap();
+    assert!((at - (now - 3600)).abs() <= 2, "the time is put right: {body}");
+    assert_eq!(body["marks"][DOC]["state"], "read");
+    let event = next(&mut events).await;
+    assert!(event.starts_with("event: marks\n"), "{event}");
+    assert!(event.contains(r#""state":"read""#), "{event}");
+
+    // The panel sees it, by path and on the book
+    let (_, body) = app.api("GET", "/api/progress", None).await;
+    assert_eq!(body["marks"][0]["path"], "One.epub");
+    assert_eq!(body["marks"][0]["state"], "read");
+    let (_, body) = app.api("GET", &format!("/api/progress/{DOC}"), None).await;
+    assert_eq!(body["mark"]["state"], "read");
+
+    // An older mark sent late by another device loses, and says what won
+    let (_, body) = app
+        .api(
+            "PUT",
+            "/api/marks",
+            Some(json!({ "documents": [DOC], "state": "unread", "at": now - 7200, "sent_at": now })),
+        )
+        .await;
+    assert_eq!(body["marks"][DOC]["state"], "read");
+    // A newer one wins
+    let (_, body) = app
+        .api(
+            "PUT",
+            "/api/marks",
+            Some(json!({ "documents": [DOC], "state": "unread", "at": now, "sent_at": now })),
+        )
+        .await;
+    assert_eq!(body["marks"][DOC]["state"], "unread");
+
+    // Marked in the panel, without a time: always the newest
+    let (status, body) = app
+        .api(
+            "PUT",
+            "/api/marks",
+            Some(json!({ "paths": ["One.epub"], "state": "read" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["marks"][DOC]["state"], "read");
+
+    // Books marked as finished count in the statistics
+    let (_, stats) = app.api("GET", "/api/stats", None).await;
+    let finished: i64 = stats["finished"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["count"].as_i64().unwrap())
+        .sum();
+    assert_eq!(finished, 1, "{stats}");
+
+    // Ids that are not documents are refused; unknown paths are not found
+    let (status, _) = app
+        .api(
+            "PUT",
+            "/api/marks",
+            Some(json!({ "documents": ["../x"], "state": "read" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = app
+        .api(
+            "PUT",
+            "/api/marks",
+            Some(json!({ "paths": ["Nope.epub"], "state": "read" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

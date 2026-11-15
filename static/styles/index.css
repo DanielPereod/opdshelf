@@ -3018,19 +3018,19 @@ a.nav-item {
     row-gap: var(--sp-1);
   }
 
-  .toolbar h1 + .search + .spacer {
+  .toolbar > .search + .spacer {
     order: 1;
     flex-basis: 100%;
     height: 0;
   }
 
-  .toolbar h1 + .search,
+  .toolbar > .search,
   .toolbar .sort-select,
   .toolbar .select-btn {
     order: 2;
   }
 
-  .toolbar h1 + .search {
+  .toolbar > .search {
     flex: 1 1 120px;
     max-width: none;
   }

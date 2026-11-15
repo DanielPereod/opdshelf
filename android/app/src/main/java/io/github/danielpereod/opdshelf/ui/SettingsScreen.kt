@@ -105,8 +105,11 @@ fun SettingsScreen(library: LibraryViewModel, onSaved: () -> Unit, onDisconnect:
             )
             Spacer(Modifier.height(Space.m))
             Text(stringResource(R.string.sync_short), color = shelf.muted, fontSize = TextSize.label, lineHeight = 20.sp)
+            // KOReader syncs through the OPDShelf plugin, which the web panel hands out set up for this server
+            SectionTitle(stringResource(R.string.koreader_title), Modifier.padding(top = Space.xxl))
+            Text(stringResource(R.string.koreader_plugin), color = shelf.muted, fontSize = TextSize.label, lineHeight = 20.sp)
             if (settings.isConfigured) {
-                val url = settings.serverUrl + "/kosync"
+                val url = settings.serverUrl
                 val copied = stringResource(R.string.copied)
                 Spacer(Modifier.height(Space.l))
                 Row(
@@ -114,8 +117,8 @@ fun SettingsScreen(library: LibraryViewModel, onSaved: () -> Unit, onDisconnect:
                         .padding(start = Space.l, end = Space.xs, top = Space.s, bottom = Space.s),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(stringResource(R.string.koreader_url), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
+                    Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}) {
+                        Text(stringResource(R.string.koreader_manual), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
                         Text(url, color = shelf.fg, fontSize = TextSize.bodySmall, lineHeight = 20.sp, fontFamily = Mono)
                     }
                     IconButton(onClick = {
@@ -125,8 +128,6 @@ fun SettingsScreen(library: LibraryViewModel, onSaved: () -> Unit, onDisconnect:
                         Icon(Icons.Outlined.ContentCopy, stringResource(R.string.copy), tint = shelf.fg)
                     }
                 }
-                Spacer(Modifier.height(Space.s))
-                Text(stringResource(R.string.koreader_short), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
             }
 
             SectionTitle(stringResource(R.string.settings_storage), Modifier.padding(top = Space.xxl))

@@ -527,8 +527,11 @@ fun MoreMenu(
     actions: List<MenuAction>,
     modifier: Modifier = Modifier,
     onImage: Boolean = false,
+    /** Lets the caller open the menu too, e.g. on a long press of its row. */
+    state: androidx.compose.runtime.MutableState<Boolean>? = null,
 ) {
-    var open by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val own = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var open by (state ?: own)
     Box(modifier) {
         IconButton(onClick = { open = true }) {
             if (onImage) {

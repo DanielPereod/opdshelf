@@ -83,8 +83,12 @@ fun HomeScreen(
     showDetail: (LocalBook) -> Unit,
     goExplore: () -> Unit,
     modifier: Modifier,
+    openStats: () -> Unit = {},
 ) {
     val books by library.books.collectAsState()
+    val stats by library.stats.collectAsState()
+    // The day's reading may have changed on any device since last time
+    LaunchedEffect(Unit) { library.loadStats() }
     val status by library.syncStatus.collectAsState()
     val loader = rememberImageLoader()
     val context = LocalContext.current
@@ -198,6 +202,14 @@ fun HomeScreen(
                             current, loader, onRead = { openBook(current) }, onDetails = { showDetail(current) },
                             modifier = Modifier.widthIn(max = 720.dp),
                         )
+                    }
+                }
+            }
+            // Today's reading and the streak, leading to the statistics; nothing until there is some
+            if (query.isBlank() && filter == Filter.All && !selecting && stats.stats?.isEmpty == false) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Box(Modifier.fillMaxWidth()) {
+                        StatsStrip(stats, onOpen = openStats, modifier = Modifier.widthIn(max = 720.dp))
                     }
                 }
             }

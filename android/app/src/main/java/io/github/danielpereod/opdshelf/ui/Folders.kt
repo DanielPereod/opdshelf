@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -140,24 +141,46 @@ private fun FolderOption(
 
 /** Asks for the name of a new folder. */
 @Composable
-fun NewFolderDialog(onCreate: (String) -> Unit, onDismiss: () -> Unit) {
-    var name by rememberSaveable { mutableStateOf("") }
+fun NewFolderDialog(onCreate: (String) -> Unit, onDismiss: () -> Unit) = FolderNameDialog(
+    title = stringResource(R.string.new_folder), confirm = stringResource(R.string.create),
+    onDone = onCreate, onDismiss = onDismiss,
+)
+
+/** Asks for a folder's name: a new one, or a new name for one ([initial]). */
+@Composable
+fun FolderNameDialog(title: String, confirm: String, onDone: (String) -> Unit, onDismiss: () -> Unit, initial: String = "") {
+    var name by rememberSaveable(stateSaver = androidx.compose.ui.text.input.TextFieldValue.Saver) {
+        // The whole name selected, to type a new one straight away
+        mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(initial, androidx.compose.ui.text.TextRange(0, initial.length)))
+    }
+    val focus = androidx.compose.runtime.remember { androidx.compose.ui.focus.FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    val valid = name.text.isNotBlank()
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.new_folder), color = shelf.fg) },
+        title = { Text(title, color = shelf.fg) },
         text = {
-            LabeledField(
-                label = stringResource(R.string.folder_name),
-                value = name,
-                onChange = { name = it },
-                imeAction = ImeAction.Done,
-                onImeAction = { if (name.isNotBlank()) onCreate(name.trim()) },
-                capitalization = KeyboardCapitalization.Sentences,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
+                Text(stringResource(R.string.folder_name), color = shelf.fg, fontSize = TextSize.label, fontWeight = FontWeight.SemiBold)
+                androidx.compose.material3.OutlinedTextField(
+                    value = name, onValueChange = { name = it }, singleLine = true,
+                    shape = RoundedCornerShape(6.dp),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        imeAction = ImeAction.Done, capitalization = KeyboardCapitalization.Sentences,
+                    ),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { if (valid) onDone(name.text.trim()) }),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = shelf.fg, unfocusedBorderColor = shelf.lineStrong,
+                        focusedContainerColor = shelf.pane, unfocusedContainerColor = shelf.pane,
+                        cursorColor = shelf.fg, focusedTextColor = shelf.fg, unfocusedTextColor = shelf.fg,
+                    ),
+                    modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                )
+            }
         },
         confirmButton = {
-            TextButton(onClick = { onCreate(name.trim()) }, enabled = name.isNotBlank()) {
-                Text(stringResource(R.string.create), color = if (name.isNotBlank()) shelf.fg else shelf.muted, fontWeight = FontWeight.SemiBold)
+            TextButton(onClick = { onDone(name.text.trim()) }, enabled = valid) {
+                Text(confirm, color = if (valid) shelf.fg else shelf.muted, fontWeight = FontWeight.SemiBold)
             }
         },
         dismissButton = {

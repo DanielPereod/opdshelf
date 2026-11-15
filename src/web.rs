@@ -1486,10 +1486,13 @@ async fn info(
     let highlights = document
         .as_deref()
         .map_or(0, |d| state.annotations.list(d).iter().filter(|a| !a.deleted).count());
+    // A placeholder date (0101-01-01) is no date
+    let mut meta = book.meta.clone();
+    meta.date = meta.date.filter(|d| crate::metadata::plausible_date(d));
     let selection = json!({
         "book": book_json(&book),
         "document": document,
-        "meta": book.meta,
+        "meta": meta,
         "mime": book.mime,
         "tab": if notes { "notes" } else { "info" },
         "infoTab": !notes,

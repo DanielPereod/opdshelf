@@ -328,7 +328,8 @@ impl Feed {
         if let Some(publisher) = &book.meta.publisher {
             let _ = write!(e, "<dc:publisher>{}</dc:publisher>", escape(publisher));
         }
-        if let Some(issued) = &book.meta.date {
+        // Books read before dates were checked keep theirs in the index until edited
+        if let Some(issued) = book.meta.date.as_ref().filter(|d| crate::metadata::plausible_date(d)) {
             let _ = write!(e, "<dc:issued>{}</dc:issued>", escape(issued));
         }
         if let Some(identifier) = &book.meta.identifier {

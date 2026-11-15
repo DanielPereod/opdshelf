@@ -18,7 +18,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Info
@@ -208,24 +207,18 @@ fun HomeScreen(
                     SyncLine(status, onSync = { library.syncNow() })
                 }
             }
+            // The card and the strip span the grid as the rows of books under them do, so
+            // every block ends on the same right margin
             if (current != null && query.isBlank() && filter == Filter.All && !selecting) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    Box(Modifier.fillMaxWidth()) {
-                        // On a tablet, a larger card: the book to continue is what the screen is for
-                        ContinueCard(
-                            current, loader, onRead = { openBook(current) }, onDetails = { showDetail(current) },
-                            modifier = Modifier.widthIn(max = MaxContentWidth), large = wide,
-                        )
-                    }
+                    ContinueCard(current, loader, onRead = { openBook(current) }, onDetails = { showDetail(current) })
                 }
             }
             // Today's reading and the streak, leading to the statistics: there from the
             // server's first answer, even with no reading yet, so they can always be reached
             if (query.isBlank() && filter == Filter.All && !selecting && stats.stats != null) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    Box(Modifier.fillMaxWidth()) {
-                        StatsStrip(stats, onOpen = openStats, modifier = Modifier.widthIn(max = MaxContentWidth))
-                    }
+                    StatsStrip(stats, onOpen = openStats)
                 }
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -307,50 +300,90 @@ fun HomeScreen(
     }
 }
 
+/**
+ * How the card to continue is laid out in [widthDp] of content (inside its padding): a
+ * phone's small cover with the button under the text; from 480 dp a tablet's, larger
+ * cover, the description filling the width and the button at the bottom right, beside
+ * how far and where it was read, with more of the description on a wider card.
+ */
+data class ContinueLayout(val coverWidthDp: Int, val coverHeightDp: Int, val summaryLines: Int, val large: Boolean)
+
+fun continueLayout(widthDp: Float): ContinueLayout = when {
+    widthDp >= 840f -> ContinueLayout(coverWidthDp = 160, coverHeightDp = 240, summaryLines = 4, large = true)
+    widthDp >= 480f -> ContinueLayout(coverWidthDp = 140, coverHeightDp = 210, summaryLines = 3, large = true)
+    else -> ContinueLayout(coverWidthDp = 88, coverHeightDp = 132, summaryLines = 0, large = false)
+}
+
 @Composable
-private fun ContinueCard(book: LocalBook, loader: ImageLoader, onRead: () -> Unit, onDetails: () -> Unit, modifier: Modifier = Modifier, large: Boolean = false) {
+private fun ContinueCard(book: LocalBook, loader: ImageLoader, onRead: () -> Unit, onDetails: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val position = remember(book) { context.app.store.position(book.document)?.position }
     val settings = context.app.settings
-    Column(
+    androidx.compose.foundation.layout.BoxWithConstraints(
         modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(shelf.pane)
             .border(1.dp, shelf.line, RoundedCornerShape(12.dp))
             .clickable(onClickLabel = stringResource(R.string.details), onClick = onDetails)
             .padding(Space.l),
     ) {
+        val layout = continueLayout(maxWidth.value)
+        val large = layout.large
+        val coverHeight = layout.coverHeightDp.dp
+        val where = position?.takeIf { it.timestamp > 0 && it.device.isNotEmpty() }?.let {
+            // This device by the name it has now, not the model's code it was sent with once
+            val device = if (it.deviceId == settings.deviceId) settings.deviceName else it.device
+            stringResource(R.string.read_on, device, relativeTime(it.timestamp * 1000))
+        }
+        val status = listOfNotNull(percent(book.percentage), where).joinToString(" · ")
+        val button = stringResource(if (book.percentage > 0) R.string.continue_reading else R.string.read)
         Row {
             Cover(
                 book.coverFile?.let { File(context.app.store.booksDir, it) }, book.title,
-                book.format, loader, if (large) Modifier.size(width = 140.dp, height = 210.dp) else Modifier.size(width = 88.dp, height = 132.dp),
+                book.format, loader, Modifier.size(width = layout.coverWidthDp.dp, height = coverHeight),
                 large = large,
             )
-            Spacer(Modifier.width(Space.l))
-            Column(Modifier.weight(1f)) {
+            Spacer(Modifier.width(if (large) Space.xl else Space.l))
+            // As tall as the cover at least, so the progress and the button sit on its bottom edge
+            Column(Modifier.weight(1f).then(if (large) Modifier.heightIn(min = coverHeight) else Modifier)) {
                 Text(
                     book.title, color = shelf.fg, fontSize = if (large) TextSize.headline else TextSize.title, fontWeight = FontWeight.Bold,
-                    maxLines = 3, overflow = TextOverflow.Ellipsis, lineHeight = if (large) 28.sp else 26.sp,
+                    maxLines = if (large) 2 else 3, overflow = TextOverflow.Ellipsis, lineHeight = if (large) 28.sp else 26.sp,
                 )
                 if (book.authors.isNotEmpty()) {
                     Spacer(Modifier.height(Space.xs))
-                    Text(book.authors.joinToString(", "), color = shelf.muted, fontSize = TextSize.bodySmall, lineHeight = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        book.authors.joinToString(", "), color = shelf.muted, fontSize = if (large) TextSize.body else TextSize.bodySmall,
+                        lineHeight = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
                 }
-                Spacer(Modifier.height(Space.m))
-                ReadBar(book.percentage.toFloat(), Modifier.fillMaxWidth())
-                Spacer(Modifier.height(Space.s))
-                val where = position?.takeIf { it.timestamp > 0 && it.device.isNotEmpty() }?.let {
-                    // This device by the name it has now, not the model's code it was sent with once
-                    val device = if (it.deviceId == settings.deviceId) settings.deviceName else it.device
-                    stringResource(R.string.read_on, device, relativeTime(it.timestamp * 1000))
+                val summary = book.summary?.trim()?.takeIf { it.isNotEmpty() && layout.summaryLines > 0 }
+                if (summary != null) {
+                    Spacer(Modifier.height(Space.m))
+                    Text(
+                        summary, color = shelf.fg, fontSize = TextSize.bodySmall, lineHeight = 20.sp,
+                        maxLines = layout.summaryLines, overflow = TextOverflow.Ellipsis,
+                    )
                 }
-                Text(
-                    listOfNotNull(percent(book.percentage), where).joinToString(" · "),
-                    color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 2,
-                )
-                Spacer(Modifier.height(Space.l))
-                PrimaryButton(
-                    stringResource(if (book.percentage > 0) R.string.continue_reading else R.string.read),
-                    onRead, height = 48.dp,
-                )
+                if (large) {
+                    Spacer(Modifier.weight(1f))
+                    Spacer(Modifier.height(Space.l))
+                    ReadBar(book.percentage.toFloat(), Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(Space.m))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            status, color = shelf.muted, fontSize = TextSize.label, lineHeight = 18.sp, maxLines = 2,
+                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(Space.l))
+                        PrimaryButton(button, onRead, height = 48.dp)
+                    }
+                } else {
+                    Spacer(Modifier.height(Space.m))
+                    ReadBar(book.percentage.toFloat(), Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(Space.s))
+                    Text(status, color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 2)
+                    Spacer(Modifier.height(Space.l))
+                    PrimaryButton(button, onRead, height = 48.dp)
+                }
             }
         }
     }

@@ -3,7 +3,9 @@ package io.github.danielpereod.opdshelf.ui
 import io.github.danielpereod.opdshelf.data.friendlyDeviceName
 import io.github.danielpereod.opdshelf.data.publishedYear
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LayoutTest {
@@ -49,5 +51,35 @@ class LayoutTest {
         assertEquals("Xiaomi 23043RP34G", friendlyDeviceName("23043RP34G", " ", "Xiaomi", "23043RP34G"))
         assertEquals("Google Pixel 8", friendlyDeviceName(null, null, "Google", "Pixel 8"))
         assertEquals("Samsung SM-X200", friendlyDeviceName(null, null, "samsung", "SM-X200"))
+    }
+
+    @Test
+    fun theCardToContinueFillsATabletsWidth() {
+        // A phone 400 dp wide (16 dp margins, 16 dp of padding): small cover, button under the text
+        val phone = continueLayout(400f - 32f - 32f)
+        assertFalse(phone.large)
+        assertEquals(0, phone.summaryLines)
+        assertEquals(88, phone.coverWidthDp)
+        // The tablet in portrait (rail of 80 dp, 24 dp margins): larger cover, description, button at the end
+        val portrait = continueLayout(720f - 80f - 48f - 32f)
+        assertTrue(portrait.large)
+        assertEquals(140, portrait.coverWidthDp)
+        assertEquals(3, portrait.summaryLines)
+        // On its side the card spans the grid: the same layout with more of everything
+        val landscape = continueLayout(1152f - 80f - 48f - 32f)
+        assertTrue(landscape.large)
+        assertTrue(landscape.coverWidthDp > portrait.coverWidthDp)
+        assertTrue(landscape.summaryLines > portrait.summaryLines)
+        // Covers keep the tiles' 2:3
+        listOf(phone, portrait, landscape).forEach { assertEquals(it.coverWidthDp * 3, it.coverHeightDp * 2) }
+    }
+
+    @Test
+    fun everyTileKeepsTheBarsRoom() {
+        // What the bar shows; a tile with none still keeps its room (see BookTile)
+        assertEquals(0.4f, tileBar(downloading = 0.4f, finished = true, progress = 0.2))
+        assertEquals(1f, tileBar(downloading = null, finished = true, progress = 0.2))
+        assertEquals(0.2f, tileBar(downloading = null, finished = false, progress = 0.2))
+        assertNull(tileBar(downloading = null, finished = false, progress = null))
     }
 }

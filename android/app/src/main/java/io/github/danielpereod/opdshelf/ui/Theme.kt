@@ -52,6 +52,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.indication
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -463,10 +465,13 @@ fun LabeledField(
     }
 }
 
+/** How tall a [ReadBar] is, for a place that keeps its room without one. */
+val ReadBarHeight = 4.dp
+
 /** A thin black bar on a soft track: how far a book was read. */
 @Composable
 fun ReadBar(fraction: Float, modifier: Modifier = Modifier) {
-    Box(modifier.height(4.dp).clip(RoundedCornerShape(2.dp)).background(shelf.lineStrong.copy(alpha = 0.6f))) {
+    Box(modifier.height(ReadBarHeight).clip(RoundedCornerShape(2.dp)).background(shelf.lineStrong.copy(alpha = 0.6f))) {
         Box(Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0f, 1f)).background(shelf.fg))
     }
 }
@@ -556,6 +561,12 @@ data class MenuAction(
     val onClick: () -> Unit,
 )
 
+/** How far from a cover's corner its marks sit (⋮, selection, downloaded), on every tile. */
+val CoverBadgeInset = 8.dp
+
+/** The size of the ⋮ disc on a cover: small, so it hides little. */
+val CoverBadgeSize = 24.dp
+
 /** The ⋮ button of a book and the menu it opens. */
 @Composable
 fun MoreMenu(
@@ -569,17 +580,30 @@ fun MoreMenu(
     val own = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var open by (state ?: own)
     Box(modifier) {
-        IconButton(onClick = { open = true }) {
-            if (onImage) {
-                // A dark disc with a light ring: it reads on a dark cover, a light one and a placeholder alike
+        if (onImage) {
+            // A light disc with a dark icon and a soft shadow, as Material's filled tonal icon
+            // button, the same in light and dark: covers are pictures, not the theme's colours.
+            // Small and in the corner, [CoverBadgeInset] in as the tile's other marks, so it
+            // hides little of the cover; the finger still gets 48 dp around it.
+            val press = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+            Box(
+                Modifier.size(48.dp)
+                    .clickable(interactionSource = press, indication = null, role = androidx.compose.ui.semantics.Role.Button) { open = true },
+                contentAlignment = Alignment.TopEnd,
+            ) {
+                val disc = androidx.compose.foundation.shape.CircleShape
                 Box(
-                    Modifier.size(28.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xB3000000))
-                        .border(1.dp, Color(0x99FFFFFF), RoundedCornerShape(14.dp)),
+                    Modifier.padding(top = CoverBadgeInset, end = CoverBadgeInset).size(CoverBadgeSize)
+                        .shadow(2.dp, disc).clip(disc).background(Light.pane)
+                        .border(0.5.dp, Color(0x1F000000), disc)
+                        .indication(press, androidx.compose.material3.ripple()),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(androidx.compose.material.icons.Icons.Default.MoreVert, description, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Icon(androidx.compose.material.icons.Icons.Default.MoreVert, description, tint = Light.fg, modifier = Modifier.size(16.dp))
                 }
-            } else {
+            }
+        } else {
+            IconButton(onClick = { open = true }) {
                 Icon(androidx.compose.material.icons.Icons.Default.MoreVert, description, tint = shelf.muted)
             }
         }

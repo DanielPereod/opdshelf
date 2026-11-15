@@ -187,6 +187,14 @@ fun relativeTime(millis: Long): String = when (val age = ageOf(millis, System.cu
 fun percent(fraction: Double): String =
     java.text.NumberFormat.getPercentInstance(Locale.getDefault()).format(fraction.coerceIn(0.0, 1.0))
 
+/** What a tile's bar shows: how far it downloaded, else read (full when finished); null for no bar. */
+fun tileBar(downloading: Float?, finished: Boolean, progress: Double?): Float? = when {
+    downloading != null -> downloading
+    finished -> 1f
+    progress != null -> progress.toFloat()
+    else -> null
+}
+
 /** A book of a grid: cover with the reading bar under it, title and author. */
 @Composable
 fun BookTile(
@@ -225,7 +233,7 @@ fun BookTile(
             )
             if (selected != null) {
                 Box(
-                    Modifier.align(Alignment.TopStart).padding(Space.s).size(28.dp).clip(RoundedCornerShape(14.dp))
+                    Modifier.align(Alignment.TopStart).padding(CoverBadgeInset).size(28.dp).clip(RoundedCornerShape(14.dp))
                         .background(if (selected) shelf.fg else shelf.bg.copy(alpha = 0.85f))
                         .border(2.dp, shelf.fg, RoundedCornerShape(14.dp)),
                     contentAlignment = Alignment.Center,
@@ -236,7 +244,7 @@ fun BookTile(
             if (downloaded || downloading != null) {
                 val description = stringResource(R.string.downloaded_mark)
                 Box(
-                    Modifier.align(Alignment.BottomEnd).padding(Space.s).size(24.dp).clip(RoundedCornerShape(12.dp))
+                    Modifier.align(Alignment.BottomEnd).padding(CoverBadgeInset).size(24.dp).clip(RoundedCornerShape(12.dp))
                         .background(shelf.fg).semantics { contentDescription = description },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -248,11 +256,10 @@ fun BookTile(
                 MoreMenu(stringResource(R.string.more_options, title), menu, Modifier.align(Alignment.TopEnd), onImage = true)
             }
         }
-        when {
-            downloading != null -> ReadBar(downloading, Modifier.fillMaxWidth().padding(top = Space.s))
-            finished -> ReadBar(1f, Modifier.fillMaxWidth().padding(top = Space.s))
-            progress != null -> ReadBar(progress.toFloat(), Modifier.fillMaxWidth().padding(top = Space.s))
-        }
+        // Every tile keeps the bar's room, so the titles of a row share a line whether a book has one or not
+        val bar = tileBar(downloading, finished, progress)
+        if (bar != null) ReadBar(bar, Modifier.fillMaxWidth().padding(top = Space.s))
+        else Spacer(Modifier.padding(top = Space.s).height(ReadBarHeight))
         Spacer(Modifier.height(Space.s))
         Text(title, color = shelf.fg, fontSize = TextSize.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 20.sp)
         if (authors.isNotEmpty()) {

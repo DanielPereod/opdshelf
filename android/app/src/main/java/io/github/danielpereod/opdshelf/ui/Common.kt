@@ -66,9 +66,12 @@ fun rememberImageLoader(): ImageLoader {
     return remember { ImageLoader.Builder(context).okHttpClient(context.app.api.client).crossfade(android.os.Build.FINGERPRINT != "robolectric").build() }
 }
 
-/** A cover, or a soft tile with the title on it when there is none. Covers share one small radius. */
+/**
+ * A cover, or a soft tile with the title on it when there is none. Covers share one small radius.
+ * [placeholder] is what the tile says instead of the title, for a tile whose caption already has it.
+ */
 @Composable
-fun Cover(model: Any?, title: String, label: String?, loader: ImageLoader, modifier: Modifier, large: Boolean = false) {
+fun Cover(model: Any?, title: String, label: String?, loader: ImageLoader, modifier: Modifier, large: Boolean = false, placeholder: String? = null) {
     val shape = RoundedCornerShape(4.dp)
     BoxWithConstraints(
         modifier.clip(shape).background(shelf.soft).border(1.dp, shelf.line, shape),
@@ -79,7 +82,7 @@ fun Cover(model: Any?, title: String, label: String?, loader: ImageLoader, modif
         if (!loaded) Column(Modifier.padding(if (large) Space.m else Space.xs), horizontalAlignment = Alignment.CenterHorizontally) {
             if (text.titleSp != null) {
                 Text(
-                    title, color = shelf.fg, fontSize = text.titleSp.sp, lineHeight = text.titleLineSp.sp, fontWeight = FontWeight.SemiBold,
+                    placeholder ?: title, color = shelf.fg, fontSize = text.titleSp.sp, lineHeight = text.titleLineSp.sp, fontWeight = FontWeight.SemiBold,
                     textAlign = TextAlign.Center, maxLines = text.titleLines, overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(if (large) Space.s else Space.xs))
@@ -109,10 +112,17 @@ data class PlaceholderText(val titleSp: Int?, val titleLineSp: Int, val titleLin
  * list's small cover, whose row has the title beside it.
  */
 fun placeholderText(widthDp: Float, large: Boolean): PlaceholderText = when {
-    large || widthDp >= 120f -> PlaceholderText(titleSp = 15, titleLineSp = 20, titleLines = 4, tagSp = 11)
+    large -> PlaceholderText(titleSp = 15, titleLineSp = 20, titleLines = 4, tagSp = 11)
+    // Wide grid tiles: three lines at most, so a row of tiles stays even
+    widthDp >= 120f -> PlaceholderText(titleSp = 15, titleLineSp = 20, titleLines = 3, tagSp = 11)
     widthDp >= 64f -> PlaceholderText(titleSp = 12, titleLineSp = 16, titleLines = 3, tagSp = 10)
     else -> PlaceholderText(titleSp = null, titleLineSp = 0, titleLines = 0, tagSp = 10)
 }
+
+/** What a tile without a picture says when its caption has the title: the author, else the title's initials. */
+fun placeholderLine(title: String, authors: List<String>): String =
+    authors.firstOrNull { it.isNotBlank() }?.trim() ?: title.split(Regex("[\\s\\p{Punct}]+")).filter { it.isNotEmpty() }
+        .take(2).joinToString("") { it.take(1).uppercase() }.ifEmpty { "?" }
 
 /** Whether every one of [visible] is picked. */
 fun allPicked(picked: List<String>, visible: List<String>): Boolean =
@@ -210,6 +220,8 @@ fun BookTile(
                 cover, title, format, loader,
                 Modifier.fillMaxWidth().aspectRatio(2f / 3f).graphicsLayer { scaleX = scale; scaleY = scale }
                     .then(if (selected == true) Modifier.border(3.dp, shelf.fg, RoundedCornerShape(6.dp)) else Modifier),
+                // The title is in the caption below: the tile says who wrote it
+                placeholder = placeholderLine(title, authors),
             )
             if (selected != null) {
                 Box(

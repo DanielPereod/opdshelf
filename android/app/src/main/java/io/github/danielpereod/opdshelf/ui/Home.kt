@@ -211,18 +211,20 @@ fun HomeScreen(
             if (current != null && query.isBlank() && filter == Filter.All && !selecting) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Box(Modifier.fillMaxWidth()) {
+                        // On a tablet, a larger card: the book to continue is what the screen is for
                         ContinueCard(
                             current, loader, onRead = { openBook(current) }, onDetails = { showDetail(current) },
-                            modifier = Modifier.widthIn(max = 720.dp),
+                            modifier = Modifier.widthIn(max = MaxContentWidth), large = wide,
                         )
                     }
                 }
             }
-            // Today's reading and the streak, leading to the statistics; nothing until there is some
-            if (query.isBlank() && filter == Filter.All && !selecting && stats.stats?.isEmpty == false) {
+            // Today's reading and the streak, leading to the statistics: there from the
+            // server's first answer, even with no reading yet, so they can always be reached
+            if (query.isBlank() && filter == Filter.All && !selecting && stats.stats != null) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Box(Modifier.fillMaxWidth()) {
-                        StatsStrip(stats, onOpen = openStats, modifier = Modifier.widthIn(max = 720.dp))
+                        StatsStrip(stats, onOpen = openStats, modifier = Modifier.widthIn(max = MaxContentWidth))
                     }
                 }
             }
@@ -306,9 +308,10 @@ fun HomeScreen(
 }
 
 @Composable
-private fun ContinueCard(book: LocalBook, loader: ImageLoader, onRead: () -> Unit, onDetails: () -> Unit, modifier: Modifier = Modifier) {
+private fun ContinueCard(book: LocalBook, loader: ImageLoader, onRead: () -> Unit, onDetails: () -> Unit, modifier: Modifier = Modifier, large: Boolean = false) {
     val context = LocalContext.current
     val position = remember(book) { context.app.store.position(book.document)?.position }
+    val settings = context.app.settings
     Column(
         modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(shelf.pane)
             .border(1.dp, shelf.line, RoundedCornerShape(12.dp))
@@ -318,11 +321,15 @@ private fun ContinueCard(book: LocalBook, loader: ImageLoader, onRead: () -> Uni
         Row {
             Cover(
                 book.coverFile?.let { File(context.app.store.booksDir, it) }, book.title,
-                book.format, loader, Modifier.size(width = 88.dp, height = 132.dp),
+                book.format, loader, if (large) Modifier.size(width = 140.dp, height = 210.dp) else Modifier.size(width = 88.dp, height = 132.dp),
+                large = large,
             )
             Spacer(Modifier.width(Space.l))
             Column(Modifier.weight(1f)) {
-                Text(book.title, color = shelf.fg, fontSize = TextSize.title, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis, lineHeight = 26.sp)
+                Text(
+                    book.title, color = shelf.fg, fontSize = if (large) TextSize.headline else TextSize.title, fontWeight = FontWeight.Bold,
+                    maxLines = 3, overflow = TextOverflow.Ellipsis, lineHeight = if (large) 28.sp else 26.sp,
+                )
                 if (book.authors.isNotEmpty()) {
                     Spacer(Modifier.height(Space.xs))
                     Text(book.authors.joinToString(", "), color = shelf.muted, fontSize = TextSize.bodySmall, lineHeight = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -331,7 +338,9 @@ private fun ContinueCard(book: LocalBook, loader: ImageLoader, onRead: () -> Uni
                 ReadBar(book.percentage.toFloat(), Modifier.fillMaxWidth())
                 Spacer(Modifier.height(Space.s))
                 val where = position?.takeIf { it.timestamp > 0 && it.device.isNotEmpty() }?.let {
-                    stringResource(R.string.read_on, it.device, relativeTime(it.timestamp * 1000))
+                    // This device by the name it has now, not the model's code it was sent with once
+                    val device = if (it.deviceId == settings.deviceId) settings.deviceName else it.device
+                    stringResource(R.string.read_on, device, relativeTime(it.timestamp * 1000))
                 }
                 Text(
                     listOfNotNull(percent(book.percentage), where).joinToString(" · "),

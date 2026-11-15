@@ -198,14 +198,31 @@ val isWide: Boolean
 
 /** The narrowest a book of a grid gets: wider with large fonts, so titles still fit. */
 val gridCellWidth: Dp
-    @Composable get() {
-        val scale = androidx.compose.ui.platform.LocalDensity.current.fontScale
-        val base = if (isWide) 128.dp else 96.dp
-        return base * maxOf(1f, scale * 0.75f)
-    }
+    @Composable get() = gridMinCellDp(
+        androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp,
+        androidx.compose.ui.platform.LocalDensity.current.fontScale,
+    ).dp
+
+/**
+ * The narrowest tile of a book grid on a screen [screenWidthDp] wide: 96 dp on
+ * phones, 140 dp from 600 dp (tablets, foldables, phones on their side), so a
+ * tablet shows real covers rather than a stretched phone's many small ones.
+ * Larger fonts make it wider, so titles still fit.
+ */
+fun gridMinCellDp(screenWidthDp: Int, fontScale: Float): Float {
+    val base = if (screenWidthDp >= 600) 140f else 96f
+    return base * maxOf(1f, fontScale * 0.75f)
+}
+
+/** How many columns a grid of tiles at least [minCellDp] wide gets in [availableDp], [spacingDp] apart (as GridCells.Adaptive). */
+fun gridColumns(availableDp: Float, minCellDp: Float, spacingDp: Float): Int =
+    maxOf(1, ((availableDp + spacingDp) / (minCellDp + spacingDp)).toInt())
 
 /** Text and forms stay readable on wide screens: about 75 characters per line at most. */
 val ReadableWidth = 640.dp
+
+/** The widest a screen's content gets (settings, statistics, details), centred on wide screens. */
+val MaxContentWidth = 840.dp
 
 /** Side margin of a screen: 16 dp on phones, 24 dp on tablets. */
 val edgePadding: Dp
@@ -554,7 +571,12 @@ fun MoreMenu(
     Box(modifier) {
         IconButton(onClick = { open = true }) {
             if (onImage) {
-                Box(Modifier.size(28.dp).clip(RoundedCornerShape(14.dp)).background(Color(0x99000000)), contentAlignment = Alignment.Center) {
+                // A dark disc with a light ring: it reads on a dark cover, a light one and a placeholder alike
+                Box(
+                    Modifier.size(28.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xB3000000))
+                        .border(1.dp, Color(0x99FFFFFF), RoundedCornerShape(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Icon(androidx.compose.material.icons.Icons.Default.MoreVert, description, tint = Color.White, modifier = Modifier.size(18.dp))
                 }
             } else {

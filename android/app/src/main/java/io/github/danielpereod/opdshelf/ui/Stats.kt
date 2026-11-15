@@ -79,18 +79,20 @@ fun durationText(seconds: Long): String {
 private fun locale(): Locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
 
 /**
- * The line on My books that leads to the statistics: "Today 40 min · Streak of 12 days".
- * Nothing at all while there is nothing to show.
+ * The line on My books that leads to the statistics: "Today 40 min · Streak of 12 days",
+ * or "No reading yet today" on a server with no reading yet, so the statistics
+ * are always one tap away. Nothing until the server answered once.
  */
 @Composable
 fun StatsStrip(state: StatsState, onOpen: () -> Unit, modifier: Modifier = Modifier) {
     val stats = state.stats ?: return
-    if (stats.isEmpty) return
     // Offline with yesterday's numbers, "today" would be wrong: the strip only says when they are from
     val fresh = remember(state.fetchedAt) {
         java.time.Instant.ofEpochMilli(state.fetchedAt).atZone(java.time.ZoneId.systemDefault()).toLocalDate() == LocalDate.now()
     }
-    val text = if (fresh) listOfNotNull(
+    val text = if (fresh && stats.today.seconds <= 0 && stats.streak.current <= 0) {
+        stringResource(R.string.stats_no_reading_today)
+    } else if (fresh) listOfNotNull(
         stringResource(R.string.stats_today_short, durationText(stats.today.seconds)),
         stats.streak.current.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.stats_streak_short, it, it) },
     ).joinToString(" · ") else stringResource(R.string.reading_stats)
@@ -166,7 +168,7 @@ private fun StatsContent(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(Modifier.widthIn(max = 840.dp).fillMaxWidth().padding(horizontal = edgePadding, vertical = Space.l)) {
+        Column(Modifier.widthIn(max = MaxContentWidth).fillMaxWidth().padding(horizontal = edgePadding, vertical = Space.l)) {
             // Shown offline from the last time, and says from when
             if (state.error != null) {
                 Row(
@@ -258,6 +260,8 @@ private fun StatsContent(
                 },
                 maxLabel = pluralStringResource(R.plurals.book_count, maxMonth, maxMonth),
                 axis = axisLabels(months.map { it.first.format(monthShort) }),
+                // A flat line with "0 books" says nothing: a sentence instead
+                empty = stringResource(R.string.stats_finished_empty),
             )
 
             if (stats.topBooks.isNotEmpty()) {
@@ -329,9 +333,14 @@ private fun StatTile(label: String, value: String, detail: String, modifier: Mod
  * value; the highest value sits at the top line and a few dates under it give the scale.
  */
 @Composable
-private fun BarChart(values: List<Long>, descriptions: List<String>, maxLabel: String, axis: List<String>) {
+private fun BarChart(values: List<Long>, descriptions: List<String>, maxLabel: String, axis: List<String>, empty: String? = null) {
     val max = values.maxOrNull()?.coerceAtLeast(1) ?: 1
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(shelf.pane).border(1.dp, shelf.line, RoundedCornerShape(8.dp)).padding(Space.l)) {
+    val box = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(shelf.pane).border(1.dp, shelf.line, RoundedCornerShape(8.dp)).padding(Space.l)
+    if (empty != null && values.all { it <= 0 }) {
+        Text(empty, color = shelf.muted, fontSize = TextSize.bodySmall, lineHeight = 20.sp, modifier = box)
+        return
+    }
+    Column(box) {
         // Each bar says its own value, so the scale is for the eyes only
         Text(maxLabel, color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, modifier = Modifier.clearAndSetSemantics {})
         HorizontalDivider(color = shelf.line, modifier = Modifier.padding(top = Space.xs))
@@ -344,17 +353,20 @@ private fun BarChart(values: List<Long>, descriptions: List<String>, maxLabel: S
                 val description = descriptions.getOrElse(i) { "" }
                 BoxWithConstraints(Modifier.weight(1f).fillMaxHeight().semantics { contentDescription = description }) {
                     val height = if (value > 0) maxOf(maxHeight * (value.toFloat() / max), 2.dp) else 2.dp
+                    // A bar no wider than a bar should be, standing on the baseline even when it is the only one
                     Box(
-                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(height)
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().widthIn(max = 28.dp).height(height)
                             .clip(RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
                             .background(if (value > 0) shelf.fg else shelf.lineStrong.copy(alpha = 0.4f)),
                     )
                 }
             }
         }
-        HorizontalDivider(color = shelf.lineStrong)
+        // The baseline the bars stand on, with the scale's zero at its start
+        HorizontalDivider(thickness = 1.5.dp, color = shelf.muted)
         Row(Modifier.fillMaxWidth().padding(top = Space.xs), horizontalArrangement = Arrangement.SpaceBetween) {
-            axis.forEach {
+            val labels = if (axis.size == 1) axis + "" else axis
+            labels.forEach {
                 Text(it, color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 1, modifier = Modifier.clearAndSetSemantics {})
             }
         }

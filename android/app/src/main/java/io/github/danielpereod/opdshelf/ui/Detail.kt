@@ -3,6 +3,7 @@ package io.github.danielpereod.opdshelf.ui
 import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Folder
 import io.github.danielpereod.opdshelf.data.serverPath
+import io.github.danielpereod.opdshelf.data.publishedYear
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.aspectRatio
@@ -229,7 +230,8 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
                 MetaRow(stringResource(R.string.meta_series), m.seriesIndex?.let { stringResource(R.string.meta_series_number, s, it) } ?: s)
             }
             m.publisher?.let { MetaRow(stringResource(R.string.meta_publisher), it) }
-            m.issued?.let { MetaRow(stringResource(R.string.meta_issued), it.take(4).takeIf { y -> y.all(Char::isDigit) } ?: it) }
+            // Only a real year: Calibre writes 0101-01-01 when it does not know
+            publishedYear(m.issued)?.let { MetaRow(stringResource(R.string.meta_issued), it) }
             m.language?.let { code ->
                 val name = java.util.Locale.forLanguageTag(code).getDisplayLanguage(java.util.Locale.getDefault())
                     .replaceFirstChar { it.titlecase(java.util.Locale.getDefault()) }.ifEmpty { code }
@@ -329,7 +331,7 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
                     }
                 }
             } else {
-                Column(Modifier.widthIn(max = ReadableWidth).fillMaxWidth().padding(horizontal = edgePadding, vertical = Space.l)) {
+                Column(Modifier.widthIn(max = MaxContentWidth).fillMaxWidth().padding(horizontal = edgePadding, vertical = Space.l)) {
                     // With very large fonts the title goes under the cover instead of beside it
                     val stacked = androidx.compose.ui.platform.LocalDensity.current.fontScale >= 1.5f && !isWide
                     if (stacked) {

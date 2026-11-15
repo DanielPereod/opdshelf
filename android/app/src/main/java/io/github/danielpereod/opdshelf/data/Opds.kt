@@ -43,6 +43,16 @@ data class BookMeta(
     val isEmpty get() = publisher == null && issued == null && language == null && series == null && subjects.isEmpty()
 }
 
+/**
+ * The year a book was published, from the catalog's date ("2019-05-01",
+ * "2019"), or null when it is not a real one: Calibre writes 0101-01-01 for
+ * "unknown", and some books say year 0 or one far ahead.
+ */
+fun publishedYear(issued: String?, thisYear: Int = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)): String? {
+    val year = Regex("""(?<!\d)(\d{4})(?!\d)""").find(issued ?: return null)?.groupValues?.get(1) ?: return null
+    return year.takeIf { it.toInt() in 1000..thisYear + 1 }
+}
+
 data class Acquisition(val url: String, val type: String, val length: Long?, val format: String?)
 
 private const val ACQUISITION = "http://opds-spec.org/acquisition"

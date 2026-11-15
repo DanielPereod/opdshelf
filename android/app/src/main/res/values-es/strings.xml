@@ -321,6 +321,8 @@
     <string name="duration_hours">%1$d h</string>
     <string name="duration_hours_minutes">%1$d h %2$d min</string>
     <string name="stats_today_short">Hoy %1$s</string>
+    <string name="stats_no_reading_today">Aún sin lectura hoy</string>
+    <string name="stats_finished_empty">Aún no has terminado ningún libro en los últimos 12 meses. Aparecerán aquí cuando llegues al final de uno o lo marques como terminado.</string>
     <plurals name="stats_streak_short"><item quantity="one">Racha de %1$d día</item><item quantity="many">Racha de %1$d días</item><item quantity="other">Racha de %1$d días</item></plurals>
     <string name="stats_cannot_load">No se pueden cargar las estadísticas</string>
     <string name="stats_empty_title">Aún no has leído nada</string>

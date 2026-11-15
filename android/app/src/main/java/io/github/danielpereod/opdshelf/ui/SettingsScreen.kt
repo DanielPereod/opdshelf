@@ -70,7 +70,7 @@ fun SettingsScreen(library: LibraryViewModel, onSaved: () -> Unit, onDisconnect:
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-          Column(Modifier.widthIn(max = ReadableWidth).fillMaxWidth().padding(horizontal = edgePadding, vertical = Space.s)) {
+          Column(Modifier.widthIn(max = MaxContentWidth).fillMaxWidth().padding(horizontal = edgePadding, vertical = Space.s)) {
             SectionTitle(stringResource(R.string.app_theme), Modifier.padding(top = Space.l))
             @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
             androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s)) {

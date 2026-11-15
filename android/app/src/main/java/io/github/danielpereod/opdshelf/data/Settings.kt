@@ -7,6 +7,7 @@ import java.util.UUID
 /** Server address and login, plus the id this device syncs positions under. */
 class Settings(context: Context) {
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private val resolver = context.applicationContext.contentResolver
 
     var serverUrl: String
         get() = prefs.getString("server", "") ?: ""
@@ -55,11 +56,30 @@ class Settings(context: Context) {
         get() = prefs.getString("device_name", null) ?: defaultDeviceName()
         set(value) = prefs.edit().putString("device_name", value.trim().ifEmpty { defaultDeviceName() }).apply()
 
+    /** The name the owner gave this device in the system's settings, else its maker and model. Changes nothing of the device id. */
     private fun defaultDeviceName(): String {
-        val model = Build.MODEL ?: "Android"
-        val maker = Build.MANUFACTURER ?: ""
-        return if (model.startsWith(maker, ignoreCase = true)) model else "$maker $model".trim()
+        // Both are readable without any permission; some makers keep only one of them
+        val named = runCatching {
+            android.provider.Settings.Global.getString(resolver, android.provider.Settings.Global.DEVICE_NAME)
+        }.getOrNull()
+        val bluetooth = runCatching { android.provider.Settings.Secure.getString(resolver, "bluetooth_name") }.getOrNull()
+        return friendlyDeviceName(named, bluetooth, Build.MANUFACTURER, Build.MODEL)
     }
+}
+
+/**
+ * A device's name as people know it: the one given in the system's settings
+ * ("Xiaomi Pad 6", "Dani's tablet"), or the Bluetooth one, unless they are
+ * just the model's code; else maker and model ("Xiaomi 23043RP34G").
+ */
+fun friendlyDeviceName(deviceName: String?, bluetoothName: String?, manufacturer: String?, model: String?): String {
+    val code = model?.trim().orEmpty()
+    fun usable(name: String?) = name?.trim()?.takeIf { it.isNotEmpty() && !it.equals(code, ignoreCase = true) }
+    usable(deviceName)?.let { return it }
+    usable(bluetoothName)?.let { return it }
+    val maker = manufacturer?.trim().orEmpty().replaceFirstChar { it.uppercase() }
+    val shown = code.ifEmpty { "Android" }
+    return if (shown.startsWith(maker, ignoreCase = true)) shown else "$maker $shown".trim()
 }
 
 /** "books.example.com/" → "https://books.example.com" */

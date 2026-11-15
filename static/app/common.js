@@ -35,6 +35,37 @@ function formatBytes(bytes) {
   return new Intl.NumberFormat(lang, { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(value) + ' ' + units[unit];
 }
 
+// "English" or "Inglés" for "en", in the page's language; the code itself
+// when the browser does not know it
+function languageName(code) {
+  const lang = document.documentElement.lang || 'en';
+  try {
+    const name = new Intl.DisplayNames([lang], { type: 'language' }).of(code.trim());
+    if (name && name.toLowerCase() !== code.trim().toLowerCase()) return name.charAt(0).toLocaleUpperCase(lang) + name.slice(1);
+  } catch {
+    // Not a language code, such as "English" written out
+  }
+  return code;
+}
+
+// Values the server writes as they are, shown in the page's language:
+// sizes (data-bytes), days (data-day) and language codes (data-lang-code)
+function localizeFields(root) {
+  const lang = document.documentElement.lang || undefined;
+  const day = new Intl.DateTimeFormat(lang, { day: 'numeric', month: 'short', year: 'numeric' });
+  root.querySelectorAll('[data-bytes]').forEach((el) => { el.textContent = formatBytes(el.dataset.bytes); });
+  root.querySelectorAll('[data-day]').forEach((el) => {
+    const date = new Date(el.dataset.day);
+    if (isNaN(date)) return;
+    el.textContent = day.format(date);
+    el.title = date.toLocaleString(lang);
+  });
+  root.querySelectorAll('[data-lang-code]').forEach((el) => {
+    el.textContent = languageName(el.dataset.langCode);
+    if (el.textContent !== el.dataset.langCode) el.title = el.dataset.langCode;
+  });
+}
+
 // A cover drawn from the title and author, for books without one: a muted
 // colour picked from the title, the title and the author. A real cover, when
 // it loads, is drawn on top of it.

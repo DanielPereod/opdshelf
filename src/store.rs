@@ -131,14 +131,27 @@ impl Store {
         }
     }
 
+    /// Moves the edits of a book, or with a folder those of every book in it,
+    /// to the new path. Covers are kept by file name, so they follow too.
     pub fn rename(&self, from: &str, to: &str) -> std::io::Result<()> {
         let moved = {
             let mut map = self.overrides.lock().unwrap();
-            map.remove(from).map(|value| map.insert(to.to_string(), value))
+            let keys: Vec<(String, String)> = map
+                .keys()
+                .filter_map(|k| crate::paths::relocate(k, from, to).map(|n| (k.clone(), n)))
+                .collect();
+            let moved: Vec<_> = keys
+                .iter()
+                .filter_map(|(k, n)| Some((n.clone(), map.remove(k)?)))
+                .collect();
+            let any = !moved.is_empty();
+            map.extend(moved);
+            any
         };
-        match moved {
-            Some(_) => self.save(),
-            None => Ok(()),
+        if moved {
+            self.save()
+        } else {
+            Ok(())
         }
     }
 
@@ -277,8 +290,23 @@ mod tests {
 
         let reopened = Store::open(dir.path());
         assert_eq!(reopened.get("a.epub"), None);
-        assert_eq!(reopened.get("b/a.epub"), Some(value));
+        assert_eq!(reopened.get("b/a.epub"), Some(value.clone()));
 
+        // A folder takes the edits of every book inside it along
+        let plain = MetaOverride {
+            title: Some("U".into()),
+            ..Default::default()
+        };
+        reopened.set("b/c/d.epub", plain.clone()).unwrap();
+        reopened.set("bb/e.epub", plain.clone()).unwrap();
+        reopened.rename("b", "x/b").unwrap();
+        let reopened = Store::open(dir.path());
+        assert_eq!(reopened.get("x/b/a.epub"), Some(value.clone()));
+        assert_eq!(reopened.get("x/b/c/d.epub"), Some(plain.clone()));
+        assert_eq!(reopened.get("bb/e.epub"), Some(plain));
+        assert_eq!(reopened.get("b/a.epub"), None);
+        assert!(dir.path().join("covers").join(&cover).exists());
+        reopened.rename("x/b", "b").unwrap();
         reopened.remove("b/a.epub").unwrap();
         assert!(!dir.path().join("covers").join(cover).exists());
     }

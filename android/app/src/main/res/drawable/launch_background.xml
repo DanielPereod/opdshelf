@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Before Android 12: the same start screen as the system splash, the mark on the app's background -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/bg" />
+    <item android:width="288dp" android:height="288dp" android:gravity="center">
+        <bitmap android:src="@drawable/splash_mark" android:filter="true" android:gravity="fill" />
+    </item>
+</layer-list>

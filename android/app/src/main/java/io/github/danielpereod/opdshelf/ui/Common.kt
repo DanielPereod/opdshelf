@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -65,25 +66,31 @@ fun rememberImageLoader(): ImageLoader {
     return remember { ImageLoader.Builder(context).okHttpClient(context.app.api.client).crossfade(android.os.Build.FINGERPRINT != "robolectric").build() }
 }
 
-/** A cover, or a soft tile with the title on it when there is none. */
+/**
+ * A cover, or a soft tile with the title on it when there is none. Covers share one small radius.
+ * [placeholder] is what the tile says instead of the title, for a tile whose caption already has it.
+ */
 @Composable
-fun Cover(model: Any?, title: String, label: String?, loader: ImageLoader, modifier: Modifier, large: Boolean = false) {
-    Box(
-        modifier.clip(RoundedCornerShape(3.dp)).background(shelf.soft).border(1.dp, shelf.line, RoundedCornerShape(3.dp)),
+fun Cover(model: Any?, title: String, label: String?, loader: ImageLoader, modifier: Modifier, large: Boolean = false, placeholder: String? = null) {
+    val shape = RoundedCornerShape(4.dp)
+    BoxWithConstraints(
+        modifier.clip(shape).background(shelf.soft).border(1.dp, shelf.line, shape),
         contentAlignment = Alignment.Center,
     ) {
         var loaded by remember(model) { mutableStateOf(false) }
-        if (!loaded) Column(Modifier.padding(if (large) 12.dp else 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            if (large) {
+        val text = placeholderText(maxWidth.value, large)
+        if (!loaded) Column(Modifier.padding(if (large) Space.m else Space.xs), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (text.titleSp != null) {
                 Text(
-                    title, color = shelf.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center, maxLines = 4, overflow = TextOverflow.Ellipsis,
+                    placeholder ?: title, color = shelf.fg, fontSize = text.titleSp.sp, lineHeight = text.titleLineSp.sp, fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center, maxLines = text.titleLines, overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(if (large) Space.s else Space.xs))
             }
             Text(
-                (label ?: "BOOK").uppercase(), color = shelf.muted, fontSize = if (large) 10.sp else 8.sp,
-                fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp,
+                (label ?: stringResource(R.string.cover_book)).uppercase(), color = shelf.muted,
+                fontSize = text.tagSp.sp,
+                fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, maxLines = 1,
             )
         }
         if (model != null) {
@@ -95,6 +102,35 @@ fun Cover(model: Any?, title: String, label: String?, loader: ImageLoader, modif
         }
     }
 }
+
+/** What a cover without a picture says: its title in [titleLines] lines (none when null) and the format as a small tag. */
+data class PlaceholderText(val titleSp: Int?, val titleLineSp: Int, val titleLines: Int, val tagSp: Int)
+
+/**
+ * The placeholder's text for a tile [widthDp] wide: the title as large tiles
+ * show it, three readable lines on a grid's tile, and only the format on a
+ * list's small cover, whose row has the title beside it.
+ */
+fun placeholderText(widthDp: Float, large: Boolean): PlaceholderText = when {
+    large -> PlaceholderText(titleSp = 15, titleLineSp = 20, titleLines = 4, tagSp = 11)
+    // Wide grid tiles: three lines at most, so a row of tiles stays even
+    widthDp >= 120f -> PlaceholderText(titleSp = 15, titleLineSp = 20, titleLines = 3, tagSp = 11)
+    widthDp >= 64f -> PlaceholderText(titleSp = 12, titleLineSp = 16, titleLines = 3, tagSp = 10)
+    else -> PlaceholderText(titleSp = null, titleLineSp = 0, titleLines = 0, tagSp = 10)
+}
+
+/** What a tile without a picture says when its caption has the title: the author, else the title's initials. */
+fun placeholderLine(title: String, authors: List<String>): String =
+    authors.firstOrNull { it.isNotBlank() }?.trim() ?: title.split(Regex("[\\s\\p{Punct}]+")).filter { it.isNotEmpty() }
+        .take(2).joinToString("") { it.take(1).uppercase() }.ifEmpty { "?" }
+
+/** Whether every one of [visible] is picked. */
+fun allPicked(picked: List<String>, visible: List<String>): Boolean =
+    visible.isNotEmpty() && visible.all { it in picked }
+
+/** Select all of [visible], or deselect them all when they are all picked already; picks not shown stay. */
+fun toggleAll(picked: List<String>, visible: List<String>): List<String> =
+    if (allPicked(picked, visible)) picked - visible.toSet() else (picked + visible).distinct()
 
 fun formatSize(bytes: Long?): String? {
     if (bytes == null || bytes <= 0) return null
@@ -108,13 +144,56 @@ fun formatSize(bytes: Long?): String? {
     return if (unit == 0) "$bytes B" else String.format(Locale.getDefault(), "%.1f %s", value, units[unit])
 }
 
-/** "5 min ago", "yesterday"… in the device's language. */
-fun relativeTime(millis: Long): String =
-    DateUtils.getRelativeTimeSpanString(millis, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
+/** How long ago a time was, in the unit it is said in. */
+sealed interface Age {
+    data object JustNow : Age
+    data class Minutes(val n: Int) : Age
+    data class Hours(val n: Int) : Age
+    data class Days(val n: Int) : Age
+    /** A week or more: said as a date. */
+    data object Older : Age
+}
+
+/** [millis] against [now]: under a minute (or in the future, from a clock ahead) is just now. */
+fun ageOf(millis: Long, now: Long): Age {
+    val seconds = (now - millis) / 1000
+    return when {
+        seconds < 60 -> Age.JustNow
+        seconds < 3600 -> Age.Minutes((seconds / 60).toInt())
+        seconds < 86400 -> Age.Hours((seconds / 3600).toInt())
+        seconds < 7 * 86400 -> Age.Days((seconds / 86400).toInt())
+        else -> Age.Older
+    }
+}
+
+/**
+ * "just now", "5 minutes ago", "3 days ago", or a date, in the device's
+ * language and in lower case, as it goes in the middle of a sentence
+ * ("Changes synced 4 minutes ago"); never "0 minutes ago".
+ */
+@Composable
+fun relativeTime(millis: Long): String = when (val age = ageOf(millis, System.currentTimeMillis())) {
+    Age.JustNow -> stringResource(R.string.time_just_now)
+    is Age.Minutes -> pluralStringResource(R.plurals.time_minutes_ago, age.n, age.n)
+    is Age.Hours -> pluralStringResource(R.plurals.time_hours_ago, age.n, age.n)
+    is Age.Days -> pluralStringResource(R.plurals.time_days_ago, age.n, age.n)
+    Age.Older -> DateUtils.formatDateTime(
+        androidx.compose.ui.platform.LocalContext.current, millis,
+        DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH,
+    )
+}
 
 /** "42 %" or "42%", as the device's language writes percentages. */
 fun percent(fraction: Double): String =
     java.text.NumberFormat.getPercentInstance(Locale.getDefault()).format(fraction.coerceIn(0.0, 1.0))
+
+/** What a tile's bar shows: how far it downloaded, else read (full when finished); null for no bar. */
+fun tileBar(downloading: Float?, finished: Boolean, progress: Double?): Float? = when {
+    downloading != null -> downloading
+    finished -> 1f
+    progress != null -> progress.toFloat()
+    else -> null
+}
 
 /** A book of a grid: cover with the reading bar under it, title and author. */
 @Composable
@@ -149,10 +228,12 @@ fun BookTile(
                 cover, title, format, loader,
                 Modifier.fillMaxWidth().aspectRatio(2f / 3f).graphicsLayer { scaleX = scale; scaleY = scale }
                     .then(if (selected == true) Modifier.border(3.dp, shelf.fg, RoundedCornerShape(6.dp)) else Modifier),
+                // The title is in the caption below: the tile says who wrote it
+                placeholder = placeholderLine(title, authors),
             )
             if (selected != null) {
                 Box(
-                    Modifier.align(Alignment.TopStart).padding(Space.s).size(28.dp).clip(RoundedCornerShape(14.dp))
+                    Modifier.align(Alignment.TopStart).padding(CoverBadgeInset).size(28.dp).clip(RoundedCornerShape(14.dp))
                         .background(if (selected) shelf.fg else shelf.bg.copy(alpha = 0.85f))
                         .border(2.dp, shelf.fg, RoundedCornerShape(14.dp)),
                     contentAlignment = Alignment.Center,
@@ -163,7 +244,7 @@ fun BookTile(
             if (downloaded || downloading != null) {
                 val description = stringResource(R.string.downloaded_mark)
                 Box(
-                    Modifier.align(Alignment.BottomEnd).padding(Space.s).size(24.dp).clip(RoundedCornerShape(12.dp))
+                    Modifier.align(Alignment.BottomEnd).padding(CoverBadgeInset).size(24.dp).clip(RoundedCornerShape(12.dp))
                         .background(shelf.fg).semantics { contentDescription = description },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -175,11 +256,10 @@ fun BookTile(
                 MoreMenu(stringResource(R.string.more_options, title), menu, Modifier.align(Alignment.TopEnd), onImage = true)
             }
         }
-        when {
-            downloading != null -> ReadBar(downloading, Modifier.fillMaxWidth().padding(top = Space.s))
-            finished -> ReadBar(1f, Modifier.fillMaxWidth().padding(top = Space.s))
-            progress != null -> ReadBar(progress.toFloat(), Modifier.fillMaxWidth().padding(top = Space.s))
-        }
+        // Every tile keeps the bar's room, so the titles of a row share a line whether a book has one or not
+        val bar = tileBar(downloading, finished, progress)
+        if (bar != null) ReadBar(bar, Modifier.fillMaxWidth().padding(top = Space.s))
+        else Spacer(Modifier.padding(top = Space.s).height(ReadBarHeight))
         Spacer(Modifier.height(Space.s))
         Text(title, color = shelf.fg, fontSize = TextSize.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 20.sp)
         if (authors.isNotEmpty()) {

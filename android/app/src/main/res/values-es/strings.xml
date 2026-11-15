@@ -62,7 +62,6 @@
     <string name="home_empty_title">Aún no hay libros en este dispositivo</string>
     <string name="home_empty_text">Descarga libros de tu biblioteca para leerlos aquí, también sin conexión.</string>
     <string name="home_hint">Toca un libro para leerlo. Pulsa ⋮ o mantenlo pulsado para ver más opciones.</string>
-    <string name="koreader_hint">En KOReader, usa %1$s como servidor de Progress sync, con el mismo usuario y contraseña.</string>
     <string name="left_on">Lo dejaste en %1$s</string>
     <string name="marked_on">Punto marcado en %1$s</string>
     <string name="no_results">Sin resultados</string>
@@ -93,9 +92,9 @@
     <string name="sort_progress">Progreso</string>
     <string name="start_reading">Empieza a leer</string>
     <string name="summary">Sinopsis</string>
-    <string name="sync_done">Posiciones sincronizadas %1$s</string>
-    <string name="sync_ready">Las posiciones se sincronizan solas</string>
-    <string name="sync_sending">Enviando posiciones…</string>
+    <string name="sync_done">Cambios sincronizados %1$s</string>
+    <string name="sync_ready">Los cambios se sincronizan solos</string>
+    <string name="sync_sending">Enviando cambios…</string>
     <string name="sync_now">Sincronizar</string>
     <string name="sync_explained">Por dónde vas en cada libro se guarda en este dispositivo y se envía al servidor en cuanto hay conexión. Al abrir un libro, la app va a la posición más reciente de cualquier dispositivo.</string>
     <string name="tab_home">Mis libros</string>
@@ -152,8 +151,6 @@
     <string name="theme_system">Sistema</string>
     <string name="copy">Copiar</string>
     <string name="copied">Copiado</string>
-    <string name="koreader_url">Servidor para KOReader</string>
-    <string name="koreader_short">En KOReader, úsalo como servidor de Progress sync con el mismo usuario y contraseña.</string>
     <string name="sync_short">Por dónde vas se guarda aquí y se envía al servidor cuando hay conexión.</string>
     <string name="remove_all">Quitar todos los descargados</string>
     <string name="remove_all_title">¿Quitar todos los libros de este dispositivo?</string>
@@ -272,6 +269,7 @@
     <string name="share_highlight">Compartir subrayado</string>
     <string name="new_folder">Nueva carpeta</string>
     <string name="folder_name">Nombre de la carpeta</string>
+    <string name="folder_name_one_level">El nombre de una carpeta no puede llevar / ni \\.</string>
     <string name="create">Crear</string>
     <string name="folder_created">Carpeta %1$s creada</string>
     <string name="move_to_folder">Mover a carpeta</string>
@@ -296,6 +294,67 @@
     <plurals name="upload_skipped"><item quantity="one">Se dejará fuera %1$d archivo.</item><item quantity="other">Se dejarán fuera %1$d archivos.</item></plurals>
     <plurals name="uploaded_count"><item quantity="one">%1$d libro añadido a %2$s</item><item quantity="other">%1$d libros añadidos a %2$s</item></plurals>
     <string name="scan_qr">Escanear código QR</string>
-    <string name="scan_not_opdshelf">Este código QR no es de OPDShelf. Escanea el que hay en Sincronización › Conecta tus apps del panel web.</string>
+    <string name="scan_not_opdshelf">Este código QR no es de OPDShelf. Escanea el que hay en Ajustes › Apps y conexiones del panel web.</string>
     <string name="scan_unavailable">Este dispositivo no puede escanear códigos. Abre el código QR con la app de la cámara o escribe los datos.</string>
+    <!-- Carpetas de la biblioteca -->
+    <string name="rename">Cambiar nombre</string>
+    <string name="rename_folder">Cambiar nombre de la carpeta</string>
+    <string name="move_to">Mover a…</string>
+    <string name="move_folder_to">Mover la carpeta a</string>
+    <string name="delete">Borrar</string>
+    <string name="delete_folder">Borrar carpeta</string>
+    <string name="delete_folder_title">¿Borrar «%1$s»?</string>
+    <string name="delete_folder_text">La carpeta está vacía, así que no se borra nada más con ella.</string>
+    <string name="folder_renamed">Carpeta renombrada a %1$s</string>
+    <string name="folder_deleted">Carpeta %1$s borrada</string>
+    <string name="error_folder_not_empty">Solo se pueden borrar carpetas vacías. Mueve antes sus libros a otro sitio.</string>
+    <string name="error_exists">Ahí ya hay una carpeta o un libro con ese nombre.</string>
+    <string name="error_invalid_name">Ese nombre no vale. Evita la / y nombres como . o ..</string>
+    <string name="error_into_itself">Una carpeta no puede ir dentro de sí misma ni de una de sus subcarpetas.</string>
+    <string name="error_not_found">Ya no está en el servidor. Desliza hacia abajo para actualizar la lista.</string>
+    <string name="download_selected">Descargar los seleccionados</string>
+    <plurals name="moved_count"><item quantity="one">%1$d libro movido a %2$s</item><item quantity="many">%1$d libros movidos a %2$s</item><item quantity="other">%1$d libros movidos a %2$s</item></plurals>
+    <plurals name="move_failed_count"><item quantity="one">%1$d no se ha podido mover</item><item quantity="many">%1$d no se han podido mover</item><item quantity="other">%1$d no se han podido mover</item></plurals>
+    <!-- Estadísticas de lectura -->
+    <string name="reading_stats">Estadísticas de lectura</string>
+    <string name="duration_minutes">%1$d min</string>
+    <string name="duration_hours">%1$d h</string>
+    <string name="duration_hours_minutes">%1$d h %2$d min</string>
+    <string name="stats_today_short">Hoy %1$s</string>
+    <string name="stats_no_reading_today">Aún sin lectura hoy</string>
+    <string name="stats_finished_empty">Aún no has terminado ningún libro en los últimos 12 meses. Aparecerán aquí cuando llegues al final de uno o lo marques como terminado.</string>
+    <plurals name="stats_streak_short"><item quantity="one">Racha de %1$d día</item><item quantity="many">Racha de %1$d días</item><item quantity="other">Racha de %1$d días</item></plurals>
+    <string name="stats_cannot_load">No se pueden cargar las estadísticas</string>
+    <string name="stats_empty_title">Aún no has leído nada</string>
+    <string name="stats_empty_text">El tiempo que leas aquí, en KOReader o en el lector web aparecerá aquí, con tu racha y los libros que termines.</string>
+    <string name="stats_offline">No se puede acceder al servidor. Mostrando las estadísticas de %1$s.</string>
+    <string name="stats_updated">Actualizado %1$s</string>
+    <string name="stats_today">Hoy</string>
+    <plurals name="stats_sessions"><item quantity="one">%1$d sesión</item><item quantity="many">%1$d sesiones</item><item quantity="other">%1$d sesiones</item></plurals>
+    <string name="stats_streak">Racha</string>
+    <plurals name="stats_days"><item quantity="one">%1$d día</item><item quantity="many">%1$d días</item><item quantity="other">%1$d días</item></plurals>
+    <string name="stats_longest">La más larga: %1$s</string>
+    <string name="stats_last_30">Últimos 30 días</string>
+    <plurals name="stats_reading_days"><item quantity="one">%1$d día con lectura</item><item quantity="many">%1$d días con lectura</item><item quantity="other">%1$d días con lectura</item></plurals>
+    <string name="stats_finished_year">Terminados este año</string>
+    <string name="stats_in_year">Libros en %1$s</string>
+    <string name="stats_per_day">Tiempo leído por día</string>
+    <string name="stats_per_month">Libros terminados por mes</string>
+    <string name="stats_top_books">Lo más leído en los últimos 30 días</string>
+    <string name="stats_bar">%1$s: %2$s</string>
+    <string name="stats_explained">Las calcula el servidor con lo que lees en todos tus dispositivos. Un día cuenta para la racha si lees al menos un minuto.</string>
+    <!-- KOReader -->
+    <string name="koreader_title">KOReader</string>
+    <string name="koreader_plugin">Descarga el plugin de OPDShelf para KOReader desde el panel web, en Ajustes › Apps y conexiones. Viene configurado para este servidor y sincroniza posiciones y subrayados por sí solo, así que no hace falta el Progress sync de KOReader.</string>
+    <string name="koreader_manual">Dirección del servidor, para configurar el plugin a mano</string>
+    <string name="time_just_now">ahora mismo</string>
+    <plurals name="time_minutes_ago"><item quantity="one">hace %1$d minuto</item><item quantity="many">hace %1$d minutos</item><item quantity="other">hace %1$d minutos</item></plurals>
+    <plurals name="time_hours_ago"><item quantity="one">hace %1$d hora</item><item quantity="many">hace %1$d horas</item><item quantity="other">hace %1$d horas</item></plurals>
+    <plurals name="time_days_ago"><item quantity="one">hace %1$d día</item><item quantity="many">hace %1$d días</item><item quantity="other">hace %1$d días</item></plurals>
+    <string name="error_address">Esto no es una dirección de servidor. Escríbela como 192.168.1.10:3000 o libros.ejemplo.com.</string>
+    <string name="error_port">El puerto, tras los dos puntos, debe ser un número del 1 al 65535, como en 192.168.1.10:3000.</string>
+    <string name="select_all">Seleccionar todo</string>
+    <string name="deselect_all">Deseleccionar todo</string>
+    <!-- On a cover tile with no picture, when the format is unknown -->
+    <string name="cover_book">Libro</string>
 </resources>

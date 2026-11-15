@@ -63,7 +63,6 @@
     <string name="home_empty_title">No books on this device yet</string>
     <string name="home_empty_text">Download books from your library to read them here, also offline.</string>
     <string name="home_hint">Tap a book to read it. Tap ⋮ or touch and hold it for more options.</string>
-    <string name="koreader_hint">In KOReader, use %1$s as the Progress sync server, with the same username and password.</string>
     <string name="left_on">Left on %1$s</string>
     <string name="marked_on">Point marked on %1$s</string>
     <string name="no_results">No results</string>
@@ -94,9 +93,9 @@
     <string name="sort_progress">Progress</string>
     <string name="start_reading">Start reading</string>
     <string name="summary">Summary</string>
-    <string name="sync_done">Positions synced %1$s</string>
-    <string name="sync_ready">Positions are synced automatically</string>
-    <string name="sync_sending">Sending positions…</string>
+    <string name="sync_done">Changes synced %1$s</string>
+    <string name="sync_ready">Changes are synced automatically</string>
+    <string name="sync_sending">Sending changes…</string>
     <string name="sync_now">Sync now</string>
     <string name="sync_explained">Where you are in each book is saved on this device and sent to the server as soon as there is a connection. When you open a book, the app goes to the most recent position from any device.</string>
     <string name="tab_home">My books</string>
@@ -153,8 +152,6 @@
     <string name="theme_system">System</string>
     <string name="copy">Copy</string>
     <string name="copied">Copied</string>
-    <string name="koreader_url">KOReader sync server</string>
-    <string name="koreader_short">In KOReader, use it as Progress sync server with the same user and password.</string>
     <string name="sync_short">Your place in each book is saved here and sent to the server whenever there is a connection.</string>
     <string name="remove_all">Remove all downloads</string>
     <string name="remove_all_title">Remove every book from this device?</string>
@@ -273,6 +270,7 @@
     <string name="share_highlight">Share highlight</string>
     <string name="new_folder">New folder</string>
     <string name="folder_name">Folder name</string>
+    <string name="folder_name_one_level">A folder name can\'t have / or \\.</string>
     <string name="create">Create</string>
     <string name="folder_created">Folder %1$s created</string>
     <string name="move_to_folder">Move to folder</string>
@@ -297,6 +295,67 @@
     <plurals name="upload_skipped"><item quantity="one">%1$d file will be left out.</item><item quantity="other">%1$d files will be left out.</item></plurals>
     <plurals name="uploaded_count"><item quantity="one">%1$d book added to %2$s</item><item quantity="other">%1$d books added to %2$s</item></plurals>
     <string name="scan_qr">Scan QR code</string>
-    <string name="scan_not_opdshelf">This QR code is not from OPDShelf. Scan the one under Sync › Connect your apps in the web panel.</string>
+    <string name="scan_not_opdshelf">This QR code is not from OPDShelf. Scan the one under Settings › Apps and connections in the web panel.</string>
     <string name="scan_unavailable">This device cannot scan codes. Open the QR code with the camera app, or type the details.</string>
+    <!-- Folders of the library -->
+    <string name="rename">Rename</string>
+    <string name="rename_folder">Rename folder</string>
+    <string name="move_to">Move to…</string>
+    <string name="move_folder_to">Move folder to</string>
+    <string name="delete">Delete</string>
+    <string name="delete_folder">Delete folder</string>
+    <string name="delete_folder_title">Delete \"%1$s\"?</string>
+    <string name="delete_folder_text">The folder is empty, so nothing else is deleted with it.</string>
+    <string name="folder_renamed">Folder renamed to %1$s</string>
+    <string name="folder_deleted">Folder %1$s deleted</string>
+    <string name="error_folder_not_empty">Only empty folders can be deleted. Move its books somewhere else first.</string>
+    <string name="error_exists">There is already a folder or book with that name there.</string>
+    <string name="error_invalid_name">That name cannot be used. Leave out / and names such as . or ..</string>
+    <string name="error_into_itself">A folder cannot go inside itself or one of its subfolders.</string>
+    <string name="error_not_found">It is no longer on the server. Pull down to refresh the list.</string>
+    <string name="download_selected">Download selected</string>
+    <plurals name="moved_count"><item quantity="one">%1$d book moved to %2$s</item><item quantity="other">%1$d books moved to %2$s</item></plurals>
+    <plurals name="move_failed_count"><item quantity="one">%1$d could not be moved</item><item quantity="other">%1$d could not be moved</item></plurals>
+    <!-- Reading statistics -->
+    <string name="reading_stats">Reading statistics</string>
+    <string name="duration_minutes">%1$d min</string>
+    <string name="duration_hours">%1$d h</string>
+    <string name="duration_hours_minutes">%1$d h %2$d min</string>
+    <string name="stats_today_short">Today %1$s</string>
+    <string name="stats_no_reading_today">No reading yet today</string>
+    <string name="stats_finished_empty">No books finished in the last 12 months yet. They show up here when you reach the end of one or mark it as finished.</string>
+    <plurals name="stats_streak_short"><item quantity="one">%1$d-day streak</item><item quantity="other">%1$d-day streak</item></plurals>
+    <string name="stats_cannot_load">Cannot load the statistics</string>
+    <string name="stats_empty_title">Nothing read yet</string>
+    <string name="stats_empty_text">Time spent reading here, in KOReader or in the web reader shows up here, with your streak and the books you finish.</string>
+    <string name="stats_offline">Can\'t reach the server. Showing the statistics from %1$s.</string>
+    <string name="stats_updated">Updated %1$s</string>
+    <string name="stats_today">Today</string>
+    <plurals name="stats_sessions"><item quantity="one">%1$d session</item><item quantity="other">%1$d sessions</item></plurals>
+    <string name="stats_streak">Streak</string>
+    <plurals name="stats_days"><item quantity="one">%1$d day</item><item quantity="other">%1$d days</item></plurals>
+    <string name="stats_longest">Longest: %1$s</string>
+    <string name="stats_last_30">Last 30 days</string>
+    <plurals name="stats_reading_days"><item quantity="one">%1$d day with reading</item><item quantity="other">%1$d days with reading</item></plurals>
+    <string name="stats_finished_year">Finished this year</string>
+    <string name="stats_in_year">Books in %1$s</string>
+    <string name="stats_per_day">Time read per day</string>
+    <string name="stats_per_month">Books finished per month</string>
+    <string name="stats_top_books">Most read in the last 30 days</string>
+    <string name="stats_bar">%1$s: %2$s</string>
+    <string name="stats_explained">Worked out by the server from the reading on every device. A day counts towards the streak with at least a minute of reading.</string>
+    <!-- KOReader -->
+    <string name="koreader_title">KOReader</string>
+    <string name="koreader_plugin">Get the OPDShelf plugin for KOReader from the web panel, in Settings › Apps and connections. It comes set up for this server and syncs positions and highlights by itself, so KOReader\'s Progress sync is not needed.</string>
+    <string name="koreader_manual">Server address, to set the plugin up by hand</string>
+    <string name="time_just_now">just now</string>
+    <plurals name="time_minutes_ago"><item quantity="one">%1$d minute ago</item><item quantity="other">%1$d minutes ago</item></plurals>
+    <plurals name="time_hours_ago"><item quantity="one">%1$d hour ago</item><item quantity="other">%1$d hours ago</item></plurals>
+    <plurals name="time_days_ago"><item quantity="one">%1$d day ago</item><item quantity="other">%1$d days ago</item></plurals>
+    <string name="error_address">This is not a server address. Write it like 192.168.1.10:3000 or books.example.com.</string>
+    <string name="error_port">The port, after the colon, must be a number from 1 to 65535, like 192.168.1.10:3000.</string>
+    <string name="select_all">Select all</string>
+    <string name="deselect_all">Deselect all</string>
+    <!-- On a cover tile with no picture, when the format is unknown -->
+    <string name="cover_book">Book</string>
 </resources>

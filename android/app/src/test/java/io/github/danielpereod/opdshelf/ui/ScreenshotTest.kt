@@ -205,10 +205,90 @@ class ScreenshotTest {
         shot("12-carpetas")
         click("Recientes")
         waitFor("Rimas")
+        // A long press picks books to download or move several at once
+        compose.onAllNodes(hasText("Rimas")).onFirst().performTouchInput { longClick() }
+        waitFor("1 seleccionado")
+        shot("12c-explorar-seleccion")
+        compose.onNodeWithContentDescription("Cancelar selección").performClick()
         click("Rimas")
         waitFor("Mover a carpeta")
         shot("12b-ficha-mover")
     }
+
+    // -----------------------------------------------------------------------
+    // Reading statistics, from numbers kept as if fetched earlier: no server needed
+
+    private fun sampleStats(): io.github.danielpereod.opdshelf.data.ReadingStats {
+        val today = java.time.LocalDate.now()
+        val minutes = listOf(0, 25, 40, 0, 0, 12, 65, 30, 0, 18, 44, 52, 0, 8, 0, 0, 35, 90, 20, 0, 15, 28, 0, 47, 60, 33, 0, 22, 38, 40)
+        val days = minutes.mapIndexed { i, m ->
+            io.github.danielpereod.opdshelf.data.DayStats(today.minusDays((29 - i).toLong()).toString(), m * 60L)
+        }
+        val months = (11 downTo 0).map { i ->
+            val month = java.time.YearMonth.now().minusMonths(i.toLong())
+            io.github.danielpereod.opdshelf.data.MonthStats(month.toString(), listOf(1, 0, 2, 1, 3, 0, 1, 2, 0, 1, 4, 2)[11 - i])
+        }
+        return io.github.danielpereod.opdshelf.data.ReadingStats(
+            today = io.github.danielpereod.opdshelf.data.TodayStats(40 * 60, 2),
+            totalSeconds = 400_000, readingDays = 120,
+            streak = io.github.danielpereod.opdshelf.data.Streak(3, 21),
+            days = days,
+            topBooks = listOf(
+                io.github.danielpereod.opdshelf.data.TopBook("a", "Don Quijote de la Mancha", 13 * 3600),
+                io.github.danielpereod.opdshelf.data.TopBook("b", "Platero y yo", 2 * 3600 + 10 * 60),
+                io.github.danielpereod.opdshelf.data.TopBook("c", "Rimas", 40 * 60),
+            ),
+            finished = months,
+        )
+    }
+
+    /** The statistics screen as it opens from My books; [offline] shows the band of numbers kept from before. */
+    private fun statsScreen(name: String, offline: Boolean = false, empty: Boolean = false) {
+        val app = compose.activity.app
+        app.store.saveStats(
+            io.github.danielpereod.opdshelf.data.CachedStats(
+                if (empty) io.github.danielpereod.opdshelf.data.ReadingStats() else sampleStats(),
+                System.currentTimeMillis() - 2 * 3_600_000,
+            )
+        )
+        // Not configured, the cached numbers stay as they are; a dead address shows them offline
+        app.settings.serverUrl = if (offline) "http://127.0.0.1:9" else ""
+        val library = LibraryViewModel(compose.activity.application)
+        compose.setContent {
+            AppTheme {
+                Column(Modifier.fillMaxSize().background(shelf.bg)) {
+                    StatsStrip(library.stats.value, onOpen = {}, modifier = Modifier.padding(16.dp))
+                    StatsScreen(library, onBack = {}, showBook = {}, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+        if (offline) waitFor("No se puede acceder al servidor")
+        shot(name)
+    }
+
+    @Test
+    fun stats() = statsScreen("14-estadisticas")
+
+    @Test
+    @Config(qualifiers = "+night")
+    fun statsDark() = statsScreen("14-estadisticas-oscuro")
+
+    @Test
+    @Config(qualifiers = "es-rES-w800dp-h1280dp-xhdpi")
+    fun statsTablet() = statsScreen("14-estadisticas-tablet")
+
+    @Test
+    @Config(qualifiers = "es-rES-w360dp-h780dp-xxhdpi")
+    fun statsHugeFont() {
+        org.robolectric.RuntimeEnvironment.setFontScale(2f)
+        statsScreen("14-estadisticas-letra-200")
+    }
+
+    @Test
+    fun statsOffline() = statsScreen("14b-estadisticas-sin-conexion", offline = true)
+
+    @Test
+    fun statsEmpty() = statsScreen("14c-estadisticas-vacias", empty = true)
 
     @Test
     fun app() = screens("")

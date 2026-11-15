@@ -50,12 +50,107 @@ local Screen = Device.screen
 
 local COVER_RATIO = 1.5 -- height / width of a book cover
 
+-- The home screen's spacing (its margin M, steps and gaps), so every screen of the plugin has the same margins
+local function spacing()
+    return require("opdshelf_home").spacing()
+end
+-- Whether a file starts as an image KOReader can show (a server's error page saved as a cover does not)
+local IMAGE_MAGIC = { "^\255\216\255", "^\137PNG", "^GIF8", "^RIFF....WEBP", "^BM" }
+local function imageData(data)
+    if type(data) ~= "string" or #data < 100 then return false end
+    for _i, magic in ipairs(IMAGE_MAGIC) do
+        if data:match(magic) then return true end
+    end
+    return false
+end
+local checked_images = {}
+local function isImage(path)
+    if checked_images[path] ~= nil then return checked_images[path] end
+    local file = io.open(path, "rb")
+    if not file then return false end
+    local head = file:read(100) or ""
+    file:close()
+    local ok = imageData(head)
+    checked_images[path] = ok
+    return ok
+end
+
+--- Whether a picture is blank: a cover taken from a book can be its empty first page.
+local function blankImage(bb)
+    local ok, blank = pcall(function()
+        local w, h = bb:getWidth(), bb:getHeight()
+        if w < 2 or h < 2 then return true end
+        for i = 1, 7 do
+            for j = 1, 7 do
+                local color = bb:getPixel(math.floor(w * i / 8), math.floor(h * j / 8)):getColor8()
+                if color.a < 0xF0 then return false end
+            end
+        end
+        return true
+    end)
+    return ok and blank
+end
+
+-- Books of KOReader's history looked at for what is on this device
+local MAX_LOCAL = 40
+
 local function formatSize(bytes)
     if not bytes then return nil end
     if bytes >= 1024 * 1024 then
-        return string.format("%.1f MB", bytes / 1024 / 1024)
+        local text = string.format("%.1f MB", bytes / 1024 / 1024)
+        -- "1,6 MB" in Spanish
+        if _.spanish() then text = text:gsub("%.", ",") end
+        return text
     end
     return string.format("%d KB", math.max(1, math.floor(bytes / 1024)))
+end
+
+-- The names of the languages books are most often in; others show their code
+local LANGUAGES = {
+    es = "Spanish", en = "English", fr = "French", de = "German", it = "Italian", pt = "Portuguese",
+    ca = "Catalan", gl = "Galician", eu = "Basque", nl = "Dutch", ru = "Russian", ja = "Japanese",
+    zh = "Chinese", la = "Latin", el = "Greek", pl = "Polish", sv = "Swedish", ar = "Arabic",
+    spa = "Spanish", eng = "English", fre = "French", fra = "French", ger = "German", deu = "German",
+    ita = "Italian", por = "Portuguese", cat = "Catalan",
+}
+
+local function languageName(code)
+    if not code or code == "" then return nil end
+    local base = code:lower():match("^(%a+)")
+    local name = base and LANGUAGES[base]
+    return name and _(name) or code
+end
+
+-- A title cut to `lines` lines of `face` at `width`, with an ellipsis, for
+-- places that cannot limit their lines themselves (a dialog's title). The
+-- lines are measured as a text box wraps them, words and all.
+local function shortTitle(text, face, width, lines)
+    text = text or ""
+    lines = lines or 2
+    local function height(s)
+        local box = TextBoxWidget:new{ text = s, face = face, width = width, for_measurement_only = true }
+        local h = box:getSize().h
+        box:free()
+        return h
+    end
+    local room = height("Ag" .. string.rep("\nAg", lines - 1))
+    if height(text) <= room then return text end
+    local chars = {}
+    for c in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do chars[#chars + 1] = c end
+    local function head(n)
+        return (table.concat(chars, "", 1, n):gsub("%s+$", "")) .. "…"
+    end
+    -- The most characters that still fit, then back to the end of a word
+    local lo, hi = 1, #chars
+    while lo < hi do
+        local mid = math.ceil((lo + hi) / 2)
+        if height(head(mid)) <= room then lo = mid else hi = mid - 1 end
+    end
+    local keep = lo
+    for i = lo, math.max(1, lo - 12), -1 do
+        if chars[i]:match("^%s$") then keep = i - 1 break end
+    end
+    return head(math.max(1, keep))
 end
 
 local function formatName(acquisition)
@@ -81,30 +176,31 @@ local function seriesLine(entry)
 end
 
 -- A cover from the cache (a file path, or { bb = BlitBuffer } kept by the caller),
--- or a frame with the title while it is not there
-local function coverWidget(entry, path, width, height)
-    if type(path) == "table" and path.bb then
-        return CenterContainer:new{
-            dimen = Geom:new{ w = width, h = height },
-            ImageWidget:new{
-                image = path.bb,
-                image_disposable = false,
-                width = width,
-                height = height,
-                scale_factor = 0,
-            },
-        }
-    elseif path then
-        return CenterContainer:new{
-            dimen = Geom:new{ w = width, h = height },
-            ImageWidget:new{
-                file = path,
-                width = width,
-                height = height,
-                scale_factor = 0,
-                file_do_cache = false,
-            },
-        }
+-- or a frame with the title while it is not there. A picture narrower than
+-- the room is centred in it, or put at its left edge with `left` (in a list,
+-- so that every cover starts on the margin); `left == "shrink"` also makes
+-- the room as narrow as the picture, so what follows it keeps its distance
+local function coverWidget(entry, path, width, height, left)
+    if path and (type(path) ~= "table" or path.bb) then
+        -- `fit`: as large as fits in w x h; else exactly w x h
+        local function image(w, h, fit)
+            if type(path) == "table" then
+                return ImageWidget:new{ image = path.bb, image_disposable = false, width = w, height = h, scale_factor = fit and 0 or nil }
+            end
+            return ImageWidget:new{ file = path, width = w, height = h, scale_factor = fit and 0 or nil, file_do_cache = false }
+        end
+        local picture = image(width, height, true)
+        -- KOReader centres a picture in the size asked for: at the left edge,
+        -- it is asked for at the size it really takes
+        if left and picture.getCurrentWidth then
+            picture:getSize() -- renders it, which getCurrentWidth needs
+            local w, h = math.floor(picture:getCurrentWidth() or 0), math.floor(picture:getCurrentHeight() or 0)
+            if w > 0 and h > 0 and (w < width or h < height) then
+                picture = image(w, h)
+            end
+        end
+        local room_w = left == "shrink" and picture:getSize().w or width
+        return (left and LeftContainer or CenterContainer):new{ dimen = Geom:new{ w = room_w, h = height }, picture }
     end
     local border = Size.border.thin
     return FrameContainer:new{
@@ -215,6 +311,7 @@ end
 --- Loads a feed and shows it as a new level.
 function Browser:open(url, title)
     NetworkMgr:runWhenOnline(function()
+        if #self.stack == 0 then self:loadProgress() end
         local feed, err = self:load(url)
         if not feed then
             self:showError(err)
@@ -283,7 +380,8 @@ function Browser:layout(level)
         local rows = landscape and 2 or 3
         return {
             grid = true, cols = cols, rows = rows, per_page = cols * rows,
-            w = math.floor(self.dimen.w / cols), h = math.floor(content_h / rows),
+            -- Between the margins, with the same gap between the tiles
+            w = math.floor((self.dimen.w - 2 * spacing().M - (cols - 1) * spacing().gap) / cols), h = math.floor(content_h / rows),
         }
     end
     local min_h = Screen:scaleBySize(has_books and 100 or 64)
@@ -298,7 +396,12 @@ end
 
 function Browser:cachedCover(entry)
     local path = self:coverPath(entry.thumbnail)
-    if path and lfs.attributes(path, "mode") == "file" then return path end
+    if path and lfs.attributes(path, "mode") == "file" then
+        if isImage(path) then return path end
+        -- Not a picture: the placeholder instead of a blank tile, and it is asked for again
+        os.remove(path)
+        checked_images[path] = nil
+    end
     return nil
 end
 
@@ -310,14 +413,383 @@ function Browser:localFile(entry)
     return path, lfs.attributes(path, "mode") == "file", acquisition
 end
 
--- How far a downloaded book was read here, from its KOReader settings
-local function readPercent(path)
-    local ok, percent = pcall(function()
+-- How far a downloaded book was read here, and whether it is finished, from its KOReader settings
+local function readState(path)
+    local ok, percent, finished = pcall(function()
         local DocSettings = require("docsettings")
         if not DocSettings:hasSidecarFile(path) then return nil end
-        return DocSettings:open(path):readSetting("percent_finished")
+        local settings = DocSettings:open(path)
+        local summary = settings:readSetting("summary") or {}
+        return settings:readSetting("percent_finished"), summary.status == "complete"
     end)
-    return ok and percent or nil
+    if not ok then return nil, false end
+    return percent, finished or false
+end
+
+local function readPercent(path)
+    return (readState(path))
+end
+
+local function fileTitle(path)
+    return ((path:match("([^/]+)$") or path):gsub("%.[^.]+$", ""))
+end
+
+--- What KOReader knows of a book on this device: title, authors, how far
+--- it was read, whether it is finished, its document id and when its
+--- position last changed here (`read_at`, nil when not known).
+local function localBook(path)
+    local book = { path = path, title = fileTitle(path), authors = {} }
+    local ok = pcall(function()
+        local DocSettings = require("docsettings")
+        if not DocSettings:hasSidecarFile(path) then return end
+        local settings = DocSettings:open(path)
+        local props = settings:readSetting("doc_props") or {}
+        if type(props.title) == "string" and props.title ~= "" then book.title = props.title end
+        if type(props.authors) == "string" and props.authors ~= "" then
+            for author in props.authors:gmatch("[^\n]+") do book.authors[#book.authors + 1] = author end
+        end
+        if type(props.description) == "string" and props.description ~= "" then book.description = props.description end
+        book.percent = tonumber(settings:readSetting("percent_finished"))
+        local summary = settings:readSetting("summary") or {}
+        book.finished = summary.status == "complete"
+        book.document = settings:readSetting("partial_md5_checksum")
+        book.pages = tonumber(settings:readSetting("doc_pages"))
+        -- When the position last changed here (KOReader's history says when it was opened)
+        local sync = settings:readSetting("opdshelf_sync")
+        book.read_at = type(sync) == "table" and tonumber(sync.read_at) or nil
+    end)
+    if not ok then logger.dbg("OPDShelf: cannot read the settings of", path) end
+    return book
+end
+
+--- The path in the library of an OPDS entry of OPDShelf ("urn:opdshelf:book:<path>").
+local function libraryPath(entry)
+    local encoded = type(entry) == "table" and type(entry.id) == "string" and entry.id:match("^urn:opdshelf:book:(.+)$")
+    if not encoded then return nil end
+    return (encoded:gsub("%%(%x%x)", function(hex) return string.char(tonumber(hex, 16)) end))
+end
+
+-- The letters of À to ÿ without their accents, for comparing titles
+local PLAIN = "aaaaaaaceeeeiiiidnooooo_ouuuuyps" .. "aaaaaaaceeeeiiiidnooooo_ouuuuypy"
+
+--- Lower case, without accents, spaces or punctuation: one title written two ways compares equal.
+local function plainText(text)
+    text = type(text) == "string" and text or ""
+    text = text:gsub("\195([\128-\191])", function(c)
+        local i = c:byte() - 127
+        return PLAIN:sub(i, i)
+    end)
+    return (text:lower():gsub("[%s%p]", ""))
+end
+
+local function firstAuthor(authors)
+    if type(authors) == "table" then return authors[1] end
+    return authors
+end
+
+--[[--
+Whether two books (anything with `title` and `authors`) are the same one by
+their title and first author, written with or without accents, capitals or
+punctuation. A side without authors matches on the title alone.
+--]]
+local function sameBook(a, b)
+    local title = plainText(a.title)
+    if title == "" or title ~= plainText(b.title) then return false end
+    local author_a, author_b = firstAuthor(a.authors), firstAuthor(b.authors)
+    if plainText(author_a) == "" or plainText(author_b) == "" then return true end
+    -- "Viktor E. Frankl", "Frankl, Viktor": a name in common is enough, the title being the same
+    local words = {}
+    for word in author_a:gmatch("[^%s%p]+") do
+        word = plainText(word)
+        if #word >= 3 then words[word] = true end
+    end
+    for word in author_b:gmatch("[^%s%p]+") do
+        if words[plainText(word)] then return true end
+    end
+    return false
+end
+
+-- Whether `b` says where the book is more recently than `a`: a time only
+-- guessed from KOReader's history gives way to a known one
+local function newer(a, b)
+    if b.time == nil then return false end
+    if a.time == nil then return true end
+    if a.time_guess and not b.time_guess then return true end
+    if b.time_guess and not a.time_guess then return false end
+    return b.time > a.time
+end
+
+-- Two records of one book become one: the newest position wins, finished anywhere is finished
+local function absorb(record, other)
+    if other.finished then record.finished = true end
+    if newer(record, other) then
+        record.time, record.time_guess = other.time, other.time_guess
+        if (other.percent or 0) > 0 then record.percent = other.percent end
+        -- Of two copies here, the one read last is the one to open
+        if other.on_device and other.path then record.path = other.path end
+    end
+    if not record.on_device and other.on_device then record.on_device, record.path = true, other.path end
+    record.entry = record.entry or other.entry
+    record.lib_path = record.lib_path or other.lib_path
+    record.document = record.document or other.document
+    record.pages = record.pages or other.pages
+    if #(record.authors or {}) == 0 and other.authors then record.authors = other.authors end
+end
+
+--[[--
+Every book known on this device or on the server, one record each: KOReader's
+history here (`locals`, from localBook, with `time` and maybe `time_guess`)
+and the server's books (`remote`, records of the home's remoteStarted).
+
+Two records are the same book when their document ids match, when the
+library's file is the one here (`localPathFor(entry)` says where it was
+downloaded, if it was), or, when one of them has no document id, by their
+title and author. Two copies of a book on this device are one book too.
+The newest position wins, wherever it was read.
+
+Records: title, authors, percent, finished, time, time_guess, document,
+path and on_device (when it is on this device), entry and lib_path (when it
+is in the library), pages.
+--]]
+local function mergeBooks(locals, remote, localPathFor)
+    local list, by_document, by_path = {}, {}, {}
+    local function find(record)
+        local found = (record.document and by_document[record.document]) or (record.path and by_path[record.path])
+        if found then return found end
+        for _i, other in ipairs(list) do
+            if (not record.document or not other.document) and sameBook(record, other) then return other end
+        end
+    end
+    local function add(record, only_merge)
+        local found = find(record)
+        if found then
+            absorb(found, record)
+        elseif only_merge then
+            return
+        else
+            list[#list + 1] = record
+            found = record
+        end
+        for _i, r in ipairs({ record, found }) do
+            if r.document then by_document[r.document] = found end
+            if r.path then by_path[r.path] = found end
+        end
+    end
+    for _i, book in ipairs(locals or {}) do
+        add({
+            title = book.title, authors = book.authors or {}, percent = book.percent or 0,
+            finished = book.finished, time = book.time, time_guess = book.time_guess,
+            document = book.document, path = book.path, pages = book.pages, on_device = true,
+        })
+    end
+    for _i, r in ipairs(remote or {}) do
+        if type(r) == "table" then
+            local path = r.entry and localPathFor and localPathFor(r.entry) or nil
+            -- Without a way to open or download it, a book only says how far it was read
+            add({
+                title = r.title, authors = r.authors or {}, percent = r.percent or 0, finished = r.finished,
+                time = r.time, document = r.document, entry = r.entry, lib_path = r.lib_path or libraryPath(r.entry),
+                path = path, on_device = path ~= nil,
+            }, not (r.entry or path))
+        end
+    end
+    return list
+end
+
+--- When a book was published, as the library shows it, or nil when the date is
+--- not a real one (Calibre writes 0101-01-01 for "unknown").
+local function publishedDate(issued)
+    if type(issued) ~= "string" then return nil end
+    local year = tonumber(issued:match("%f[%d](%d%d%d%d)%f[%D]"))
+    if not year or year < 1000 or year > tonumber(os.date("%Y")) + 1 then return nil end
+    if issued:match("^%s*%d%d%d%d%-%d%d%-%d%d") then return issued:match("^%s*(%d%d%d%d%-%d%d%-%d%d)") end
+    return issued:match("^%s*(.-)%s*$")
+end
+
+
+--[[--
+How far a book was read, as the home screen's Started shelf counts it:
+`here` is what this device knows (from localBook), `remote` what the server
+knows (a record of the home's remoteStarted). The newest position wins, and a
+book read here at a time not known gives way to the server's; finished on
+either side is finished. Nil when neither knows of it.
+--]]
+local function mergeProgress(here, remote)
+    if not here and not remote then return nil end
+    local percent = here and here.percent or 0
+    local finished = here and here.finished or false
+    if remote then
+        if remote.finished then finished = true end
+        local newer = not here or not here.read_at or (remote.time or 0) > here.read_at
+        if newer and (remote.percent or 0) > 0 then percent = remote.percent end
+    end
+    return { percent = percent, finished = finished }
+end
+
+-- The server's books, by their path in the library and by document id: the
+-- ones loaded with this screen, else those the home screen kept
+function Browser:remoteIndex()
+    local list = self.remote or self.plugin.state:readSetting("home_started") or {}
+    if self.remote_index and self.remote_index.list == list then return self.remote_index end
+    local index = { list = list, by_path = {}, by_document = {} }
+    for _i, record in ipairs(list) do
+        if type(record) == "table" then
+            if record.lib_path then index.by_path[record.lib_path] = record end
+            if record.document then index.by_document[record.document] = record end
+        end
+    end
+    self.remote_index = index
+    return index
+end
+
+--- Where the server says every book is: asked once when the library opens.
+function Browser:loadProgress()
+    if self.remote_loaded or not self.plugin:ready() or not NetworkMgr:isOnline() then return end
+    self.remote_loaded = true
+    local client = self.plugin.client
+    if not client.getLibraryProgress then return end
+    local code, body = client:getLibraryProgress()
+    if code ~= 200 or type(body) ~= "table" then return end
+    if self.plugin.noteServerTime then self.plugin:noteServerTime(body) end
+    -- Loaded here, not when this file is: the home screen needs this file first
+    local Home = require("opdshelf_home")
+    self.remote = Home.remoteStarted(body, nil, self.plugin.server_offset, client.server)
+end
+
+--- The books opened on this device (KOReader's history), newest first, with
+--- what their settings say: the home screen gives its own, else they are read once.
+function Browser:localBooks()
+    if self.locals then return self.locals end
+    local books = {}
+    local ok, ReadHistory = pcall(require, "readhistory")
+    if ok and type(ReadHistory) == "table" then
+        for _i, item in ipairs(ReadHistory.hist or {}) do
+            if #books >= MAX_LOCAL then break end
+            if item.file and lfs.attributes(item.file, "mode") == "file" then
+                local book = localBook(item.file)
+                -- Opening a book is not reading it: the history's time is only a guess
+                book.time = book.read_at or item.time
+                book.time_guess = book.read_at == nil
+                books[#books + 1] = book
+            end
+        end
+    end
+    self.locals = books
+    return books
+end
+
+--[[--
+Every book known here or on the server, merged as the home screen merges
+them (see mergeBooks), and found by the library's path of its entry, by
+where it was downloaded and by title.
+--]]
+function Browser:bookIndex()
+    local locals, remote = self:localBooks(), self:remoteIndex().list
+    local index = self.book_index
+    if index and index.locals == locals and index.remote == remote then return index end
+    index = { locals = locals, remote = remote, by_lib = {}, by_path = {}, here = {} }
+    local function localPathFor(entry)
+        local path, downloaded = self:localFile(entry)
+        return downloaded and path or nil
+    end
+    -- The server's books downloaded here but not among the last opened: what their settings say too
+    local all, seen = {}, {}
+    for _i, book in ipairs(locals) do
+        all[#all + 1] = book
+        seen[book.path] = true
+    end
+    for _i, r in ipairs(remote) do
+        local path = type(r) == "table" and r.entry and localPathFor(r.entry)
+        if path and not seen[path] then
+            seen[path] = true
+            local book = localBook(path)
+            if book.percent ~= nil or book.finished then
+                book.time = book.read_at
+                all[#all + 1] = book
+            end
+        end
+    end
+    index.list = mergeBooks(all, remote, localPathFor)
+    for _i, record in ipairs(index.list) do
+        local lib = record.lib_path or libraryPath(record.entry)
+        if lib then index.by_lib[lib] = record end
+        if record.path then index.by_path[record.path] = record end
+        if record.on_device then index.here[#index.here + 1] = record end
+    end
+    self.book_index = index
+    return index
+end
+
+--- What is known of a book of the library (a record of mergeBooks), or nil.
+function Browser:bookFor(entry)
+    local index = self:bookIndex()
+    local lib = libraryPath(entry)
+    local record = lib and index.by_lib[lib]
+    if record then return record end
+    local path, downloaded = self:localFile(entry)
+    if downloaded and index.by_path[path] then return index.by_path[path] end
+    -- A book opened here from somewhere else, that the server does not know
+    -- by its document: the same title and author
+    for _i, here in ipairs(index.here) do
+        if not here.lib_path and sameBook(entry, here) then return here end
+    end
+end
+
+--- Where a book of the library is on this device (downloaded here, or the
+--- same book opened from elsewhere), or nil.
+function Browser:onDevice(entry)
+    local path, downloaded = self:localFile(entry)
+    if downloaded then return path end
+    local record = self:bookFor(entry)
+    if record and record.on_device and record.path and lfs.attributes(record.path, "mode") == "file" then
+        return record.path
+    end
+end
+
+--- Forgets what was read of the books here, after a download or a book read.
+function Browser:forgetLocal()
+    self.locals, self.book_index = nil, nil
+end
+
+--- How far a book of the library was read, here or on any device: { percent, finished }, or nil.
+function Browser:progressFor(entry)
+    local record = self:bookFor(entry)
+    if record and (record.finished or (record.percent or 0) > 0) then
+        return { percent = record.percent or 0, finished = record.finished or false }
+    end
+    -- Downloaded, but not among the last books opened here
+    local path, downloaded = self:localFile(entry)
+    local index = self:remoteIndex()
+    local here = downloaded and localBook(path) or nil
+    local lib = libraryPath(entry)
+    local remote = (lib and index.by_path[lib]) or (here and here.document and index.by_document[here.document])
+    if here and here.percent == nil and not here.finished then
+        -- Downloaded but never opened here
+        if not remote then return nil end
+        here = nil
+    end
+    return mergeProgress(here, remote)
+end
+
+-- What the library says of a book: finished, how far read (here or on
+-- another device), or only that it is on this device. ✓ is only for finished.
+function Browser:readingNote(entry)
+    local downloaded = self:onDevice(entry) ~= nil
+    local state = self:progressFor(entry)
+    if state and state.finished then
+        return _("✓ Finished")
+    end
+    local parts = {}
+    if state and state.percent > 0 then parts[1] = T(_("%1 % read"), math.floor(state.percent * 100 + 0.5)) end
+    -- On this device, wherever it was opened from: in words, ✓ is only for finished books
+    if downloaded then parts[#parts + 1] = _("Downloaded") end
+    return #parts > 0 and table.concat(parts, " · ") or nil
+end
+
+-- How far the bar under a book goes, nil without one
+function Browser:readBar(entry)
+    local state = self:progressFor(entry)
+    if state and not state.finished and state.percent > 0 then return state.percent end
 end
 
 function Browser:statusLine(entry)
@@ -327,15 +799,7 @@ function Browser:statusLine(entry)
         parts[#parts + 1] = formatName(acquisition)
         parts[#parts + 1] = formatSize(acquisition.length)
     end
-    local path, downloaded = self:localFile(entry)
-    if downloaded then
-        local percent = readPercent(path)
-        if percent and percent > 0 then
-            parts[#parts + 1] = T(_("✓ read %1 %"), math.floor(percent * 100 + 0.5))
-        else
-            parts[#parts + 1] = _("✓ downloaded")
-        end
-    end
+    parts[#parts + 1] = self:readingNote(entry)
     local text = {}
     for _i, p in ipairs(parts) do
         if p and p ~= "" then text[#text + 1] = p end
@@ -344,16 +808,17 @@ function Browser:statusLine(entry)
 end
 
 function Browser:listItem(entry, w, h)
-    local padding = Size.padding.default
-    local inner_h = h - 2 * padding - Size.line.thin
+    local sp = spacing()
+    local padding = sp.M
+    local inner_h = h - 2 * sp.G - Size.line.thin
     local text_x = padding
     local row = HorizontalGroup:new{ align = "center" }
     if entry.is_book then
         local cover_h = inner_h
         local cover_w = math.floor(cover_h / COVER_RATIO)
-        table.insert(row, coverWidget(entry, self:cachedCover(entry), cover_w, cover_h))
-        table.insert(row, HorizontalSpan:new{ width = Size.padding.large })
-        text_x = text_x + cover_w + Size.padding.large
+        table.insert(row, coverWidget(entry, self:cachedCover(entry), cover_w, cover_h, true))
+        table.insert(row, HorizontalSpan:new{ width = sp.gap })
+        text_x = text_x + cover_w + sp.gap
     end
     local text_w = w - text_x - padding
     local lines = VerticalGroup:new{ align = "left" }
@@ -378,9 +843,8 @@ function Browser:listItem(entry, w, h)
         addLine(table.concat(entry.authors, ", "))
         addLine(seriesLine(entry), Font:getFace("cfont", 15))
         addLine(self:statusLine(entry), Font:getFace("cfont", 14))
-        local path, downloaded = self:localFile(entry)
-        local percent = downloaded and readPercent(path)
-        if percent and percent > 0 then
+        local percent = self:readBar(entry)
+        if percent then
             table.insert(lines, VerticalSpan:new{ width = Size.padding.small })
             table.insert(lines, ProgressWidget:new{
                 width = math.min(text_w, Screen:scaleBySize(160)), height = Screen:scaleBySize(4),
@@ -398,7 +862,7 @@ function Browser:listItem(entry, w, h)
             width = w,
             height = h - Size.line.thin,
             callback = function() self:select(entry) end,
-            hold_callback = entry.is_book and function() self:quickDownload(entry) end or nil,
+            hold_callback = entry.is_book and function() self:bookActions(entry) end or nil,
             LeftContainer:new{
                 dimen = Geom:new{ w = w, h = h - Size.line.thin },
                 HorizontalGroup:new{ HorizontalSpan:new{ width = padding }, row },
@@ -412,36 +876,44 @@ function Browser:listItem(entry, w, h)
 end
 
 function Browser:gridItem(entry, w, h)
-    local padding = Size.padding.default
+    -- The same block in every cell, from its top: G, the cover's room, S, two
+    -- lines of title and a line of status. A row's covers and titles line up
+    -- whatever their sizes, and what is left stays under them.
+    local sp = spacing()
     local caption_face = Font:getFace("cfont", 14)
-    local caption_h = 2 * caption_face.size + Size.padding.small
-    local status = entry.is_book and self:statusLine(entry):match("✓[^·]*")
-    local status_h = status and (caption_face.size + Size.padding.small) or 0
-    local cover_h = h - 2 * padding - caption_h - status_h
-    local cover_w = math.min(w - 2 * padding, math.floor(cover_h / COVER_RATIO))
-    cover_h = math.floor(cover_w * COVER_RATIO)
+    local status_face = Font:getFace("smallinfofont", 13)
+    local probe = TextBoxWidget:new{ text = "Ag\nAg", face = caption_face, width = w, for_measurement_only = true }
+    local caption_h = probe:getSize().h
+    probe:free()
+    local status_h = TextWidget:new{ text = "Ag", face = status_face }:getSize().h
+    local status = entry.is_book and self:readingNote(entry)
+    local room_h = math.max(1, h - 2 * sp.G - 2 * sp.S - caption_h - status_h)
+    local cover_w = math.min(w, math.floor(room_h / COVER_RATIO))
+    local cover_h = math.floor(cover_w * COVER_RATIO)
     local column = VerticalGroup:new{
         align = "center",
+        VerticalSpan:new{ width = sp.G + room_h - cover_h },
         coverWidget(entry, entry.is_book and self:cachedCover(entry) or nil, cover_w, cover_h),
-        VerticalSpan:new{ width = Size.padding.small },
+        VerticalSpan:new{ width = sp.S },
         TextBoxWidget:new{
             text = entry.title,
             face = caption_face,
-            width = w - 2 * padding,
+            width = w,
             height = caption_h,
             height_overflow_show_ellipsis = true,
             alignment = "center",
         },
+        VerticalSpan:new{ width = sp.S },
+        status and TextWidget:new{ text = status, face = status_face, fgcolor = Blitbuffer.COLOR_DARK_GRAY, max_width = w }
+            or VerticalSpan:new{ width = status_h },
+        VerticalSpan:new{ width = sp.G },
     }
-    if status then
-        table.insert(column, TextWidget:new{ text = status, face = caption_face, max_width = w - 2 * padding })
-    end
     return Item:new{
         width = w,
         height = h,
         callback = function() self:select(entry) end,
-        hold_callback = entry.is_book and function() self:quickDownload(entry) end or nil,
-        CenterContainer:new{ dimen = Geom:new{ w = w, h = h }, column },
+        hold_callback = entry.is_book and function() self:bookActions(entry) end or nil,
+        LeftContainer:new{ dimen = Geom:new{ w = w, h = h }, VerticalGroup:new{ align = "center", column } },
     }
 end
 
@@ -455,6 +927,8 @@ function Browser:refresh()
     local level = self:currentLevel()
     if not level then return end
     if self[1] then self[1]:free() end
+    -- What is on this device may have changed since the last page
+    self:forgetLocal()
     local depth = #self.stack
     self.title_bar = TitleBar:new{
         width = self.dimen.w,
@@ -487,10 +961,11 @@ function Browser:refresh()
     elseif layout.grid then
         local index = first
         for _r = 1, layout.rows do
-            local row = HorizontalGroup:new{ align = "top" }
-            for _c = 1, layout.cols do
+            local row = HorizontalGroup:new{ align = "top", HorizontalSpan:new{ width = spacing().M } }
+            for c = 1, layout.cols do
                 local entry = level.entries[index]
                 if entry then
+                    if c > 1 then table.insert(row, HorizontalSpan:new{ width = spacing().gap }) end
                     table.insert(row, self:gridItem(entry, layout.w, layout.h))
                 end
                 index = index + 1
@@ -586,7 +1061,7 @@ function Browser:fetchCovers(level, first, count)
         if self.cover_token ~= token or self.closed then return end
         local fetched = 0
         local function save(entry, data)
-            if type(data) ~= "string" or #data < 100 then
+            if not imageData(data) then
                 entry.cover_failed = true
                 return
             end
@@ -666,6 +1141,64 @@ function Browser:onSwipe(_arg, ges)
     end
 end
 
+--[[--
+A full-screen window takes the screen's new size after it turned or changed.
+Android sends ScreenResize to every window, with SetDimensions just before
+it; the size is read from the screen, so both events, or the same one twice,
+lay the window out once. Returns whether the size changed.
+--]]
+function Browser.fitScreen(widget, dimen)
+    local w, h = Screen:getWidth(), Screen:getHeight()
+    if not (w and h) and type(dimen) == "table" then w, h = dimen.w, dimen.h end
+    if not (w and h) then return false end
+    local old = widget.dimen
+    if old and old.w == w and old.h == h then return false end
+    widget.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
+    if widget.ges_events and widget.ges_events.Swipe then
+        widget.ges_events.Swipe = { GestureRange:new{ ges = "swipe", range = widget.dimen } }
+    end
+    return true
+end
+
+--[[--
+Turning the screen asked for while one of these windows is on top (a
+gesture, a key, the gyro on Kobo and others): KOReader's file browser,
+underneath, is what turns it, as when it is on top. Then every window hears
+of the new size, as on Android. Returns false (not handled) without a file
+browser that can do it, so KOReader goes on as it would.
+--]]
+function Browser.turnScreen(rotation)
+    local ok, FileManager = pcall(require, "apps/filemanager/filemanager")
+    local fm = ok and type(FileManager) == "table" and FileManager.instance or nil
+    if not fm or type(fm.onSetRotationMode) ~= "function" then return false end
+    local done, err = pcall(fm.onSetRotationMode, fm, rotation)
+    if not done then
+        logger.warn("OPDShelf: cannot turn the screen", err)
+        return false
+    end
+    local size = Geom:new{ x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() }
+    local Event = require("ui/event")
+    UIManager:broadcastEvent(Event:new("ScreenResize", size))
+    return true
+end
+
+function Browser:onScreenResize(dimen)
+    if Browser.fitScreen(self, dimen) and not self.closed and self:currentLevel() then
+        self:refresh()
+    end
+end
+Browser.onSetDimensions = Browser.onScreenResize
+
+function Browser:onSetRotationMode(rotation)
+    return Browser.turnScreen(rotation)
+end
+
+-- Whatever turned the screen without saying so, the next paint has the right size
+function Browser:paintTo(bb, x, y)
+    if Browser.fitScreen(self) and self:currentLevel() then self:refresh() end
+    InputContainer.paintTo(self, bb, x, y)
+end
+
 function Browser:onClose()
     self.closed = true
     self.cover_token = nil
@@ -685,6 +1218,7 @@ function Browser:resume(session)
     self.stack = session.stack
     self.root = session.root
     self.closed = false
+    self:loadProgress()
     UIManager:show(self, "flashui")
     self:refresh()
 end
@@ -751,7 +1285,9 @@ end
 
 -- Downloads a book. `after(path)` runs once it is on the device.
 function Browser:download(entry, after)
-    local path, downloaded, acquisition = self:localFile(entry)
+    local path, _downloaded, acquisition = self:localFile(entry)
+    -- Here already, in the download folder or elsewhere
+    local here = self:onDevice(entry)
     if not acquisition then
         UIManager:show(InfoMessage:new{ text = _("This book has no download.") })
         return
@@ -768,14 +1304,14 @@ function Browser:download(entry, after)
             end)
         end)
     end
-    if downloaded then
+    if here then
         UIManager:show(ConfirmBox:new{
             text = T(_("%1 is already on this device."), entry.title),
             ok_text = _("Download again"),
             ok_callback = go,
             other_buttons = { { {
                 text = _("Read"),
-                callback = function() self:openBook(path) end,
+                callback = function() self:openBook(here) end,
             } } },
         })
         return
@@ -815,6 +1351,7 @@ function Browser:fetchBook(entry, acquisition, path, after)
         self.plugin.state:flush()
     end
     -- Out of the Trapper coroutine: opening a book from inside it is asking for trouble
+    self:forgetLocal()
     UIManager:nextTick(function()
         if not self.closed and self.stack[1] then self:refresh() end
         if self.on_download then self.on_download(path) end
@@ -822,7 +1359,34 @@ function Browser:fetchBook(entry, acquisition, path, after)
     end)
 end
 
--- Long press: download without opening the details
+-- Long press on a book: what can be done with it, read or download it or
+-- see its details, without opening them first
+function Browser:bookActions(entry)
+    local path = self:onDevice(entry)
+    local downloaded = path ~= nil
+    local dialog
+    local function item(text, callback)
+        return { { text = text, align = "left", callback = function()
+            UIManager:close(dialog)
+            callback()
+        end } }
+    end
+    local buttons = {}
+    if downloaded then
+        buttons[#buttons + 1] = item(_("Read"), function() self:openBook(path) end)
+    else
+        buttons[#buttons + 1] = item(_("Download and read"), function()
+            self:download(entry, function(p) self:openBook(p) end)
+        end)
+        buttons[#buttons + 1] = item(_("Download only"), function() self:quickDownload(entry) end)
+    end
+    buttons[#buttons + 1] = item(_("Book details"), function() self:showDetails(entry) end)
+    dialog = ButtonDialog:new(Browser.holdDialog(entry.title, buttons))
+    UIManager:show(dialog)
+    return dialog
+end
+
+-- Download without opening the details, then offer to read it
 function Browser:quickDownload(entry)
     self:download(entry, function(path)
         UIManager:show(ConfirmBox:new{
@@ -846,13 +1410,23 @@ end
 function Browser:showDetails(entry)
     local Details = InputContainer:extend{ covers_fullscreen = true }
     local details = Details:new{}
-    local w, h = self.dimen.w, self.dimen.h
+    -- The screen's size: the home screen's browser is never shown, so its own may be old
+    local w, h = Screen:getWidth(), Screen:getHeight()
     details.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
-    local padding = Size.padding.large
+    local padding = spacing().M
     local close = function()
         UIManager:close(details, "flashui")
     end
     details.onClose = function() close() return true end
+    -- Turned: laid out again for the new size
+    local function relayout()
+        if Screen:getWidth() == w and Screen:getHeight() == h then return end
+        UIManager:close(details)
+        self:showDetails(entry)
+    end
+    details.onScreenResize = relayout
+    details.onSetDimensions = relayout
+    details.onSetRotationMode = function(_self, rotation) return Browser.turnScreen(rotation) end
     if Device:hasKeys() then
         details.key_events = { Close = { { Input.group.Back } } }
     end
@@ -866,56 +1440,8 @@ function Browser:showDetails(entry)
         close_callback = close,
         show_parent = details,
     }
-    local cover_w = math.floor(w * 0.38)
-    local cover_h = math.floor(cover_w * COVER_RATIO)
-    local cover_path = self:cachedCover(entry)
-    -- The full size cover looks better here when it can be had quickly
-    if entry.image and entry.image ~= entry.thumbnail and NetworkMgr:isOnline() then
-        local big = self:coverPath(entry.image)
-        if lfs.attributes(big, "mode") ~= "file" then
-            local code, data = self.plugin.client:raw("GET", entry.image, nil, nil, nil, { 3, 8 })
-            if code == 200 and #data > 100 then
-                local file = io.open(big, "wb")
-                if file then file:write(data) file:close() end
-            end
-        end
-        if lfs.attributes(big, "mode") == "file" then cover_path = big end
-    end
-
-    local info_w = w - cover_w - 3 * padding
-    local info = VerticalGroup:new{ align = "left" }
-    local function line(label, value)
-        if not value or value == "" then return end
-        table.insert(info, TextBoxWidget:new{
-            text = label and (label .. " " .. value) or value,
-            face = Font:getFace("cfont", 17),
-            width = info_w,
-        })
-        table.insert(info, VerticalSpan:new{ width = Size.padding.default })
-    end
-    line(nil, seriesLine(entry))
-    line(_("Language:"), entry.language)
-    line(_("Publisher:"), entry.publisher)
-    line(_("Published:"), entry.issued and entry.issued:sub(1, 10))
-    if #entry.categories > 0 then line(_("Subjects:"), table.concat(entry.categories, ", ")) end
-    local path, downloaded = self:localFile(entry)
-    local status = self:statusLine(entry)
-    if status ~= "" then
-        table.insert(info, VerticalSpan:new{ width = Size.padding.default })
-        table.insert(info, TextBoxWidget:new{
-            text = status, face = Font:getFace("cfont", 17), bold = downloaded, width = info_w,
-        })
-        local percent = downloaded and readPercent(path)
-        if percent and percent > 0 then
-            table.insert(info, VerticalSpan:new{ width = Size.padding.default })
-            table.insert(info, ProgressWidget:new{
-                width = info_w, height = Screen:scaleBySize(6), percentage = percent,
-                margin_h = 0, margin_v = 0, radius = 0, bordersize = 0,
-                bgcolor = Blitbuffer.COLOR_LIGHT_GRAY, fillcolor = Blitbuffer.COLOR_BLACK,
-            })
-        end
-    end
-
+    local path = self:onDevice(entry)
+    local downloaded = path ~= nil
     local buttons = { {
         {
             text = downloaded and _("Download again") or _("Download only"),
@@ -939,6 +1465,75 @@ function Browser:showDetails(entry)
         },
     } }
     local button_table = ButtonTable:new{ width = w - 2 * padding, buttons = buttons, zero_sep = true, show_parent = details }
+    -- The cover as wide as a good part of the screen, and never taller than the
+    -- room between the title and the buttons (a turned screen has little height)
+    local cover_room = h - title_bar:getHeight() - button_table:getSize().h - 3 * padding
+    local cover_h = math.max(1, math.min(math.floor(math.floor(w * 0.38) * COVER_RATIO), cover_room))
+    local cover_w = math.floor(cover_h / COVER_RATIO)
+    local cover_path = self:cachedCover(entry)
+    -- The full size cover looks better here when it can be had quickly
+    if entry.image and entry.image ~= entry.thumbnail and NetworkMgr:isOnline() then
+        local big = self:coverPath(entry.image)
+        if lfs.attributes(big, "mode") ~= "file" then
+            local code, data = self.plugin.client:raw("GET", entry.image, nil, nil, nil, { 3, 8 })
+            if code == 200 and imageData(data) then
+                local file = io.open(big, "wb")
+                if file then file:write(data) file:close() end
+            end
+        end
+        if lfs.attributes(big, "mode") == "file" then cover_path = big end
+    end
+
+    local info_w = w - cover_w - 3 * padding
+    local info = VerticalGroup:new{ align = "left" }
+    local function line(label, value)
+        if not value or value == "" then return end
+        table.insert(info, TextBoxWidget:new{
+            text = label and (label .. " " .. value) or value,
+            face = Font:getFace("cfont", 17),
+            width = info_w,
+        })
+        table.insert(info, VerticalSpan:new{ width = Size.padding.default })
+    end
+    line(nil, seriesLine(entry))
+    line(_("Language:"), languageName(entry.language))
+    line(_("Publisher:"), entry.publisher)
+    line(_("Published:"), publishedDate(entry.issued))
+    if #entry.categories > 0 then line(_("Subjects:"), table.concat(entry.categories, ", ")) end
+    local status = self:statusLine(entry)
+    if status ~= "" then
+        table.insert(info, VerticalSpan:new{ width = Size.padding.default })
+        table.insert(info, TextBoxWidget:new{
+            text = status, face = Font:getFace("cfont", 17), bold = downloaded, width = info_w,
+        })
+        local percent = self:readBar(entry)
+        if percent then
+            table.insert(info, VerticalSpan:new{ width = Size.padding.default })
+            table.insert(info, ProgressWidget:new{
+                width = info_w, height = Screen:scaleBySize(6), percentage = percent,
+                margin_h = 0, margin_v = 0, radius = 0, bordersize = 0,
+                bgcolor = Blitbuffer.COLOR_LIGHT_GRAY, fillcolor = Blitbuffer.COLOR_BLACK,
+            })
+        end
+    end
+
+    -- With the cover as tall as the room (a turned screen), the description goes
+    -- beside it, under the details, rather than under it with no room left
+    local beside_h = cover_room - info:getSize().h - padding - spacing().G
+    local summary = entry.summary
+    if summary and w > h and beside_h > Screen:scaleBySize(80) then
+        table.insert(info, VerticalSpan:new{ width = spacing().G })
+        table.insert(info, ScrollTextWidget:new{
+            text = util.htmlToPlainTextIfHtml(entry.summary),
+            face = Font:getFace("cfont", 17),
+            width = info_w,
+            height = beside_h,
+            dialog = details,
+        })
+        -- The group was measured above: it has to place its children again
+        if info.resetLayout then info:resetLayout() end
+        summary = nil
+    end
     local top_h = math.max(cover_h, info:getSize().h)
     local description_h = h - title_bar:getHeight() - top_h - button_table:getSize().h - 4 * padding
     local body = VerticalGroup:new{
@@ -948,13 +1543,13 @@ function Browser:showDetails(entry)
         HorizontalGroup:new{
             align = "top",
             HorizontalSpan:new{ width = padding },
-            coverWidget(entry, cover_path, cover_w, cover_h),
+            coverWidget(entry, cover_path, cover_w, cover_h, "shrink"),
             HorizontalSpan:new{ width = padding },
             info,
         },
         VerticalSpan:new{ width = padding },
     }
-    if entry.summary and description_h > Screen:scaleBySize(40) then
+    if summary and description_h > Screen:scaleBySize(40) then
         table.insert(body, HorizontalGroup:new{
             HorizontalSpan:new{ width = padding },
             ScrollTextWidget:new{
@@ -986,10 +1581,38 @@ function Browser:showDetails(entry)
     UIManager:show(details, "flashui")
 end
 
+--- What a book's hold menu is made of: wide enough for its title, which
+--- takes two lines at most (otherwise a narrow dialog puts a word per line).
+function Browser.holdDialog(title, buttons)
+    local width = math.floor(math.min(Screen:getWidth(), Screen:getHeight()) * 0.8)
+    return {
+        -- ButtonDialog's title face with its default info style
+        title = shortTitle(title, Font:getFace("infofont"), width - 4 * Size.padding.large, 2),
+        title_align = "center",
+        width = width,
+        buttons = buttons,
+    }
+end
+
 -- Shared with the home screen
+Browser.languageName = languageName
+Browser.formatSize = formatSize
+Browser.readState = readState
+Browser.shortTitle = shortTitle
 Browser.coverWidget = coverWidget
 Browser.Item = Item
 Browser.readPercent = readPercent
+Browser.localBook = localBook
+Browser.libraryPath = libraryPath
+Browser.mergeProgress = mergeProgress
+Browser.mergeBooks = mergeBooks
+Browser.sameBook = sameBook
+Browser.plainText = plainText
+Browser.publishedDate = publishedDate
+Browser.imageData = imageData
+Browser.isImage = isImage
+Browser.blankImage = blankImage
+Browser.MAX_LOCAL = MAX_LOCAL
 Browser.seriesLine = seriesLine
 Browser.COVER_RATIO = COVER_RATIO
 

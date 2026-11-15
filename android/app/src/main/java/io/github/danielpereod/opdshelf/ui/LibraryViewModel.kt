@@ -9,8 +9,12 @@ import io.github.danielpereod.opdshelf.app
 import io.github.danielpereod.opdshelf.data.Entry
 import io.github.danielpereod.opdshelf.data.Feed
 import io.github.danielpereod.opdshelf.data.LocalBook
+import io.github.danielpereod.opdshelf.data.CachedStats
 import io.github.danielpereod.opdshelf.data.Position
+import io.github.danielpereod.opdshelf.data.ReadingStats
+import io.github.danielpereod.opdshelf.data.RemoteReading
 import io.github.danielpereod.opdshelf.data.ServerFolder
+import io.github.danielpereod.opdshelf.data.byPath
 import io.github.danielpereod.opdshelf.data.movedTo
 import io.github.danielpereod.opdshelf.data.serverPath
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -18,7 +22,11 @@ import io.github.danielpereod.opdshelf.data.partialMd5
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -32,6 +40,17 @@ data class FeedState(
     val feed: Feed? = null,
     val loading: Boolean = true,
     val loadingMore: Boolean = false,
+    val error: String? = null,
+    /** Read again while the old content stays on screen (pull to refresh, after a change). */
+    val refreshing: Boolean = false,
+)
+
+/** The reading statistics: the last ones fetched (also offline) and how fetching the next goes. */
+data class StatsState(
+    val stats: ReadingStats? = null,
+    /** When [stats] came from the server, in milliseconds. */
+    val fetchedAt: Long = 0,
+    val loading: Boolean = false,
     val error: String? = null,
 )
 
@@ -115,9 +134,30 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     val books = app.store.books
     val syncStatus = app.sync.status
 
+    /** How far each book of the library was read on any device, by path; empty until known. */
+    val remoteReading: StateFlow<Map<String, RemoteReading>> = app.sync.library
+        .map { it?.byPath().orEmpty() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    private val _stats = MutableStateFlow(app.store.cachedStats()?.let { StatsState(it.stats, it.fetchedAt) } ?: StatsState())
+    val stats: StateFlow<StatsState> = _stats.asStateFlow()
+
+    private val _statsOpen = MutableStateFlow(false)
+    /** Whether the statistics screen is open, over the tabs like a book's details. */
+    val statsOpen: StateFlow<Boolean> = _statsOpen.asStateFlow()
+
     private val text get() = getApplication<Application>()
 
-    fun openRoot() = selectSection(_section.value)
+    fun openRoot() {
+        selectSection(_section.value)
+        refreshLibrary()
+    }
+
+    /** Positions and finished marks of the whole library, for Explore and the books here. */
+    private fun refreshLibrary() {
+        if (!app.settings.isConfigured) return
+        viewModelScope.launch { app.sync.refreshLibrary() }
+    }
 
     fun selectSection(section: Section) {
         if (!app.settings.isConfigured) return
@@ -146,6 +186,27 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
     fun retry() {
         _stack.value.lastOrNull()?.let { load(it.url) }
+    }
+
+    /** Reads the feed on screen again, keeping it shown meanwhile (pull to refresh). */
+    fun refresh() {
+        val state = _stack.value.lastOrNull() ?: return
+        if (state.feed == null) load(state.url) else refresh(state.url)
+        refreshLibrary()
+    }
+
+    private fun refresh(url: String) {
+        update(url) { it.copy(refreshing = true) }
+        viewModelScope.launch {
+            try {
+                val feed = app.api.feed(url)
+                update(url) { it.copy(feed = feed, refreshing = false, error = null) }
+            } catch (e: Exception) {
+                update(url) { it.copy(refreshing = false) }
+                // What was there stays; only the feed on screen says so
+                if (_stack.value.lastOrNull()?.url == url) _messages.value = Notice(text.describe(e))
+            }
+        }
     }
 
     private fun load(url: String) {
@@ -191,7 +252,10 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         _remote.value = null
         val book = app.store.book(bookId) ?: return
         viewModelScope.launch {
-            _remote.value = runCatching { app.api.getProgress(book.document) }.getOrNull()
+            val answer = runCatching { app.api.bookProgress(book.document) }.getOrNull()
+            // Finished or not as marked on any device
+            answer?.mark?.let { app.store.adoptMarks(mapOf(book.document to it)) }
+            _remote.value = answer?.current
         }
     }
 
@@ -317,8 +381,8 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             }
             val now = _upload.value ?: return@launch
             val failed = now.files.any { it.supported && !it.done }
-            // Show the new books where the catalog is open
-            _stack.value.lastOrNull()?.let { load(it.url) }
+            // Show the new books where the catalog is open, and the new counts of its folders
+            if (saved > 0) reloadAll()
             if (failed) {
                 _upload.value = now.copy(running = false, finished = true)
             } else {
@@ -329,7 +393,8 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun setFinished(book: LocalBook, finished: Boolean) = app.store.setFinished(book.id, finished)
+    /** Marks a book as finished or not, here and (when possible) on the server for every device. */
+    fun setFinished(book: LocalBook, finished: Boolean) = app.sync.setFinished(book.id, finished)
 
     // -----------------------------------------------------------------------
     // Folders on the server
@@ -375,20 +440,42 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /** Moves a book of the catalog into [folder] ("" for the top), creating the folder if it is new. */
-    fun moveToFolder(entry: Entry, folder: String) {
-        val path = entry.serverPath ?: return
+    fun moveToFolder(entry: Entry, folder: String) = moveToFolder(listOf(entry), folder)
+
+    /** Moves books of the catalog into [folder] ("" for the top), creating the folder if it is new. */
+    fun moveToFolder(entries: List<Entry>, folder: String) {
+        val byPath = entries.mapNotNull { e -> e.serverPath?.let { it to e } }.toMap()
+        if (byPath.isEmpty()) return
         val target = folder.trim().trim('/')
         viewModelScope.launch {
             try {
-                val result = app.api.moveBooks(listOf(path), target)
-                val newPath = listOf(result.folder, path.substringAfterLast('/')).filter { it.isNotEmpty() }.joinToString("/")
-                val moved = entry.movedTo(path, newPath)
-                // The copy on this device stays tied to the book
-                app.store.changeId(entry.id, moved.id)
-                if (_detail.value?.bookId == entry.id) _detail.value = Detail(moved, moved.id)
+                val result = app.api.moveBooks(byPath.keys.toList(), target)
+                // Older servers do not say where each book went: it keeps its name
+                val moves = result.paths.ifEmpty {
+                    byPath.keys.map { path ->
+                        io.github.danielpereod.opdshelf.data.MovedPath(
+                            path, listOf(result.folder, path.substringAfterLast('/')).filter { it.isNotEmpty() }.joinToString("/"),
+                        )
+                    }.take(result.moved)
+                }
+                for (move in moves) {
+                    val entry = byPath[move.from] ?: continue
+                    val moved = entry.movedTo(move.from, move.to)
+                    // The copy on this device stays tied to the book
+                    app.store.changeId(entry.id, moved.id)
+                    if (_detail.value?.bookId == entry.id) _detail.value = Detail(moved, moved.id)
+                }
+                val done = moves.size
+                val where = result.folder.ifEmpty { text.getString(R.string.library_top) }
+                val message = when {
+                    done == 1 && entries.size == 1 && result.folder.isEmpty() -> text.getString(R.string.moved_to_top, entries[0].title)
+                    done == 1 && entries.size == 1 -> text.getString(R.string.moved_to_folder, entries[0].title, result.folder)
+                    else -> text.resources.getQuantityString(R.plurals.moved_count, done, done, where)
+                }
+                val failed = result.failed.size
                 _messages.value = Notice(
-                    if (result.folder.isEmpty()) text.getString(R.string.moved_to_top, entry.title)
-                    else text.getString(R.string.moved_to_folder, entry.title, result.folder)
+                    if (failed == 0) message
+                    else message + " · " + text.resources.getQuantityString(R.plurals.move_failed_count, failed, failed),
                 )
                 reloadAll()
             } catch (e: Exception) {
@@ -397,8 +484,82 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /** Folder counts and contents change after a move, so every open feed is read again. */
-    private fun reloadAll() = _stack.value.forEach { load(it.url) }
+    /** Renames a folder of the library where it is. */
+    fun renameFolder(path: String, name: String) = changeFolder(path) {
+        val to = app.api.renameFolder(path, name.trim())
+        text.getString(R.string.folder_renamed, to.substringAfterLast('/')) to to
+    }
+
+    /**
+     * Moves a folder, with everything in it, into [parent] ("" for the top). A
+     * name that is not a folder yet creates it first, as moving books does.
+     */
+    fun moveFolder(path: String, parent: String) = changeFolder(path) {
+        val target = parent.trim().trim('/')
+        val existing = _folders.value.orEmpty().any { it.path == target }
+        val into = if (target.isEmpty() || existing) target else app.api.createFolder("", target)
+        val to = app.api.moveFolder(path, into)
+        val name = path.substringAfterLast('/')
+        (if (into.isEmpty()) text.getString(R.string.moved_to_top, name) else text.getString(R.string.moved_to_folder, name, into)) to to
+    }
+
+    /** Deletes an empty folder of the library. */
+    fun deleteFolder(path: String) = changeFolder(path) {
+        app.api.deleteFolder(path)
+        text.getString(R.string.folder_deleted, path.substringAfterLast('/')) to null
+    }
+
+    /** Runs a change of a folder that answers a message and its new path (null when it is gone). */
+    private fun changeFolder(path: String, change: suspend () -> Pair<String, String?>) {
+        viewModelScope.launch {
+            try {
+                val (message, to) = change()
+                if (to != null && to != path) app.store.folderMoved(path, to)
+                _messages.value = Notice(message)
+                reloadAll()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _messages.value = Notice(text.describe(e))
+            }
+        }
+    }
+
+    /** Folder counts and contents change after a move, so every open feed is read again, staying on screen meanwhile. */
+    private fun reloadAll() {
+        _stack.value.forEach { if (it.feed == null) load(it.url) else refresh(it.url) }
+        refreshLibrary()
+    }
+
+    // -----------------------------------------------------------------------
+    // Reading statistics
+
+    fun openStats() {
+        _statsOpen.value = true
+        loadStats()
+    }
+
+    fun closeStats() {
+        _statsOpen.value = false
+    }
+
+    /** Fetches the statistics, keeping the last ones (shown offline) if the server cannot be reached. */
+    fun loadStats() {
+        if (!app.settings.isConfigured || _stats.value.loading) return
+        _stats.update { it.copy(loading = true, error = null) }
+        viewModelScope.launch {
+            try {
+                val stats = app.api.stats()
+                val cached = CachedStats(stats, System.currentTimeMillis())
+                withContext(Dispatchers.IO) { runCatching { app.store.saveStats(cached) } }
+                _stats.value = StatsState(stats, cached.fetchedAt)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _stats.update { it.copy(loading = false, error = text.describe(e)) }
+            }
+        }
+    }
 
     fun cancelDownload(id: String) {
         jobs[id]?.cancel()
@@ -415,7 +576,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         _messages.value = Notice(text.resources.getQuantityString(R.plurals.removed_count, gone.size, gone.size))
     }
 
-    fun setFinished(ids: Collection<String>, finished: Boolean) = ids.forEach { app.store.setFinished(it, finished) }
+    fun setFinished(ids: Collection<String>, finished: Boolean) = ids.forEach { app.sync.setFinished(it, finished) }
 
     fun deleteAll() {
         books.value.forEach { app.store.removeBook(it) }

@@ -12,6 +12,9 @@
       <button type="button" class="nav-item" data-shelf="finished">
         <i class="far fa-circle-check"></i><span class="label">{{t "Finished"}}</span><span class="count" id="finishedCount"></span>
       </button>
+      <button type="button" class="nav-item" data-shelf="notstarted">
+        <i class="far fa-bookmark"></i><span class="label">{{t "Not started"}}</span><span class="count" id="notStartedCount"></span>
+      </button>
       <button type="button" class="nav-item" data-shelf="recent">
         <i class="far fa-clock"></i><span class="label">{{t "Added this week"}}</span><span class="count" id="recentCount"></span>
       </button>
@@ -20,7 +23,7 @@
         <span class="count{{#if incompleteCount}} strong{{/if}}">{{incompleteCount}}</span>
       </button>
 
-      <h2>{{t "Sync"}}</h2>
+      <h2>{{t "Activity"}}</h2>
       <a class="nav-item" href="/admin/sync" data-page="sync" {{#if syncView}}aria-current="true"{{/if}}>
         <i class="fas fa-tablet-screen-button"></i><span class="label">{{t "Devices"}}</span>
         <span class="live-dot" id="navLive" title="{{t "Connecting…"}}"></span>
@@ -31,9 +34,6 @@
       </a>
       <a class="nav-item" href="/admin/stats" data-page="stats" {{#if statsView}}aria-current="true"{{/if}}>
         <i class="fas fa-chart-column"></i><span class="label">{{t "Statistics"}}</span>
-      </a>
-      <a class="nav-item" href="/admin/maintenance">
-        <i class="fas fa-broom"></i><span class="label">{{t "Maintenance"}}</span>
       </a>
 
       <details class="nav-group" id="authorsGroup" hidden>
@@ -50,43 +50,47 @@
         <button type="button" class="icon-btn" data-new-folder title="{{t "New folder"}}" aria-label="{{t "New folder"}}"><i
             class="fas fa-plus"></i></button>
       </div>
-      {{#each folderTree}}
-      <button type="button" class="nav-item" data-shelf="folder" data-value="{{path}}" style="--depth: {{depth}}"
-        {{#if (eq path ../folder)}}data-initial{{/if}}>
-        <i class="far fa-folder"></i><span class="label" title="{{path}}">{{name}}</span><span class="count">{{count}}</span>
+      <button type="button" class="nav-item drop-root" id="dropRoot" tabindex="-1" aria-hidden="true">
+        <i class="fas fa-house"></i><span class="label">{{t "The library root"}}</span>
       </button>
-      {{else}}
-      <button type="button" class="nav-item nav-add" data-new-folder>
-        <i class="fas fa-folder-plus"></i><span class="label">{{t "New folder"}}</span>
-      </button>
-      {{/each}}
+      <div class="folder-tree" id="folderTree" data-current="{{folder}}">
+        {{#each folderTree}}
+        <div class="nav-folder" data-folder="{{path}}" style="--depth: {{depth}}">
+          <button type="button" class="nav-item" data-shelf="folder" data-value="{{path}}"
+            {{#if (eq path ../folder)}}data-initial{{/if}}>
+            <i class="far fa-folder"></i><span class="label" title="{{path}}">{{name}}</span><span class="count">{{count}}</span>
+          </button>
+        </div>
+        {{else}}
+        <button type="button" class="nav-item nav-add" data-new-folder>
+          <i class="fas fa-folder-plus"></i><span class="label">{{t "New folder"}}</span>
+        </button>
+        {{/each}}
+      </div>
 
       {{#if formatCounts}}
-      <h2>{{t "Formats"}}</h2>
-      {{#each formatCounts}}
-      <button type="button" class="nav-item" data-shelf="format" data-value="{{name}}">
-        <i class="far fa-file"></i><span class="label">{{name}}</span><span class="count">{{count}}</span>
-      </button>
-      {{/each}}
+      <details class="nav-group" id="formatsGroup">
+        <summary><h2>{{t "Formats"}}</h2><i class="fas fa-chevron-down" aria-hidden="true"></i></summary>
+        <div>
+          {{#each formatCounts}}
+          <button type="button" class="nav-item" data-shelf="format" data-value="{{name}}">
+            <i class="far fa-file"></i><span class="label">{{name}}</span><span class="count">{{count}}</span>
+          </button>
+          {{/each}}
+        </div>
+      </details>
       {{/if}}
     </nav>
 
     <div class="side-foot">
-      <div class="opds-box">
-        <p>{{t "OPDS catalog for reader apps"}}</p>
-        <div class="row">
-          <code class="mono" id="opdsUrl">{{baseUrl}}/</code>
-          <button type="button" class="icon-btn" data-copy="opdsUrl" title="{{t "Copy address"}}"
-            aria-label="{{t "Copy address"}}"><i class="far fa-copy"></i></button>
-        </div>
-      </div>
+      <a class="nav-item" href="/admin/settings" data-page="settings" {{#if settingsView}}aria-current="true"{{/if}}>
+        <i class="fas fa-gear"></i><span class="label">{{t "Settings"}}</span>
+      </a>
       <div class="side-actions">
         <button type="button" class="icon-btn" data-theme-btn onclick="toggleTheme()" title="{{t "Light or dark"}}"
           aria-label="{{t "Light or dark"}}">
           <i class="fas fa-circle-half-stroke"></i>
         </button>
-        <button type="button" class="icon-btn lang-btn" id="langBtn" title="{{t "Language"}}"
-          aria-label="{{t "Language"}}">{{lang}}</button>
         {{#if authEnabled}}
         <form action="/user/logout" method="post" class="push">
           <input type="hidden" name="csrf" value="{{csrf}}">
@@ -99,11 +103,13 @@
   </aside>
   <div class="scrim" id="scrim"></div>
 
-  <main class="main" id="libraryView" tabindex="-1" {{#if syncView}}hidden{{else if highlightsView}}hidden{{else if statsView}}hidden{{/if}}>
+  <main class="main" id="libraryView" tabindex="-1" {{#if shellPage}}hidden{{/if}}>
     <header class="toolbar">
       <button type="button" class="icon-btn menu-btn" data-menu title="{{t "Shelves"}}" aria-label="{{t "Shelves"}}"><i
           class="fas fa-bars"></i></button>
       <h1><span id="shelfTitle">{{t "All books"}}</span><small id="shownCount">{{total}}</small></h1>
+      <button type="button" class="icon-btn folder-more" id="folderMenuBtn" aria-haspopup="menu" aria-expanded="false"
+        title="{{t "Folder actions"}}" aria-label="{{t "Folder actions"}}" hidden><i class="fas fa-ellipsis"></i></button>
       <label class="search">
         <i class="fas fa-magnifying-glass"></i>
         <input type="search" id="bookSearch" class="input" placeholder="{{t "Search"}}"
@@ -140,6 +146,7 @@
       </button>
     </header>
 
+    {{#unless shellPage}}
     {{#if notice}}
     <div class="notice" role="status">
       <i class="fas fa-check"></i>{{notice}}
@@ -152,6 +159,7 @@
       <button type="button" class="icon-btn" data-dismiss title="{{t "Dismiss"}}" aria-label="{{t "Dismiss"}}"><i class="fas fa-xmark"></i></button>
     </div>
     {{/if}}
+    {{/unless}}
 
     <form class="bulk" id="bulkForm" action="/admin/bulk" method="post" hidden>
       <input type="hidden" name="csrf" value="{{csrf}}">
@@ -190,7 +198,7 @@
         <div class="book">
           <label class="pick"><input type="checkbox"></label>
           <a class="book-link">
-            <span class="thumb"><span></span><i class="thumb-bar"></i></span>
+            <span class="thumb"><span></span><i class="thumb-pct" aria-hidden="true"></i><i class="thumb-bar"></i></span>
             <span class="book-name"><b></b><span class="book-meta"></span></span>
           </a>
           <span class="c-folder"></span>
@@ -198,7 +206,8 @@
           <span class="c-prog" data-progress><span class="muted">—</span></span>
           <span class="c-size c-num num"></span>
           <span class="c-added c-num num" data-date></span>
-          <span class="c-read"></span>
+          <span class="c-read"><button type="button" class="icon-btn more-btn" aria-haspopup="menu"
+              aria-expanded="false"><i class="fas fa-ellipsis" aria-hidden="true"></i></button></span>
         </div>
       </template>
       <div class="empty" id="noMatches" hidden>
@@ -220,15 +229,13 @@
       </div>
       {{/if}}
     </div>
-
-    <div class="drop-hint"><i class="fas fa-inbox"></i>{{t "Drop files anywhere to upload them to"}} <strong
-        id="dropTarget">{{t "the library root"}}</strong></div>
   </main>
 
   {{> sync}}
   {{> highlights}}
 
   {{> stats}}
+  {{> settings}}
 
   <aside class="insp" id="insp" aria-label="{{t "Book"}}" {{#unless book}}hidden{{/unless}}>
     {{#if book}}{{> inspector}}{{/if}}
@@ -268,11 +275,7 @@
       <span>{{formats}}</span>
       <input type="file" id="uploadFiles" name="books" accept="{{accept}}" multiple required hidden>
     </label>
-    <div class="upload-progress" id="uploadProgress" hidden>
-      <div class="upload-line"><span id="uploadInfo"></span><span class="mono" id="uploadPct"></span></div>
-      <div class="track"><b id="uploadBar"></b></div>
-    </div>
-    <p class="error-text" id="uploadError" role="alert" hidden></p>
+    <p class="muted upload-hint">{{t "Each book is uploaded on its own, and you can keep using the panel meanwhile."}}</p>
     <div class="dialog-actions">
       <button type="button" class="btn" data-close-dialog id="uploadCancel">{{t "Cancel"}}</button>
     </div>
@@ -286,13 +289,11 @@
     <h2>{{t "New folder"}}</h2>
     <label class="field" for="folderName"><span>{{t "Name"}}</span>
       <input type="text" name="name" id="folderName" class="input" required autocomplete="off"></label>
-    {{#if folderTree}}
     <label class="field" for="folderParent"><span>{{t "Inside"}}</span>
       <select name="path" id="folderParent" class="input">
         <option value="">{{t "The library root"}}</option>
         {{#each folderTree}}<option value="{{path}}">{{path}}</option>{{/each}}
       </select></label>
-    {{/if}}
     <div class="dialog-actions">
       <button type="button" class="btn" data-close-dialog>{{t "Cancel"}}</button>
       <button type="submit" class="btn btn-primary">{{t "Create"}}</button>
@@ -300,11 +301,49 @@
   </form>
 </dialog>
 
-<form action="/admin/folder" method="post" id="deleteFolderForm" hidden>
-  <input type="hidden" name="csrf" value="{{csrf}}">
-  <input type="hidden" name="action" value="delete">
-  <input type="hidden" name="path" id="deleteFolderPath">
-</form>
+<dialog id="folderRenameDialog">
+  <form class="dialog-body" id="folderRenameForm" action="/admin/folder" method="post">
+    <input type="hidden" name="csrf" value="{{csrf}}">
+    <input type="hidden" name="action" value="rename">
+    <input type="hidden" name="path" id="folderRenamePath">
+    <h2>{{t "Rename folder"}}</h2>
+    <label class="field" for="folderNewName"><span>{{t "Name"}}</span>
+      <input type="text" name="name" id="folderNewName" class="input" required autocomplete="off"></label>
+    <p class="muted" id="folderRenameInfo"></p>
+    <p class="error-text" id="folderRenameError" role="alert" hidden></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close-dialog>{{t "Cancel"}}</button>
+      <button type="submit" class="btn btn-primary">{{t "Rename"}}</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="shortcutsDialog" aria-labelledby="shortcutsTitle">
+  <div class="dialog-body">
+    <h2 id="shortcutsTitle">{{t "Keyboard shortcuts"}}</h2>
+    <p class="muted">{{t "In the list of books. They do nothing while you type in a field."}}</p>
+    <dl class="shortcuts">
+      <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>{{t "Move between books (also ← → with covers)"}}</dd>
+      <dt><kbd>{{t "Home"}}</kbd> <kbd>{{t "End"}}</kbd></dt><dd>{{t "First or last book"}}</dd>
+      <dt><kbd>{{t "Enter"}}</kbd></dt><dd>{{t "Show the details"}}</dd>
+      <dt><kbd>{{t "Space"}}</kbd></dt><dd>{{t "Select or unselect"}}</dd>
+      <dt><kbd>Shift</kbd> + {{t "click"}}</dt><dd>{{t "Select every book in between"}}</dd>
+      <dt><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + {{t "click"}}</dt><dd>{{t "Select or unselect without opening"}}</dd>
+      <dt><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>A</kbd></dt><dd>{{t "Select every book shown"}}</dd>
+      <dt><kbd>M</kbd></dt><dd>{{t "Move to folder"}}</dd>
+      <dt><kbd>E</kbd></dt><dd>{{t "Edit details"}}</dd>
+      <dt><kbd>R</kbd></dt><dd>{{t "Read"}}</dd>
+      <dt><kbd>{{t "Del"}}</kbd></dt><dd>{{t "Delete the book or the selection"}}</dd>
+      <dt><kbd>Shift</kbd> + <kbd>F10</kbd></dt><dd>{{t "Actions of the book, like a right click"}}</dd>
+      <dt><kbd>/</kbd></dt><dd>{{t "Search"}}</dd>
+      <dt><kbd>Esc</kbd></dt><dd>{{t "Clear the selection or close the panel"}}</dd>
+      <dt><kbd>?</kbd></dt><dd>{{t "Show these shortcuts"}}</dd>
+    </dl>
+    <div class="dialog-actions">
+      <button type="button" class="btn btn-primary" data-close-dialog>{{t "Close"}}</button>
+    </div>
+  </div>
+</dialog>
 
 <dialog id="moveDialog">
   <form class="dialog-body" action="/admin/bulk" method="post" id="moveForm">
@@ -321,7 +360,7 @@
           class="far fa-folder"></i><span class="label" title="{{path}}">{{name}}</span><span class="count">{{count}}</span></button>
       {{/each}}
     </div>
-    <label class="field" for="moveNew"><span>{{t "Or a new folder"}}</span>
+    <label class="field" for="moveNew" id="moveNewField"><span>{{t "Or a new folder"}}</span>
       <div class="lookup-row">
         <input type="text" id="moveNew" class="input" autocomplete="off" placeholder="{{t "Folder name"}}">
         <button type="submit" class="btn btn-primary" name="folder" id="moveNewBtn" disabled>{{t "Create and move"}}</button>
@@ -344,6 +383,7 @@
     </label>
     <label class="field" for="renameFolder"><span>{{t "Folder"}} <em>{{t "empty for the root"}}</em></span>
       <input type="text" name="folder" id="renameFolder" list="folderList" class="input"></label>
+    <p class="error-text" id="renameError" role="alert" hidden></p>
     <div class="dialog-actions">
       <button type="button" class="btn" data-close-dialog>{{t "Cancel"}}</button>
       <button type="submit" class="btn btn-primary">{{t "Save"}}</button>
@@ -370,7 +410,7 @@
     <p>{{t "The files will be removed from the disk. This cannot be undone."}}</p>
     <div class="dialog-actions">
       <button type="button" class="btn" data-close-dialog>{{t "Cancel"}}</button>
-      <button type="submit" class="btn btn-danger" form="bulkForm" name="action" value="delete">{{t "Delete"}}</button>
+      <button type="button" class="btn btn-danger" id="bulkDeleteGo">{{t "Delete"}}</button>
     </div>
   </div>
 </dialog>
@@ -391,8 +431,20 @@
 </div>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
+<section class="upload-tray" id="uploadTray" aria-labelledby="uploadTrayTitle" hidden>
+  <header>
+    <i class="fas fa-arrow-up-from-bracket" id="uploadTrayIcon" aria-hidden="true"></i>
+    <h2 id="uploadTrayTitle" aria-live="polite"></h2>
+    <button type="button" class="btn btn-quiet btn-small" id="uploadStop">{{t "Cancel"}}</button>
+    <button type="button" class="icon-btn" id="uploadFold" aria-expanded="true" title="{{t "Hide the list"}}" aria-label="{{t "Hide the list"}}"><i class="fas fa-chevron-down" aria-hidden="true"></i></button>
+    <button type="button" class="icon-btn" id="uploadClose" title="{{t "Close"}}" aria-label="{{t "Close"}}" hidden><i class="fas fa-xmark" aria-hidden="true"></i></button>
+  </header>
+  <div class="track upload-total"><b id="uploadTotal"></b></div>
+  <ul id="uploadList"></ul>
+</section>
 
 <script src="/static/app/notes.js?v={{v}}"></script>
+<script src="/static/app/menu.js?v={{v}}"></script>
 <script data-accept="{{accept}}">
   (function () {
     const $ = (id) => document.getElementById(id);
@@ -407,10 +459,24 @@
       .map((d) => ({ dataset: d, hidden: false, checked: false, el: null }));
     const byPath = new Map(rows.map((r) => [r.dataset.path, r]));
     window.bookByPath = (path) => byPath.get(path)?.dataset;
+    // Paths are relative to the books folder, `/` separated; `''` is its root
+    const parentOf = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
+    const baseName = (p) => p.slice(p.lastIndexOf('/') + 1);
+    const within = (p, folder) => !folder || p === folder || p.startsWith(folder + '/');
+    // Where `p` ends up when the book or folder `from` moves to `to`, or null
+    const relocate = (p, from, to) => {
+      if (p === from) return to;
+      if (!p.startsWith(from + '/')) return null;
+      return (to ? to + '/' : '') + p.slice(from.length + 1);
+    };
+    const isTyping = (el) => Boolean(el) && (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT'
+      || (el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'reset'].includes(el.type)));
     let selectedPath = list ? list.dataset.selected : '';
     let limit = PAGE;
     const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
     const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+    // Books and folders are dragged with a mouse; touch screens use the menus
+    const canDrag = matchMedia('(hover: hover)').matches;
     const state = { shelf: 'all', value: '', sort: 'date', dir: 'desc', query: '' };
     const libraryRoot = t('the library root');
     // Book path → its current position, from /api/progress
@@ -418,6 +484,7 @@
     const FINISHED = 0.98;
     const isReading = (p) => p && p.percentage > 0 && p.percentage < FINISHED;
     const isFinished = (p) => p && p.percentage >= FINISHED;
+    const isNotStarted = (p) => !p || !(p.percentage > 0);
 
     // Dates and sizes in the page's language, and drawn covers for books without one
     const pageLang = document.documentElement.lang || undefined;
@@ -477,18 +544,43 @@
         read.title = t('Read');
         read.setAttribute('aria-label', t('Read'));
         read.innerHTML = '<i class="fas fa-book-open"></i>';
-        el.querySelector('.c-read').append(read);
+        el.querySelector('.c-read').prepend(read);
       }
+      const more = el.querySelector('.more-btn');
+      more.title = t('More actions');
+      more.setAttribute('aria-label', t('More actions for {title}', { title: d.title }));
       el.classList.toggle('selected', d.path === selectedPath);
-      el.draggable = Boolean(row.draggable);
+      el.draggable = canDrag;
       row.el = el;
+      setRowTabbable(el, row === activeRow);
       paintRow(row);
       return el;
     }
+    // Only one book is in the tab order: the arrow keys move between books
+    // (see "keyboard" below), and Tab goes on to the rest of the page.
+    let activeRow = null;
+    const FOCUSABLE = '.pick input, .book-link, .c-read a, .more-btn';
+    function setRowTabbable(el, on) {
+      el.querySelectorAll(FOCUSABLE).forEach((f) => { f.tabIndex = on ? 0 : -1; });
+    }
+    function setActive(row, focus) {
+      if (activeRow && activeRow !== row && activeRow.el) setRowTabbable(activeRow.el, false);
+      activeRow = row;
+      if (!row) return;
+      const el = rowEl(row);
+      setRowTabbable(el, true);
+      if (focus) {
+        el.querySelector('.book-link').focus({ preventScroll: true });
+        el.scrollIntoView({ block: 'nearest' });
+      }
+    }
+    const shownRows = () => rows.filter((r) => !r.hidden);
     function renderRows() {
       if (!list) return;
-      const visible = rows.filter((r) => !r.hidden);
-      list.replaceChildren(...visible.slice(0, limit).map(rowEl));
+      const visible = shownRows();
+      const page = visible.slice(0, limit);
+      list.replaceChildren(...page.map(rowEl));
+      if (!activeRow || !page.includes(activeRow)) setActive(page[0] || null, false);
       const left = visible.length - limit;
       $('moreBooks').hidden = left <= 0;
       $('moreBooks').textContent = t('Show {n} more', { n: Math.min(left, PAGE) });
@@ -542,7 +634,6 @@
     fillList('authorOptions', rows.flatMap(authorsOf));
     fillList('seriesOptions', rows.map((r) => r.dataset.series).filter(Boolean));
     buildShelves($('seriesGroup'), $('seriesShelves'), 'series', rows.map((r) => r.dataset.series).filter(Boolean));
-    $('dropTarget').textContent = libraryRoot;
     $('dropOverlayTarget').textContent = libraryRoot;
 
     // ------------------------------------------------------------ toasts and confirmations
@@ -563,11 +654,14 @@
       $('toasts').append(el);
       setTimeout(() => el.remove(), action ? 8000 : 4000);
     };
-    window.confirmAction = function (title, text, ok) {
+    // `danger` shows the button of actions that delete in red
+    window.confirmAction = function (title, text, ok, danger) {
       const dialog = $('confirmDialog');
       $('confirmTitle').textContent = title;
       $('confirmText').textContent = text;
+      $('confirmText').hidden = !text;
       $('confirmOk').textContent = ok;
+      $('confirmOk').className = danger ? 'btn btn-danger' : 'btn btn-primary';
       dialog.returnValue = '';
       dialog.showModal();
       return new Promise((resolve) => {
@@ -582,6 +676,7 @@
       switch (state.shelf) {
         case 'reading': return isReading(p);
         case 'finished': return isFinished(p);
+        case 'notstarted': return isNotStarted(p);
         case 'recent': return Date.parse(d.added) > weekAgo;
         case 'incomplete': return d.incomplete === '1';
         case 'folder': return d.folder === state.value || d.folder.startsWith(state.value + '/');
@@ -595,6 +690,7 @@
     const emptyTexts = {
       reading: [t('Nothing in progress'), t('Books you start on any device show up here.')],
       finished: [t('No finished books yet'), t('Books read to the end on any device show up here.')],
+      notstarted: [t('Every book is started'), t('Books that no device has opened yet show up here.')],
     };
 
     function refresh(keepPage) {
@@ -653,9 +749,6 @@
         if (emptyFolder) {
           $('noMatchesTitle').textContent = t('This folder is empty');
           $('noMatchesText').textContent = t('Upload books here, or select books and use Move to folder. On a computer you can also drag them onto the folder.');
-          const hasSubfolders = Array.from(document.querySelectorAll('.nav-item[data-shelf="folder"]'))
-            .some((b) => b.dataset.value.startsWith(state.value + '/'));
-          $('deleteFolderBtn').hidden = hasSubfolders;
         }
       }
       const sortSelect = $('sortSelect');
@@ -681,6 +774,7 @@
 
     function selectShelf(button) {
       showPage('library');
+      if (button.dataset.shelf === 'folder') revealFolder(button.dataset.value);
       const group = button.closest('details');
       if (group) group.open = true;
       if (group && button.classList.contains('extra')) group.classList.add('expanded');
@@ -689,11 +783,11 @@
       state.value = button.dataset.value || '';
       $('shelfTitle').textContent = button.querySelector('.label').textContent;
       const folder = state.shelf === 'folder' ? state.value : '';
-      $('dropTarget').textContent = folder || libraryRoot;
+      $('folderMenuBtn').hidden = !folder;
       $('dropOverlayTarget').textContent = folder || libraryRoot;
       $('uploadFolder').value = folder;
       const url = new URL(location.href);
-      if (['/admin/sync', '/admin/highlights', '/admin/stats'].includes(url.pathname)) url.pathname = '/admin';
+      if (pageFromPath(url.pathname).page !== 'library') url.pathname = '/admin';
       if (folder && url.pathname === '/admin') url.searchParams.set('folder', folder);
       else url.searchParams.delete('folder');
       history.replaceState(history.state, '', url);
@@ -701,7 +795,11 @@
       refresh();
     }
 
-    document.querySelectorAll('[data-shelf]').forEach((b) => b.addEventListener('click', () => selectShelf(b)));
+    // Folders are drawn again when they change, so their clicks are caught on the sidebar
+    $('side').addEventListener('click', (e) => {
+      const shelf = e.target.closest('[data-shelf]');
+      if (shelf) selectShelf(shelf);
+    });
     document.addEventListener('click', (e) => {
       const go = e.target.closest('[data-goto-shelf]');
       if (go) selectShelf(document.querySelector(`[data-shelf="${go.dataset.gotoShelf}"]`));
@@ -743,7 +841,7 @@
       if (e.key === 'Escape' && e.target.value) { e.stopPropagation(); e.target.value = ''; state.query = ''; refresh(); }
     });
     document.addEventListener('keydown', (e) => {
-      const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+      const typing = isTyping(document.activeElement) || Boolean(document.querySelector('dialog[open]'));
       if (e.key === '/' && !typing) { e.preventDefault(); showPage('library'); $('bookSearch').focus(); }
     });
 
@@ -781,12 +879,15 @@
       el.classList.toggle('started', Boolean(p));
       if (p) cell.replaceChildren(progressCell(p));
       else cell.innerHTML = '<span class="muted">—</span>';
+      // The covers show it too, as the list does
+      el.querySelector('.thumb-pct').textContent = !p ? '' : isFinished(p) ? t('Done') : pct(p) + '%';
     }
     function paintProgress() {
       rows.forEach((row) => { if (row.el) paintRow(row); });
       const all = Array.from(progress.entries()).filter(([path]) => byPath.has(path));
       $('readingCount').textContent = all.filter(([, p]) => isReading(p)).length || '';
       $('finishedCount').textContent = all.filter(([, p]) => isFinished(p)).length || '';
+      $('notStartedCount').textContent = rows.filter((r) => isNotStarted(progress.get(r.dataset.path))).length || '';
     }
 
     function renderContinue() {
@@ -869,25 +970,54 @@
     document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
     setView(storeGet('opdshelf:view') === 'grid' ? 'grid' : 'list');
 
-    // ------------------------------------------------------------ library or sync page
-    const PAGES = { sync: 'syncView', highlights: 'highlightsView', stats: 'statsView' };
-    const TITLES = { sync: () => t('Sync - OPDShelf'), highlights: () => t('Highlights - OPDShelf'), stats: () => t('Statistics - OPDShelf') };
-    // The page shown: library, sync, highlights or stats
+    // ------------------------------------------------------------ library or another page of the panel
+    const PAGES = { sync: 'syncView', highlights: 'highlightsView', stats: 'statsView', settings: 'settingsView' };
+    const TITLES = {
+      sync: () => t('Devices - OPDShelf'),
+      highlights: () => t('Highlights - OPDShelf'),
+      stats: () => t('Statistics - OPDShelf'),
+      settings: () => t('Settings - OPDShelf'),
+    };
+    // The settings have a tab each with its own address: /admin/settings, /admin/settings/apps…
+    const SETTINGS_TABS = ['general', 'apps', 'maintenance', 'about'];
+    let settingsTab = $('settingsView').dataset.tab || 'general';
+    // The page shown: library, sync, highlights, stats or settings
     function currentPage() {
       return Object.keys(PAGES).find((p) => !$(PAGES[p]).hidden) || 'library';
     }
-    function pageUrl(page) {
-      return page === 'library' ? '/admin' : '/admin/' + page;
+    function pageFromPath(path) {
+      const tab = path.match(/^\/admin\/settings(?:\/([a-z]+))?\/?$/);
+      if (tab && (!tab[1] || SETTINGS_TABS.includes(tab[1]))) return { page: 'settings', tab: tab[1] || 'general' };
+      return { page: Object.keys(PAGES).find((p) => path === '/admin/' + p) || 'library' };
     }
-    function showPage(page) {
+    function pageUrl(page, tab) {
+      if (page === 'library') return '/admin';
+      if (page === 'settings') {
+        const which = tab || settingsTab;
+        return '/admin/settings' + (which === 'general' ? '' : '/' + which);
+      }
+      return '/admin/' + page;
+    }
+    function showPage(page, tab) {
+      const before = currentPage();
+      const beforeTab = settingsTab;
+      if (page === 'settings' && tab) settingsTab = tab;
       $('libraryView').hidden = page !== 'library';
       Object.entries(PAGES).forEach(([name, id]) => {
         $(id).hidden = name !== page;
         document.querySelector(`[data-page="${name}"]`).setAttribute('aria-current', name === page);
       });
       if (page !== 'library') document.querySelectorAll('[data-shelf]').forEach((b) => b.setAttribute('aria-current', false));
+      document.querySelectorAll('[data-settings-panel]').forEach((p) => { p.hidden = p.dataset.settingsPanel !== settingsTab; });
+      document.querySelectorAll('.settings-tabs [data-settings-tab]').forEach((a) => {
+        if (a.dataset.settingsTab !== settingsTab) { a.removeAttribute('aria-current'); return; }
+        a.setAttribute('aria-current', 'page');
+        // On a phone the tabs scroll sideways: the one shown is always in view
+        if (page === 'settings') a.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      });
       document.title = TITLES[page] ? TITLES[page]() : 'OPDShelf';
-      document.dispatchEvent(new CustomEvent('pagechange', { detail: { page } }));
+      const changed = page !== before || (page === 'settings' && settingsTab !== beforeTab);
+      document.dispatchEvent(new CustomEvent('pagechange', { detail: { page, tab: settingsTab, changed } }));
     }
     window.showPage = showPage;
     $('skipLink').addEventListener('click', (e) => {
@@ -899,10 +1029,24 @@
       if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
       e.preventDefault();
       closePanel(false);
-      showPage(page);
+      showPage(page, page === 'settings' ? 'general' : undefined);
       history.pushState({ page }, '', pageUrl(page));
       closeMenu();
     }));
+    // The tabs of the settings, and links to one of them from other pages
+    document.addEventListener('click', (e) => {
+      const link = e.target.closest('[data-settings-tab]');
+      if (!link || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      e.preventDefault();
+      const tab = link.dataset.settingsTab;
+      if (currentPage() === 'settings' && settingsTab === tab) return;
+      closePanel(false);
+      showPage('settings', tab);
+      history.pushState({ page: 'settings', tab }, '', pageUrl('settings', tab));
+      closeMenu();
+      if (link.closest('.settings-tabs')) link.focus();
+      else $('settingsView').focus();
+    });
 
     // ------------------------------------------------------------ selection
     function picked() {
@@ -926,6 +1070,7 @@
     if (list) list.addEventListener('change', (e) => {
       if (!e.target.matches('.pick input')) return;
       e.target.closest('.book')._row.checked = e.target.checked;
+      anchorRow = e.target.closest('.book')._row;
       updateBulk();
     });
     // The rows shown are only a page of the books: the ones picked are sent as fields
@@ -953,19 +1098,212 @@
     $('books').addEventListener('click', (e) => {
       if (!$('books').classList.contains('selecting')) return;
       const row = e.target.closest('.book');
-      if (!row || e.target.closest('.pick')) return;
+      if (!row || e.target.closest('.pick, .c-read')) return;
       e.preventDefault();
       e.stopPropagation();
-      setChecked(row._row, !row._row.checked);
-      updateBulk();
+      if (e.shiftKey) selectRange(row._row);
+      else toggleRow(row._row);
     }, true);
     $('bulkClear').addEventListener('click', () => setSelecting(false));
     $('bulkDelete').addEventListener('click', () => $('bulkDeleteDialog').showModal());
     $('bulkMove').addEventListener('click', () => openMove(picked().map((r) => r.dataset.path)));
-    document.querySelectorAll('[data-bulk-mark]').forEach((b) => b.addEventListener('click', async () => {
-      await markBooks(picked().map((r) => r.dataset.path), b.dataset.bulkMark);
+    document.querySelectorAll('[data-bulk-mark]').forEach((b) => b.addEventListener('click', () => markSelection(b.dataset.bulkMark)));
+
+    // Shift+click ticks every book between the last one ticked and this one,
+    // in the order shown; Ctrl or Cmd+click ticks one without opening it
+    let anchorRow = null;
+    function toggleRow(row, checked) {
+      setChecked(row, checked === undefined ? !row.checked : checked);
+      anchorRow = row;
+      updateBulk();
+    }
+    function selectRange(to) {
+      const visible = shownRows();
+      const from = anchorRow && !anchorRow.hidden ? visible.indexOf(anchorRow) : -1;
+      const end = visible.indexOf(to);
+      if (from < 0) { toggleRow(to, true); return; }
+      visible.slice(Math.min(from, end), Math.max(from, end) + 1).forEach((r) => setChecked(r, true));
+      updateBulk();
+    }
+    function selectAllShown() {
+      rows.forEach((r) => { if (!r.hidden) setChecked(r, true); });
+      updateBulk();
+    }
+    $('books').addEventListener('click', (e) => {
+      const el = e.target.closest('.book');
+      if (e.defaultPrevented || !el || !list.contains(el) || e.button !== 0 || e.target.closest('.c-read')) return;
+      const modifier = e.ctrlKey || e.metaKey;
+      if (!e.shiftKey && !modifier) {
+        if (e.target.closest('.pick')) anchorRow = el._row;
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      setActive(el._row, false);
+      if (e.shiftKey) selectRange(el._row);
+      else toggleRow(el._row);
+    }, true);
+
+    // ------------------------------------------------------------ menu of a book
+    // The selection's actions when the book is one of several selected
+    function bookMenu(row, at, trigger) {
+      const chosen = picked();
+      if (chosen.length > 1 && chosen.includes(row)) {
+        const paths = chosen.map((r) => r.dataset.path);
+        const finished = chosen.filter((r) => isFinished(progress.get(r.dataset.path))).length;
+        Menu.open([
+          { label: t('Move to folder…'), icon: 'far fa-folder-open', run: () => openMove(paths) },
+          finished < chosen.length && { label: t('Mark as read'), icon: 'far fa-circle-check', run: () => markSelection('read') },
+          finished > 0 && { label: t('Mark as unread'), icon: 'far fa-circle', run: () => markSelection('unread') },
+          '-',
+          { label: t('Delete…'), icon: 'far fa-trash-can', danger: true, run: () => $('bulkDeleteDialog').showModal() },
+        ], at, { trigger, header: t('{n} books selected', { n: chosen.length }) });
+        return;
+      }
+      const d = row.dataset;
+      const path = d.path;
+      const done = isFinished(progress.get(path));
+      Menu.open([
+        d.readable && { label: t('Read'), icon: 'fas fa-book-open', href: '/read/' + encodePath(path) },
+        { label: t('Details'), icon: 'fas fa-circle-info', run: () => openPanel('/info/' + encodePath(path), true) },
+        { label: t('Download'), icon: 'fas fa-download', href: '/download/' + encodePath(path), download: true },
+        '-',
+        { label: t('Edit details'), icon: 'fas fa-pen', run: () => openPanel('/admin/edit/' + encodePath(path), true) },
+        { label: t('Move to folder…'), icon: 'far fa-folder-open', run: () => openMove([path], d.folder) },
+        { label: t('Rename…'), icon: 'fas fa-i-cursor', run: () => openRename({ rename: path, name: baseName(path), folder: d.folder }) },
+        '-',
+        done
+          ? { label: t('Mark as unread'), icon: 'far fa-circle', run: () => markBooks([path], 'unread') }
+          : { label: t('Mark as read'), icon: 'far fa-circle-check', run: () => markBooks([path], 'read') },
+        '-',
+        { label: t('Delete…'), icon: 'far fa-trash-can', danger: true, run: () => openDeleteBook(path, d.title) },
+      ], at, { trigger, label: d.title });
+    }
+    async function markSelection(markState) {
+      await markBooks(picked().map((r) => r.dataset.path), markState);
       setSelecting(false);
-    }));
+    }
+    function openDeleteBook(path, title) {
+      $('deletePath').value = path;
+      $('deleteTitle').textContent = title;
+      $('deleteDialog').showModal();
+    }
+    // The "⋯" button of a book, where the keyboard menu opens too when it is shown
+    const menuAnchor = (el) => {
+      const more = el.querySelector('.more-btn');
+      return more && more.offsetParent ? more : el.querySelector('.book-link');
+    };
+    if (list) {
+      list.addEventListener('click', (e) => {
+        const more = e.target.closest('.more-btn');
+        if (!more) return;
+        e.preventDefault();
+        const el = more.closest('.book');
+        setActive(el._row, false);
+        bookMenu(el._row, { anchor: more }, more);
+      });
+      // A right click, or a long press on a touch screen, on a book
+      list.addEventListener('contextmenu', (e) => {
+        const el = e.target.closest('.book');
+        if (!el) return;
+        e.preventDefault();
+        // The keyboard already opened it (see the menu key below)
+        if (Menu.isOpen() && Date.now() - keyboardMenuAt < 500) return;
+        setActive(el._row, false);
+        bookMenu(el._row, { x: e.clientX, y: e.clientY }, el.querySelector('.book-link'));
+      });
+    }
+
+    // ------------------------------------------------------------ keyboard
+    // In the list: arrows, Home and End move between books (with covers ←→ too
+    // and ↑↓ by rows), Space ticks one, and letters act on it (see the shortcuts dialog)
+    const busy = () => Boolean(document.querySelector('dialog[open]')) || Menu.isOpen();
+    function moveFocus(row, delta, more) {
+      let visible = shownRows();
+      let at = visible.indexOf(row) + delta;
+      // Going down past the last book built builds the next page
+      if (more !== false && at >= Math.min(limit, visible.length) && limit < visible.length) {
+        limit += PAGE;
+        renderRows();
+        visible = shownRows();
+      }
+      at = Math.max(0, Math.min(at, Math.min(limit, visible.length) - 1));
+      if (visible[at]) setActive(visible[at], true);
+    }
+    function gridColumns() {
+      const els = Array.from(list.children);
+      if (!els.length) return 1;
+      const top = els[0].offsetTop;
+      const n = els.findIndex((el) => el.offsetTop !== top);
+      return n < 0 ? els.length : n;
+    }
+    // The books a shortcut acts on: the selection, or else the focused book
+    function targets(row) {
+      const chosen = picked();
+      return chosen.length ? chosen : row ? [row] : [];
+    }
+    function deleteBooks(row) {
+      if (picked().length) $('bulkDeleteDialog').showModal();
+      else openDeleteBook(row.dataset.path, row.dataset.title);
+    }
+    if (list) list.addEventListener('keydown', (e) => {
+      const el = e.target.closest('.book');
+      if (!el || busy() || e.altKey) return;
+      const row = el._row;
+      const grid = $('books').classList.contains('grid');
+      const modifier = e.ctrlKey || e.metaKey;
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      if (key === 'ContextMenu' || (e.shiftKey && key === 'F10')) {
+        keyboardMenuAt = Date.now();
+        bookMenu(row, { anchor: menuAnchor(el) }, el.querySelector('.book-link'));
+      } else if (modifier && key.toLowerCase() === 'a') selectAllShown();
+      else if (modifier || e.shiftKey && key !== 'Delete') return;
+      else if (key === 'ArrowDown') moveFocus(row, grid ? gridColumns() : 1);
+      else if (key === 'ArrowUp') moveFocus(row, grid ? -gridColumns() : -1);
+      else if (key === 'ArrowRight' && grid) moveFocus(row, 1);
+      else if (key === 'ArrowLeft' && grid) moveFocus(row, -1);
+      else if (key === 'Home') moveFocus(row, -Infinity);
+      else if (key === 'End') moveFocus(row, shownRows().length, false);
+      else if (key === ' ') {
+        if (e.target.matches('.pick input')) { anchorRow = row; return; }
+        toggleRow(row);
+      } else if (key === 'Delete' || key === 'Backspace') deleteBooks(row);
+      else if (key === 'm') openMove(targets(row).map((r) => r.dataset.path), targets(row).length === 1 ? targets(row)[0].dataset.folder : undefined);
+      else if (key === 'e') openPanel('/admin/edit/' + encodePath(row.dataset.path), true);
+      else if (key === 'r') {
+        if (!row.dataset.readable) { showToast(t('This book cannot be read in the browser.')); return; }
+        location.href = '/read/' + encodePath(row.dataset.path);
+      } else if (key === 'Escape' && picked().length) setSelecting(false);
+      else return;
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    if (list) list.addEventListener('focusin', (e) => {
+      const el = e.target.closest('.book');
+      if (el && el._row !== activeRow) setActive(el._row, false);
+    });
+
+    // Anywhere else in the panel: ? shows the shortcuts, and with books
+    // selected M moves them and Delete deletes them; Esc clears the selection
+    document.addEventListener('keydown', (e) => {
+      if (busy() || isTyping(document.activeElement) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === '?') {
+        e.preventDefault();
+        openShortcuts();
+        return;
+      }
+      if (currentPage() !== 'library' || !picked().length) return;
+      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); setSelecting(false); }
+      else if (e.key === 'm') { e.preventDefault(); openMove(picked().map((r) => r.dataset.path)); }
+      else if (e.key === 'Delete') { e.preventDefault(); $('bulkDeleteDialog').showModal(); }
+    });
+    function openShortcuts() {
+      closeMenu();
+      $('shortcutsDialog').showModal();
+    }
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('[data-shortcuts]')) openShortcuts();
+    });
 
     // ------------------------------------------------------------ inspector
     const insp = $('insp');
@@ -989,6 +1327,7 @@
         if (!response.ok) throw new Error(response.statusText);
         insp.innerHTML = await response.text();
         insp.hidden = false;
+        localizeFields(insp);
         const path = insp.querySelector('[data-delete]').dataset.delete;
         markSelected(path);
         paintReading();
@@ -1158,12 +1497,7 @@
       if (link) { e.preventDefault(); openPanel(link.getAttribute('href'), true); return; }
       if (e.target.closest('[data-close]')) { e.preventDefault(); closePanel(true); return; }
       const del = e.target.closest('[data-delete]');
-      if (del) {
-        $('deletePath').value = del.dataset.delete;
-        $('deleteTitle').textContent = del.dataset.title;
-        $('deleteDialog').showModal();
-        return;
-      }
+      if (del) { openDeleteBook(del.dataset.delete, del.dataset.title); return; }
       const rename = e.target.closest('[data-rename]');
       if (rename) { openRename(rename.dataset); return; }
       const move = e.target.closest('[data-move]');
@@ -1181,11 +1515,12 @@
       if (path.startsWith('/info/') || path.startsWith('/admin/edit/')) openPanel(path + location.search, false);
       else {
         closePanel(false);
-        showPage(Object.keys(PAGES).find((p) => path === pageUrl(p)) || 'library');
+        const { page, tab } = pageFromPath(path);
+        showPage(page, tab);
       }
     });
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !insp.hidden && !document.querySelector('dialog[open]')) closePanel(true);
+      if (e.key === 'Escape' && !insp.hidden && !document.querySelector('dialog[open]') && !Menu.isOpen()) closePanel(true);
       if (e.key === 'Escape' && $('side').classList.contains('open')) closeMenu();
     });
     window.addEventListener('beforeunload', (e) => {
@@ -1297,7 +1632,43 @@
       markDirty();
     });
 
-    // ------------------------------------------------------------ rename
+    // ------------------------------------------------------------ the server, for moves and folders
+    // Posts JSON to the server; a refusal becomes an error with a message in the page's language
+    async function api(url, body) {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(body),
+      });
+      let data = {};
+      try { data = await response.json(); } catch { }
+      if (!response.ok) {
+        const err = new Error(apiErrorText(data, response));
+        err.data = data;
+        throw err;
+      }
+      return data;
+    }
+    function apiErrorText(data, response) {
+      switch (data.code) {
+        case 'exists': return t('There is already one with that name there.');
+        case 'into_itself': return t('A folder cannot be moved into itself');
+        case 'invalid_name': return t('Invalid name');
+        case 'not_found': return t('It is no longer there. Reload the page.');
+        case 'not_empty': return t('Only empty folders can be deleted');
+        default:
+          if (data.failed && data.failed.length) return data.failed.join('; ');
+          return data.error || (response.status + ' ' + response.statusText);
+      }
+    }
+    // A name typed for a folder or a file, checked before it is sent
+    function nameProblem(name) {
+      if (!name) return t('Type a name.');
+      if (/[\/\\]/.test(name) || name.startsWith('.')) return t('A name cannot have slashes in it, or start with a dot.');
+      return '';
+    }
+
+    // ------------------------------------------------------------ rename a book
     function openRename(data) {
       const name = data.name;
       const lower = name.toLowerCase();
@@ -1307,44 +1678,376 @@
       $('renameExt').textContent = dot > 0 ? name.substring(dot) : '';
       $('renameExt').hidden = dot <= 0;
       $('renameFolder').value = data.folder;
+      $('renameError').hidden = true;
       $('renameDialog').showModal();
       $('renameName').select();
     }
+    async function renameBook(from, name, folder) {
+      const data = await api('/api/books/rename', { path: from, name, folder });
+      if (data.path !== from) applyBookMoves([{ from, to: data.path }]);
+      return data.path;
+    }
+    $('renameDialog').querySelector('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const from = $('renamePath').value;
+      const name = $('renameName').value.trim();
+      const problem = nameProblem(name);
+      const fail = (text) => { $('renameError').textContent = text; $('renameError').hidden = false; };
+      if (problem) { fail(problem); return; }
+      let to;
+      try { to = await renameBook(from, name, $('renameFolder').value.trim()); } catch (err) { fail(err.message); return; }
+      $('renameDialog').close();
+      if (to === from) return;
+      showToast(t('Renamed to {path}', { path: to }), {
+        label: t('Undo'),
+        run: async () => {
+          try {
+            await renameBook(to, baseName(from), parentOf(from));
+            showToast(t('Change undone'));
+          } catch (err) { showToast(t('Cannot undo: {reason}', { reason: err.message })); }
+        },
+      });
+    });
 
-    // ------------------------------------------------------------ folders
+    // ------------------------------------------------------------ folders in the sidebar
+    // Every folder, empty ones too; drawn again from here when one changes
+    const folderBox = $('folderTree');
+    let folders = Array.from(folderBox.querySelectorAll('[data-shelf="folder"]')).map((b) => b.dataset.value);
+    // Folder order: by name at each level, so subfolders come right under their folder
+    const folderOrder = (a, b) => {
+      const x = a.split('/');
+      const y = b.split('/');
+      for (let i = 0; i < Math.min(x.length, y.length); i++) {
+        const c = collator.compare(x[i], y[i]);
+        if (c) return c;
+      }
+      return x.length - y.length;
+    };
+    const ancestorsOf = (p) => { const out = []; for (let f = parentOf(p); f; f = parentOf(f)) out.push(f); return out; };
+    const folderItem = (path) => Array.from(folderBox.querySelectorAll('.nav-item[data-shelf="folder"]')).find((b) => b.dataset.value === path);
+    // Folders with their subfolders hidden, remembered in this browser
+    let closedFolders;
+    try { closedFolders = new Set(JSON.parse(storeGet('opdshelf:folders-closed') || '[]')); } catch { closedFolders = new Set(); }
+    const saveClosed = () => storeSet('opdshelf:folders-closed', JSON.stringify(Array.from(closedFolders)));
+    function booksUnder(folder) {
+      return rows.filter((r) => within(r.dataset.folder, folder)).length;
+    }
+    function renderFolders() {
+      folders = Array.from(new Set(folders)).sort(folderOrder);
+      closedFolders = new Set(Array.from(closedFolders).filter((f) => folders.includes(f)));
+      const counts = new Map();
+      rows.forEach((r) => {
+        for (let f = r.dataset.folder; f; f = parentOf(f)) counts.set(f, (counts.get(f) || 0) + 1);
+      });
+      const parents = new Set(folders.map(parentOf).filter(Boolean));
+      folderBox.classList.toggle('nested', parents.size > 0);
+      const current = state.shelf === 'folder' && currentPage() === 'library' ? state.value : null;
+      const focused = document.activeElement && folderBox.contains(document.activeElement)
+        ? [document.activeElement.closest('.nav-folder')?.dataset.folder, document.activeElement.className] : null;
+      const items = folders.map((path) => {
+        const name = baseName(path);
+        const wrap = document.createElement('div');
+        wrap.className = 'nav-folder';
+        wrap.dataset.folder = path;
+        wrap.style.setProperty('--depth', path.split('/').length - 1);
+        wrap.hidden = ancestorsOf(path).some((a) => closedFolders.has(a));
+        if (parents.has(path)) {
+          const open = !closedFolders.has(path);
+          const toggle = document.createElement('button');
+          toggle.type = 'button';
+          toggle.className = 'nav-toggle';
+          toggle.setAttribute('aria-expanded', open);
+          toggle.setAttribute('aria-label', open ? t('Hide the subfolders of {name}', { name }) : t('Show the subfolders of {name}', { name }));
+          toggle.title = toggle.getAttribute('aria-label');
+          toggle.innerHTML = '<i class="fas fa-chevron-right" aria-hidden="true"></i>';
+          wrap.append(toggle);
+        }
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'nav-item';
+        item.dataset.shelf = 'folder';
+        item.dataset.value = path;
+        item.draggable = canDrag;
+        item.setAttribute('aria-current', path === current);
+        if (parents.has(path)) item.setAttribute('aria-expanded', !closedFolders.has(path));
+        item.innerHTML = '<i class="far fa-folder"></i><span class="label"></span><span class="count"></span>';
+        item.querySelector('.label').textContent = name;
+        item.querySelector('.label').title = path;
+        item.querySelector('.count').textContent = counts.get(path) || 0;
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'icon-btn nav-more';
+        more.setAttribute('aria-haspopup', 'menu');
+        more.setAttribute('aria-expanded', 'false');
+        more.setAttribute('aria-label', t('Actions of the folder {name}', { name }));
+        more.title = t('More actions');
+        more.innerHTML = '<i class="fas fa-ellipsis" aria-hidden="true"></i>';
+        wrap.append(item, more);
+        return wrap;
+      });
+      if (!items.length) {
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'nav-item nav-add';
+        add.dataset.newFolder = '';
+        add.innerHTML = '<i class="fas fa-folder-plus"></i><span class="label"></span>';
+        add.querySelector('.label').textContent = t('New folder');
+        items.push(add);
+      }
+      folderBox.replaceChildren(...items);
+      if (focused && focused[0]) {
+        const wrap = Array.from(folderBox.children).find((w) => w.dataset.folder === focused[0]);
+        const again = wrap && (wrap.querySelector('.' + focused[1].split(' ').pop()) || wrap.querySelector('.nav-item'));
+        if (again && !wrap.hidden) again.focus({ preventScroll: true });
+      }
+      // The lists of folders of the dialogs
+      const option = (value, label) => Object.assign(document.createElement('option'), { value, textContent: label });
+      $('folderParent').replaceChildren(option('', t('The library root')), ...folders.map((f) => option(f, f)));
+      $('folderList').replaceChildren(...folders.map((f) => Object.assign(document.createElement('option'), { value: f })));
+      const pick = $('moveDialog').querySelector('.folder-pick');
+      const choice = (value, icon, label, depth, count) => {
+        const b = document.createElement('button');
+        b.type = 'submit';
+        b.className = 'folder-option';
+        b.name = 'folder';
+        b.value = value;
+        b.style.setProperty('--depth', depth);
+        b.innerHTML = `<i class="${icon}"></i><span class="label"></span>`;
+        b.querySelector('.label').textContent = label;
+        b.querySelector('.label').title = value;
+        if (count !== undefined) {
+          const c = document.createElement('span');
+          c.className = 'count';
+          c.textContent = count;
+          b.append(c);
+        }
+        return b;
+      };
+      pick.replaceChildren(choice('', 'fas fa-house', t('The library root'), 0),
+        ...folders.map((f) => choice(f, 'far fa-folder', baseName(f), f.split('/').length - 1, counts.get(f) || 0)));
+    }
+    // Opens the folders a folder is in, so it can be seen
+    function revealFolder(path) {
+      const hidden = ancestorsOf(path).filter((a) => closedFolders.has(a));
+      if (!hidden.length) return;
+      hidden.forEach((a) => closedFolders.delete(a));
+      saveClosed();
+      renderFolders();
+    }
+    function setFolderOpen(path, open) {
+      if (open) closedFolders.delete(path);
+      else closedFolders.add(path);
+      saveClosed();
+      renderFolders();
+    }
+    folderBox.addEventListener('click', (e) => {
+      const toggle = e.target.closest('.nav-toggle');
+      if (toggle) {
+        e.stopPropagation();
+        const path = toggle.closest('.nav-folder').dataset.folder;
+        setFolderOpen(path, closedFolders.has(path));
+        return;
+      }
+      const more = e.target.closest('.nav-more');
+      if (more) {
+        e.stopPropagation();
+        folderMenu(more.closest('.nav-folder').dataset.folder, { anchor: more }, more);
+      }
+    });
+    folderBox.addEventListener('contextmenu', (e) => {
+      const wrap = e.target.closest('.nav-folder');
+      if (!wrap) return;
+      e.preventDefault();
+      if (Menu.isOpen() && Date.now() - keyboardMenuAt < 500) return;
+      folderMenu(wrap.dataset.folder, { x: e.clientX, y: e.clientY }, wrap.querySelector('.nav-item'));
+    });
+    // On a folder: → shows its subfolders, ← hides them or goes to the folder it is in,
+    // and the menu key or Shift+F10 shows its actions
+    folderBox.addEventListener('keydown', (e) => {
+      const item = e.target.closest('.nav-item[data-shelf="folder"]');
+      if (!item) return;
+      const path = item.dataset.value;
+      if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+        e.preventDefault();
+        keyboardMenuAt = Date.now();
+        folderMenu(path, { anchor: item }, item);
+      } else if (e.key === 'ArrowRight' && closedFolders.has(path)) {
+        e.preventDefault();
+        setFolderOpen(path, true);
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (item.hasAttribute('aria-expanded') && !closedFolders.has(path)) setFolderOpen(path, false);
+        else if (parentOf(path)) folderItem(parentOf(path))?.focus();
+      }
+    });
+    let keyboardMenuAt = 0;
+
+    // ------------------------------------------------------------ folder actions
     const currentFolder = () => (state.shelf === 'folder' ? state.value : '');
-    function openNewFolder() {
+    function folderMenu(path, at, trigger, inToolbar) {
+      const name = baseName(path);
+      const count = booksUnder(path);
+      Menu.open([
+        !inToolbar && { label: t('Open'), icon: 'far fa-folder-open', run: () => { const item = folderItem(path); if (item) { selectShelf(item); item.focus(); } } },
+        '-',
+        { label: t('Upload here…'), icon: 'fas fa-arrow-up-from-bracket', run: () => openUpload(path) },
+        { label: t('New subfolder…'), icon: 'fas fa-folder-plus', run: () => openNewFolder(path) },
+        '-',
+        { label: t('Rename…'), icon: 'fas fa-i-cursor', run: () => openRenameFolder(path) },
+        { label: t('Move to…'), icon: 'fas fa-folder-tree', run: () => openMoveFolder(path) },
+        '-',
+        count
+          ? { label: t('Delete…'), icon: 'far fa-trash-can', danger: true, disabled: true,
+            hint: count === 1 ? t('It holds 1 book: move or delete it first') : t('It holds {n} books: move or delete them first', { n: count }) }
+          : { label: t('Delete…'), icon: 'far fa-trash-can', danger: true, run: () => deleteFolder(path) },
+      ], at, { trigger, label: t('Folder {name}', { name }) });
+    }
+    $('folderMenuBtn').addEventListener('click', (e) => {
+      if (currentFolder()) folderMenu(currentFolder(), { anchor: e.currentTarget }, e.currentTarget, true);
+    });
+
+    function openNewFolder(parent) {
       $('folderName').value = '';
       // The sidebar's + makes a top-level folder; another one can be picked below
-      if ($('folderParent')) $('folderParent').value = '';
+      $('folderParent').value = parent || '';
       closeMenu();
       $('folderDialog').showModal();
       $('folderName').focus();
     }
-    // One click on a folder moves the books there; a new name creates the folder
+
+    function openRenameFolder(path) {
+      const count = booksUnder(path);
+      $('folderRenamePath').value = path;
+      $('folderNewName').value = baseName(path);
+      $('folderRenameInfo').textContent = count === 0 ? ''
+        : count === 1 ? t('Its book keeps its details, cover and reading progress.')
+          : t('Its {n} books keep their details, covers and reading progress.', { n: count });
+      $('folderRenameInfo').hidden = count === 0;
+      $('folderRenameError').hidden = true;
+      closeMenu();
+      $('folderRenameDialog').showModal();
+      $('folderNewName').select();
+    }
+    $('folderRenameForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const from = $('folderRenamePath').value;
+      const name = $('folderNewName').value.trim();
+      const fail = (text) => { $('folderRenameError').textContent = text; $('folderRenameError').hidden = false; };
+      const problem = nameProblem(name);
+      if (problem) { fail(problem); return; }
+      if (name === baseName(from)) { $('folderRenameDialog').close(); return; }
+      let to;
+      try { to = await moveFolder(from, parentOf(from), name); } catch (err) { fail(err.message); return; }
+      $('folderRenameDialog').close();
+      showToast(t('Folder renamed to {name}', { name }), {
+        label: t('Undo'),
+        run: () => undoFolder(to, from),
+      });
+    });
+
+    // Moves or renames a folder on the server, then here, with every book inside
+    async function moveFolder(from, parent, name) {
+      const data = await api('/api/folders/move', { path: from, parent, name });
+      if (data.path !== from) applyFolderMove(from, data.path);
+      return data.path;
+    }
+    async function undoFolder(now, before) {
+      try {
+        await moveFolder(now, parentOf(before), baseName(before));
+        showToast(t('Change undone'));
+      } catch (err) { showToast(t('Cannot undo: {reason}', { reason: err.message })); }
+    }
+    async function moveFolderTo(from, parent) {
+      let to;
+      try { to = await moveFolder(from, parent, baseName(from)); } catch (err) {
+        showToast(t('Cannot move the folder: {reason}', { reason: err.message }));
+        return;
+      }
+      if (to === from) return;
+      showToast(t('Moved the folder {name} to {folder}', { name: baseName(to), folder: parent || libraryRoot }), {
+        label: t('Undo'),
+        run: () => undoFolder(to, from),
+      });
+    }
+    function applyFolderMove(from, to) {
+      folders = folders.map((f) => relocate(f, from, to) ?? f);
+      closedFolders = new Set(Array.from(closedFolders).map((f) => relocate(f, from, to) ?? f));
+      saveClosed();
+      const viewing = state.shelf === 'folder' && within(state.value, from);
+      if (viewing) state.value = relocate(state.value, from, to);
+      applyBookMoves(rows.filter((r) => within(r.dataset.folder, from))
+        .map((r) => ({ from: r.dataset.path, to: relocate(r.dataset.path, from, to) })));
+      if (viewing && currentPage() === 'library') {
+        const item = folderItem(state.value);
+        if (item) selectShelf(item);
+      }
+    }
+
+    async function deleteFolder(path) {
+      const subfolders = folders.filter((f) => f.startsWith(path + '/')).length;
+      const ok = await confirmAction(t('Delete the folder {name}?', { name: path }),
+        subfolders === 0 ? t('It is empty, so no book is lost.')
+          : subfolders === 1 ? t('It has no books, only an empty subfolder, which is deleted too.')
+            : t('It has no books, only {n} empty subfolders, which are deleted too.', { n: subfolders }),
+        t('Delete folder'), true);
+      if (!ok) return;
+      try { await api('/api/folders/delete', { path }); } catch (err) {
+        showToast(t('Cannot delete the folder: {reason}', { reason: err.message }));
+        return;
+      }
+      folders = folders.filter((f) => !within(f, path));
+      const viewing = state.shelf === 'folder' && within(state.value, path);
+      renderFolders();
+      if (viewing) {
+        const parent = folderItem(parentOf(path)) || document.querySelector('[data-shelf="all"]');
+        selectShelf(parent);
+        parent.focus();
+      }
+      showToast(t('Deleted folder {folder}', { folder: path }));
+    }
+    $('deleteFolderBtn').addEventListener('click', () => deleteFolder(currentFolder()));
+
+    // ------------------------------------------------------------ moving books
+    // The move dialog lists every folder: one click moves the books, or the folder, there
+    let moving = null;
     function openMove(paths, from) {
       if (!paths.length) return;
-      $('movePaths').replaceChildren(...paths.map((p) => Object.assign(document.createElement('input'),
-        { type: 'hidden', name: 'path', value: p })));
-      const row = paths.length === 1 && rows.find((r) => r.dataset.path === paths[0]);
+      moving = { paths };
+      const row = paths.length === 1 && byPath.get(paths[0]);
       $('moveText').textContent = row ? row.dataset.title : t('{n} books selected', { n: paths.length });
       document.querySelectorAll('#moveDialog .folder-option').forEach((b) => {
         const here = from !== undefined && b.value === from;
         b.disabled = here;
         b.title = here ? t('It is already here') : '';
       });
+      $('moveNewField').hidden = false;
       $('moveNew').value = '';
       $('moveNewBtn').disabled = true;
+      closeMenu();
       $('moveDialog').showModal();
     }
-    function moveBooks(paths, folder) {
-      const form = $('moveForm');
-      $('movePaths').replaceChildren(...paths.map((p) => Object.assign(document.createElement('input'),
-        { type: 'hidden', name: 'path', value: p })));
-      const target = Object.assign(document.createElement('input'), { type: 'hidden', name: 'folder', value: folder });
-      form.append(target);
-      form.submit();
+    function openMoveFolder(path) {
+      moving = { folder: path };
+      $('moveText').textContent = t('Folder {name}', { name: path });
+      document.querySelectorAll('#moveDialog .folder-option').forEach((b) => {
+        const inside = within(b.value, path) && b.value !== '';
+        const here = b.value === parentOf(path);
+        b.disabled = inside || here;
+        b.title = here ? t('It is already here') : inside ? t('A folder cannot be moved into itself') : '';
+      });
+      $('moveNewField').hidden = true;
+      closeMenu();
+      $('moveDialog').showModal();
     }
+    $('moveForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!moving || !e.submitter || e.submitter.disabled) return;
+      const target = e.submitter.value.trim();
+      $('moveDialog').close();
+      if (moving.folder) moveFolderTo(moving.folder, target);
+      else moveBooks(moving.paths, target);
+      moving = null;
+    });
     $('moveNew').addEventListener('input', () => {
       $('moveNewBtn').value = $('moveNew').value.trim();
       $('moveNewBtn').disabled = !$('moveNewBtn').value;
@@ -1355,129 +2058,458 @@
       e.preventDefault();
       if (!$('moveNewBtn').disabled) $('moveNewBtn').click();
     });
-    $('deleteFolderBtn').addEventListener('click', async () => {
-      const folder = currentFolder();
-      const ok = await confirmAction(t('Delete the folder {name}?', { name: folder }),
-        t('It is empty, so no book is lost.'), t('Delete'));
-      if (!ok) return;
-      $('deleteFolderPath').value = folder;
-      $('deleteFolderForm').submit();
+
+    // Moves books on the server and then in the page, which keeps its shelf,
+    // search and scroll. Answers what moved, as { from, to }.
+    async function sendBooks(paths, folder) {
+      let data;
+      try { data = await api('/api/books/move', { paths, folder }); } catch (err) {
+        showToast(t('Cannot move: {reason}', { reason: err.message }));
+        return null;
+      }
+      const moved = (data.paths || []).filter((m) => m.from !== m.to);
+      applyBookMoves(moved);
+      if (data.failed && data.failed.length) showToast(t('Not moved: {reason}', { reason: data.failed.join('; ') }));
+      return moved;
+    }
+    async function moveBooks(paths, folder) {
+      const moved = await sendBooks(paths, folder);
+      if (!moved || !moved.length) return;
+      const where = folder || libraryRoot;
+      const message = moved.length === 1
+        ? t('Moved {title} to {folder}', { title: byPath.get(moved[0].to)?.dataset.title || baseName(moved[0].to), folder: where })
+        : t('Moved {n} books to {folder}', { n: moved.length, folder: where });
+      showToast(message, { label: t('Undo'), run: () => undoBookMoves(moved) });
+    }
+    // Each book goes back to the folder it came from
+    async function undoBookMoves(moved) {
+      const groups = new Map();
+      moved.forEach((m) => groups.set(parentOf(m.from), (groups.get(parentOf(m.from)) || []).concat(m.to)));
+      let back = 0;
+      for (const [folder, paths] of groups) back += ((await sendBooks(paths, folder)) || []).length;
+      if (back) showToast(t('Change undone'));
+    }
+    // The books' new paths, in the rows, the sidebar and the panel
+    function applyBookMoves(moved) {
+      if (!moved.length) return;
+      const hadFocus = list && (list.contains(document.activeElement) || document.activeElement === document.body);
+      const index = shownRows().indexOf(activeRow);
+      let panelTo = null;
+      moved.forEach(({ from, to }) => {
+        const row = byPath.get(from);
+        if (!row) return;
+        byPath.delete(from);
+        const d = row.dataset;
+        d.path = to;
+        d.folder = parentOf(to);
+        if (d.cover) d.cover = '/thumb/' + encodePath(to) + (d.cover.includes('?') ? d.cover.slice(d.cover.indexOf('?')) : '');
+        byPath.set(to, row);
+        if (progress.has(from)) { progress.set(to, progress.get(from)); progress.delete(from); }
+        // Built again with its new path the next time it is shown
+        if (row.el) row.el.remove();
+        row.el = null;
+        row.checked = false;
+        ancestorsOf(to + '/x').forEach((f) => { if (!folders.includes(f)) folders.push(f); });
+        if (from === selectedPath) panelTo = to;
+      });
+      renderFolders();
+      refresh(true);
+      if (hadFocus && list) {
+        const visible = shownRows();
+        const next = activeRow && !activeRow.hidden ? activeRow : visible[Math.min(Math.max(index, 0), visible.length - 1)];
+        if (next) setActive(next, true);
+      }
+      if (panelTo) {
+        selectedPath = panelTo;
+        if (!insp.hidden) {
+          const href = '/info/' + encodePath(panelTo);
+          openPanel(href, false);
+          if (location.pathname.startsWith('/info/') || location.pathname.startsWith('/admin/edit/')) history.replaceState({ panel: href }, '', href);
+        }
+      }
+      // Positions are kept by path in the page: ask again for the new ones
+      loadProgress();
+    }
+
+    // ------------------------------------------------------------ deleting and adding books in place
+    // The counts of the sidebar that come from the books of the page
+    function libraryCounts() {
+      const count = (shelf) => document.querySelector(`#side [data-shelf="${shelf}"] .count`);
+      count('all').textContent = rows.length;
+      const incomplete = rows.filter((r) => r.dataset.incomplete === '1').length;
+      count('incomplete').textContent = incomplete || '';
+      count('incomplete').classList.toggle('strong', incomplete > 0);
+      $('recentCount').textContent = rows.filter((r) => Date.parse(r.dataset.added) > weekAgo).length;
+      document.querySelectorAll('#side [data-shelf="format"]').forEach((b) => {
+        const n = rows.filter((r) => r.dataset.format === b.dataset.value).length;
+        b.querySelector('.count').textContent = n;
+        b.hidden = n === 0;
+      });
+    }
+    // Books deleted on the server leave the page, which keeps its shelf, search and scroll
+    function removeBooks(paths) {
+      const gone = new Set(paths);
+      if (!gone.size) return;
+      const hadFocus = list && list.contains(document.activeElement);
+      const index = shownRows().indexOf(activeRow);
+      for (let i = rows.length - 1; i >= 0; i--) {
+        const row = rows[i];
+        if (!gone.has(row.dataset.path)) continue;
+        if (row.el) row.el.remove();
+        rows.splice(i, 1);
+        byPath.delete(row.dataset.path);
+        progress.delete(row.dataset.path);
+        if (row === activeRow) activeRow = null;
+        if (row === anchorRow) anchorRow = null;
+      }
+      if (gone.has(selectedPath)) {
+        selectedPath = '';
+        closePanel(location.pathname.startsWith('/info/') || location.pathname.startsWith('/admin/edit/'));
+      }
+      libraryCounts();
+      renderFolders();
+      paintProgress();
+      refresh(true);
+      if (hadFocus) {
+        const visible = shownRows();
+        const next = visible[Math.min(Math.max(index, 0), visible.length - 1)];
+        if (next) setActive(next, true);
+      }
+    }
+    window.booksDeleted = removeBooks;
+    // New books (uploaded) join the page in their place in the order shown
+    function addBooks(data, serverFolders) {
+      let added = 0;
+      data.forEach((d) => {
+        if (byPath.has(d.path)) return;
+        const row = { dataset: d, hidden: false, checked: false, el: null };
+        rows.push(row);
+        byPath.set(d.path, row);
+        added++;
+      });
+      serverFolders.forEach((f) => { if (!folders.includes(f)) folders.push(f); });
+      if (!added) return;
+      libraryCounts();
+      renderFolders();
+      refresh(true);
+      loadProgress();
+    }
+    async function sendDelete(paths) {
+      const titles = paths.map((p) => byPath.get(p)?.dataset.title || baseName(p));
+      let data;
+      try { data = await api('/api/books/delete', { paths }); } catch (err) {
+        showToast(t('Cannot delete: {reason}', { reason: err.message }));
+        return;
+      }
+      const deleted = data.deleted || [];
+      removeBooks(deleted);
+      if (deleted.length === 1) showToast(t('Deleted {title}', { title: titles[paths.indexOf(deleted[0])] || baseName(deleted[0]) }));
+      else if (deleted.length > 1) showToast(t('Deleted {n} books', { n: deleted.length }));
+      if (data.failed && data.failed.length) showToast(t('Not deleted: {reason}', { reason: data.failed.join('; ') }));
+    }
+    $('deleteDialog').querySelector('form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      $('deleteDialog').close();
+      sendDelete([$('deletePath').value]);
+    });
+    $('bulkDeleteGo').addEventListener('click', () => {
+      $('bulkDeleteDialog').close();
+      const paths = picked().map((r) => r.dataset.path);
+      setSelecting(false);
+      sendDelete(paths);
     });
 
-    // Drag books onto a folder of the sidebar to move them there
+    // ------------------------------------------------------------ drag and drop
+    // Books (one, or the selection) and folders are dragged onto a folder of the
+    // sidebar, or onto "The library root" shown above them while dragging. Files
+    // from the computer dropped on a folder are uploaded there.
     let dragged = null;
-    const folderItems = Array.from(document.querySelectorAll('.nav-item[data-shelf="folder"]'));
-    if (list && folderItems.length && matchMedia('(hover: hover)').matches) {
-      rows.forEach((r) => {
-        r.draggable = true;
-        if (r.el) r.el.draggable = true;
+    const dropRoot = $('dropRoot');
+    function dropTarget(el) {
+      const target = el && el.closest ? el.closest('#dropRoot, #folderTree .nav-item[data-shelf="folder"]') : null;
+      return target ? { el: target, folder: target === dropRoot ? '' : target.dataset.value } : null;
+    }
+    function canDrop(folder) {
+      if (!dragged) return false;
+      if (dragged.kind === 'files') return true;
+      if (dragged.kind === 'books') return dragged.folders.some((f) => f !== folder);
+      return folder !== parentOf(dragged.path) && !(folder && within(folder, dragged.path));
+    }
+    function markTargets() {
+      [dropRoot, ...folderBox.querySelectorAll('.nav-item[data-shelf="folder"]')].forEach((el) => {
+        el.classList.toggle('drop-ok', canDrop(dropTarget(el).folder));
       });
+    }
+    function setDropInto(el) {
+      document.querySelectorAll('.drop-into').forEach((d) => { if (d !== el) d.classList.remove('drop-into'); });
+      if (el) el.classList.add('drop-into');
+      if (dragged && dragged.kind === 'files') {
+        $('dropOverlayTarget').textContent = el ? (el === dropRoot ? libraryRoot : el.dataset.value) : (currentFolder() || libraryRoot);
+      }
+    }
+    function startDrag(e, what, label, icon) {
+      dragged = what;
+      // Chrome ends a drag at once when the page moves under it in dragstart,
+      // so the targets show just after
+      setTimeout(() => {
+        if (dragged !== what) return;
+        document.body.classList.add('dragging');
+        markTargets();
+      });
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', label);
+      // A badge under the pointer says what is moving: a title, a folder or "3 books"
+      const badge = document.createElement('div');
+      badge.className = 'drag-badge';
+      badge.innerHTML = `<i class="${icon}" aria-hidden="true"></i><span></span>`;
+      badge.lastChild.textContent = label;
+      document.body.append(badge);
+      e.dataTransfer.setDragImage(badge, 14, 14);
+      setTimeout(() => badge.remove());
+    }
+    function endDrag() {
+      dragged = null;
+      document.body.classList.remove('dragging', 'dragging-files');
+      document.querySelectorAll('.drop-ok, .drop-into').forEach((el) => el.classList.remove('drop-ok', 'drop-into'));
+      $('dropOverlayTarget').textContent = currentFolder() || libraryRoot;
+    }
+    if (list && canDrag) {
       list.addEventListener('dragstart', (e) => {
         const row = e.target.closest('.book')?._row;
         if (!row) return;
         const chosen = picked();
-        dragged = (chosen.includes(row) ? chosen : [row]).map((r) => r.dataset.path);
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', dragged.join('\n'));
-        document.body.classList.add('dragging-books');
+        const books = chosen.includes(row) ? chosen : [row];
+        const label = books.length === 1 ? row.dataset.title : t('{n} books', { n: books.length });
+        startDrag(e, {
+          kind: 'books',
+          paths: books.map((r) => r.dataset.path),
+          folders: Array.from(new Set(books.map((r) => r.dataset.folder))),
+        }, label, books.length === 1 ? 'fas fa-book' : 'fas fa-layer-group');
       });
-      list.addEventListener('dragend', () => {
-        dragged = null;
-        document.body.classList.remove('dragging-books');
-        folderItems.forEach((f) => f.classList.remove('drop-into'));
-      });
-      folderItems.forEach((item) => {
-        item.addEventListener('dragover', (e) => {
-          if (!dragged) return;
-          e.preventDefault();
-          e.dataTransfer.dropEffect = 'move';
-          item.classList.add('drop-into');
-        });
-        item.addEventListener('dragleave', () => item.classList.remove('drop-into'));
-        item.addEventListener('drop', (e) => {
-          if (!dragged) return;
-          e.preventDefault();
-          moveBooks(dragged, item.dataset.value);
-        });
-      });
+      list.addEventListener('dragend', endDrag);
     }
+    folderBox.addEventListener('dragstart', (e) => {
+      const item = e.target.closest('.nav-item[data-shelf="folder"]');
+      if (!item) return;
+      startDrag(e, { kind: 'folder', path: item.dataset.value }, baseName(item.dataset.value), 'far fa-folder');
+    });
+    folderBox.addEventListener('dragend', endDrag);
+    const nav = $('side').querySelector('.nav');
+    nav.addEventListener('dragover', (e) => {
+      const target = dropTarget(e.target);
+      const ok = target && canDrop(target.folder);
+      setDropInto(ok ? target.el : null);
+      if (!ok) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = dragged.kind === 'files' ? 'copy' : 'move';
+    });
+    nav.addEventListener('dragleave', (e) => {
+      if (!nav.contains(e.relatedTarget)) setDropInto(null);
+    });
+    nav.addEventListener('drop', (e) => {
+      const target = dropTarget(e.target);
+      if (!target || !canDrop(target.folder)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const what = dragged;
+      endDrag();
+      if (what.kind === 'books') moveBooks(what.paths, target.folder);
+      else if (what.kind === 'folder') moveFolderTo(what.path, target.folder);
+      else {
+        endFileDrag();
+        uploadTo(e.dataTransfer.files, target.folder);
+      }
+    });
 
     // ------------------------------------------------------------ upload, with progress
     const isAccepted = (file) => accepted.some((ext) => file.name.toLowerCase().endsWith(ext));
     const sizeText = (bytes) => bytes > 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.ceil(bytes / 1024) + ' KB';
-    let uploading = null;
-    function openUpload() {
-      $('uploadError').hidden = true;
-      $('uploadProgress').hidden = true;
-      $('dropZone').hidden = false;
+    // `folder` picks where the books go; without it, the folder shown
+    function openUpload(folder) {
+      if (typeof folder === 'string') $('uploadFolder').value = folder;
       $('uploadDialog').showModal();
     }
+    // Each file is sent on its own, one after another, with its own bar, and
+    // the list of them stays in a corner while the panel keeps working. The
+    // new books join the list of the page when they are all done.
+    const uploads = [];
+    let uploadXhr = null;
+    let uploadTimer = null;
+    const uploading = () => uploads.some((u) => u.state === 'waiting' || u.state === 'sending');
     function upload(files) {
+      files = Array.from(files || []);
       if (!files.length) return;
-      const invalid = Array.from(files).filter((f) => !isAccepted(f));
-      if (!$('uploadDialog').open) openUpload();
-      if (invalid.length) {
-        $('uploadError').textContent = t('Not a supported format: {files}', { files: invalid.map((f) => f.name).join(', ') });
-        $('uploadError').hidden = false;
-        return;
-      }
-      const total = Array.from(files).reduce((sum, f) => sum + f.size, 0);
-      $('uploadError').hidden = true;
-      $('dropZone').hidden = true;
-      $('uploadProgress').hidden = false;
-      $('uploadInfo').textContent = files.length === 1
-        ? t('Uploading {name}…', { name: files[0].name })
-        : t('Uploading {n} books ({size})…', { n: files.length, size: sizeText(total) });
-      const form = new FormData();
-      form.append('csrf', csrf);
-      form.append('folder', $('uploadFolder').value);
-      Array.from(files).forEach((f) => form.append('books', f));
+      if ($('uploadDialog').open) $('uploadDialog').close();
+      $('uploadFiles').value = '';
+      // A new batch after a finished one starts a new list
+      if (!uploading()) uploads.splice(0, uploads.length);
+      const folder = $('uploadFolder').value.trim();
+      files.forEach((file) => {
+        const job = { file, folder, state: 'waiting', loaded: 0, reason: '', path: null, el: null };
+        if (!isAccepted(file)) { job.state = 'failed'; job.reason = t('Not a supported format'); }
+        uploads.push(job);
+      });
+      clearTimeout(uploadTimer);
+      $('uploadTray').hidden = false;
+      foldTray(false);
+      paintUploads();
+      nextUpload();
+    }
+    function uploadRow(job) {
+      if (job.el) return job.el;
+      const li = document.createElement('li');
+      li.innerHTML = '<i aria-hidden="true"></i><span class="up-text"><span class="up-name"></span><small></small></span><span class="track"><b></b></span>';
+      li.querySelector('.up-name').textContent = job.file.name;
+      li.querySelector('.up-name').title = job.file.name;
+      job.el = li;
+      return li;
+    }
+    function paintUploads() {
+      const list = $('uploadList');
+      uploads.forEach((job) => {
+        const li = uploadRow(job);
+        if (li.parentNode !== list) list.append(li);
+        li.dataset.state = job.state;
+        const pctDone = job.state === 'done' ? 100 : Math.round((job.loaded / Math.max(1, job.file.size)) * 100);
+        li.querySelector('.track b').style.width = pctDone + '%';
+        li.querySelector('i').className = {
+          waiting: 'far fa-clock', sending: 'fas fa-spinner fa-spin', done: 'fas fa-check', failed: 'fas fa-circle-exclamation',
+        }[job.state];
+        li.querySelector('small').textContent = {
+          waiting: () => sizeText(job.file.size) + ' · ' + t('Waiting'),
+          sending: () => pctDone >= 100 ? t('Reading the new book…') : sizeText(job.file.size) + ' · ' + pctDone + '%',
+          done: () => t('Uploaded'),
+          failed: () => t('Failed: {reason}', { reason: job.reason }),
+        }[job.state]();
+      });
+      Array.from(list.children).forEach((li) => { if (!uploads.some((u) => u.el === li)) li.remove(); });
+      const done = uploads.filter((u) => u.state === 'done').length;
+      const failed = uploads.filter((u) => u.state === 'failed').length;
+      const total = uploads.length;
+      const busy = uploading();
+      const bytes = uploads.reduce((sum, u) => sum + u.file.size, 0) || 1;
+      const sent = uploads.reduce((sum, u) => sum + (u.state === 'done' || u.state === 'failed' ? u.file.size : u.loaded), 0);
+      $('uploadTotal').style.width = Math.round((sent / bytes) * 100) + '%';
+      $('uploadTotal').parentNode.hidden = !busy;
+      $('uploadTrayTitle').textContent = busy
+        ? t('Uploading {n} of {total}…', { n: Math.min(total, done + failed + 1), total })
+        : failed
+          ? (done === 1 ? t('1 book uploaded, {m} failed', { m: failed }) : t('{n} books uploaded, {m} failed', { n: done, m: failed }))
+          : (done === 1 ? t('1 book uploaded') : t('{n} books uploaded', { n: done }));
+      $('uploadTrayIcon').className = busy ? 'fas fa-arrow-up-from-bracket' : failed ? 'fas fa-circle-exclamation' : 'fas fa-check';
+      $('uploadTray').dataset.state = busy ? 'busy' : failed ? 'failed' : 'done';
+      $('uploadStop').hidden = !busy;
+      $('uploadClose').hidden = busy;
+    }
+    function uploadReason(xhr) {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch { }
+      if (xhr.status === 415) return t('Not a supported format');
+      if (xhr.status === 413 || /upload limit/i.test(data.error || '')) return t('Larger than the upload limit');
+      return data.error || (xhr.status + ' ' + xhr.statusText);
+    }
+    function nextUpload() {
+      if (uploadXhr) return;
+      const job = uploads.find((u) => u.state === 'waiting');
+      if (!job) { uploadsFinished(); return; }
+      job.state = 'sending';
       const xhr = new XMLHttpRequest();
-      uploading = xhr;
-      xhr.open('POST', '/admin/upload');
-      xhr.upload.onprogress = (e) => {
-        if (!e.lengthComputable) return;
-        const done = Math.round((e.loaded / e.total) * 100);
-        $('uploadBar').style.width = done + '%';
-        $('uploadPct').textContent = done + '%';
-        if (done === 100) $('uploadInfo').textContent = t('Reading the new books…');
+      uploadXhr = xhr;
+      xhr.open('PUT', '/api/upload/' + encodePath(job.folder ? job.folder + '/' + job.file.name : job.file.name));
+      xhr.setRequestHeader('Accept', 'application/json');
+      xhr.upload.onprogress = (e) => { job.loaded = e.loaded; paintUploads(); };
+      const end = (state, reason) => {
+        uploadXhr = null;
+        job.state = state;
+        job.reason = reason || '';
+        paintUploads();
+        nextUpload();
       };
       xhr.onload = () => {
-        uploading = null;
-        if (xhr.status >= 200 && xhr.status < 400) location.href = xhr.responseURL || '/admin';
-        else failUpload(xhr.status + ' ' + xhr.statusText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { job.path = JSON.parse(xhr.responseText).path; } catch { }
+          end('done');
+        } else end('failed', uploadReason(xhr));
       };
-      xhr.onerror = () => { uploading = null; failUpload(t('The connection was lost.')); };
-      xhr.send(form);
+      xhr.onerror = () => end('failed', t('The connection was lost.'));
+      xhr.onabort = () => end('failed', t('Cancelled'));
+      xhr.send(job.file);
+      paintUploads();
     }
-    function failUpload(reason) {
-      $('uploadProgress').hidden = true;
-      $('dropZone').hidden = false;
-      $('uploadError').textContent = t('Upload failed: {reason}', { reason });
-      $('uploadError').hidden = false;
+    async function uploadsFinished() {
+      paintUploads();
+      const paths = uploads.filter((u) => u.state === 'done' && u.path).map((u) => u.path);
+      const failed = uploads.some((u) => u.state === 'failed');
+      if (paths.length) {
+        if (!list) { rememberView(); location.reload(); return; }
+        try {
+          const data = await api('/api/books/rows', { paths });
+          addBooks(data.books || [], data.folders || []);
+        } catch {
+          rememberView();
+          location.reload();
+          return;
+        }
+        const folder = uploads.find((u) => u.path)?.folder || '';
+        showToast(paths.length === 1
+          ? t('Uploaded {title}', { title: byPath.get(paths[0])?.dataset.title || baseName(paths[0]) })
+          : t('Uploaded {n} books to {folder}', { n: paths.length, folder: folder || libraryRoot }));
+      }
+      // All went well: the list leaves by itself after a moment
+      if (!failed) uploadTimer = setTimeout(() => { if (!uploading()) $('uploadTray').hidden = true; }, 6000);
     }
-    $('uploadDialog').addEventListener('close', () => { if (uploading) uploading.abort(); uploading = null; });
-    $('uploadBtn').addEventListener('click', openUpload);
+    function foldTray(fold) {
+      $('uploadTray').classList.toggle('folded', fold);
+      $('uploadFold').setAttribute('aria-expanded', !fold);
+      const label = fold ? t('Show the list') : t('Hide the list');
+      $('uploadFold').title = label;
+      $('uploadFold').setAttribute('aria-label', label);
+    }
+    $('uploadFold').addEventListener('click', () => foldTray(!$('uploadTray').classList.contains('folded')));
+    $('uploadStop').addEventListener('click', () => {
+      uploads.forEach((u) => { if (u.state === 'waiting') { u.state = 'failed'; u.reason = t('Cancelled'); } });
+      if (uploadXhr) uploadXhr.abort();
+      else paintUploads();
+    });
+    $('uploadClose').addEventListener('click', () => { $('uploadTray').hidden = true; });
+    window.addEventListener('beforeunload', (e) => { if (uploading()) e.preventDefault(); });
+    $('uploadBtn').addEventListener('click', () => openUpload(currentFolder()));
+    function uploadTo(files, folder) {
+      if (typeof folder === 'string') $('uploadFolder').value = folder;
+      upload(files);
+    }
     $('uploadFiles').addEventListener('change', (e) => upload(e.target.files));
 
+    // Files from the computer: dropped anywhere they go to the folder shown,
+    // dropped on a folder of the sidebar they go to that one
     let dragDepth = 0;
     const hasFiles = (e) => Array.from(e.dataTransfer.types).includes('Files');
+    function endFileDrag() {
+      dragDepth = 0;
+      $('dropOverlay').hidden = true;
+      if (dragged && dragged.kind === 'files') endDrag();
+    }
     document.addEventListener('dragenter', (e) => {
       if (!hasFiles(e)) return;
       dragDepth++;
       $('dropOverlay').hidden = false;
+      if (!dragged) {
+        dragged = { kind: 'files' };
+        document.body.classList.add('dragging', 'dragging-files');
+        markTargets();
+      }
     });
-    document.addEventListener('dragleave', () => {
+    document.addEventListener('dragleave', (e) => {
+      if (!hasFiles(e)) return;
       dragDepth = Math.max(0, dragDepth - 1);
-      if (!dragDepth) $('dropOverlay').hidden = true;
+      if (!dragDepth) endFileDrag();
     });
     document.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
     document.addEventListener('drop', (e) => {
       if (!hasFiles(e)) return;
       e.preventDefault();
-      dragDepth = 0;
-      $('dropOverlay').hidden = true;
-      upload(e.dataTransfer.files);
+      endFileDrag();
+      uploadTo(e.dataTransfer.files, $('uploadDialog').open ? undefined : currentFolder());
     });
 
     // ------------------------------------------------------------ misc
@@ -1498,10 +2530,19 @@
       }
     }
 
-    $('langBtn').addEventListener('click', () => {
-      const next = document.documentElement.lang === 'es' ? 'en' : 'es';
-      document.cookie = 'opdshelf_lang=' + next + '; path=/; max-age=31536000; samesite=lax';
-      location.reload();
+    // Forms that delete or remove something ask first, in the panel's own dialog
+    document.addEventListener('submit', async (e) => {
+      const form = e.target.closest('form[data-confirm]');
+      if (!form) return;
+      e.preventDefault();
+      const ok = await confirmAction(form.dataset.confirm, form.dataset.confirmText || '',
+        form.dataset.confirmOk || t('Delete'), form.hasAttribute('data-danger'));
+      if (!ok) return;
+      // A book deleted from Maintenance leaves the tab and the library in place
+      if (form.hasAttribute('data-delete-book')) {
+        await sendDelete([form.elements.path.value]);
+        document.dispatchEvent(new CustomEvent('maintenancechange'));
+      } else form.submit();
     });
 
     // ------------------------------------------------------------ live changes from other devices
@@ -1531,6 +2572,11 @@
         source.addEventListener('annotations', (e) => {
           document.dispatchEvent(new CustomEvent('remoteannotations', { detail: JSON.parse(e.data) }));
         });
+        // A book marked as finished or not on another device, such as the Android app
+        source.addEventListener('marks', () => {
+          clearTimeout(pending);
+          pending = setTimeout(loadProgress, 300);
+        });
         source.addEventListener('resync', () => { loadProgress(); if (panelNotes) panelNotes.load(); });
         source.onerror = () => {
           source.close();
@@ -1542,9 +2588,36 @@
       return { connect };
     })();
 
-    const initial = document.querySelector('[data-initial]');
-    if (currentPage() !== 'library') { showPage(currentPage()); refresh(); }
-    else if (initial) selectShelf(initial);
+    // After a delete or another form that reloads the page, the same shelf,
+    // search and scroll come back
+    function rememberView() {
+      try {
+        sessionStorage.setItem('opdshelf:view', JSON.stringify({
+          shelf: state.shelf, value: state.value, query: state.query, scroll: $('books').scrollTop, at: Date.now(),
+        }));
+      } catch { }
+    }
+    $('bulkForm').addEventListener('submit', rememberView);
+    let restored = null;
+    try {
+      restored = JSON.parse(sessionStorage.getItem('opdshelf:view') || 'null');
+      sessionStorage.removeItem('opdshelf:view');
+    } catch { }
+    if (restored && !(Date.now() - restored.at < 60000)) restored = null;
+    const findShelf = (shelf, value) => Array.from(document.querySelectorAll('#side [data-shelf]'))
+      .find((b) => b.dataset.shelf === shelf && (b.dataset.value || '') === (value || ''));
+
+    renderFolders();
+    const initial = folderBox.dataset.current ? folderItem(folderBox.dataset.current) : null;
+    const back = restored && findShelf(restored.shelf, restored.value);
+    localizeFields(document);
+    if (currentPage() !== 'library') { showPage(currentPage(), settingsTab); refresh(); }
+    else if (back) {
+      state.query = restored.query || '';
+      $('bookSearch').value = state.query;
+      selectShelf(back);
+      $('books').scrollTop = restored.scroll || 0;
+    } else if (initial) selectShelf(initial);
     else refresh();
     loadProgress();
     paintNotes();

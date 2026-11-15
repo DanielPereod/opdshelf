@@ -23,6 +23,8 @@ class OpdShelfApp : Application() {
         super.onCreate()
         settings = Settings(this)
         io.github.danielpereod.opdshelf.ui.AppearanceState.mode = settings.appearance
+        // Only here, at start: telling it later would restart the open screen
+        io.github.danielpereod.opdshelf.ui.AppearanceState.tellSystem(this)
         api = Api(settings)
         store = LocalStore(filesDir)
         sync = ReadingSync(this, settings, api, store)

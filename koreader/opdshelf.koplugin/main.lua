@@ -15,7 +15,8 @@ OPDShelf for KOReader.
 - A library browser for the server's OPDS catalog, with covers as a list or
   a grid, search, book details and downloads.
 - A home screen that can replace KOReader's start screen: the book to
-  continue, the newest books on the server and the last ones read here.
+  continue, the books started on any device, the newest books on the server
+  and KOReader's own screens one tap away.
 - Comes set up when downloaded from the server's panel, updates itself from
   the server, and has a status screen with what is waiting to be sent.
 
@@ -860,6 +861,8 @@ function OPDShelf:onReaderReady()
     if not self.document then return end
     self.mark = self.ui.doc_settings:readSetting("opdshelf_mark")
     self.last_sent = self:position()
+    -- Where the book opened: reading starts when the position leaves it
+    self.seen_position = self.last_sent
     self:patchProgressSync()
     self.push_task = function() self:push() end
     self.started = true
@@ -887,12 +890,19 @@ function OPDShelf:onMoved()
             self:setMark(nil)
         end
     end
+    local progress = self:position()
     -- Moving to a position from another device is not reading
     if self.following and (self:showing(self.following) or (self.following_at and os.time() - self.following_at < 2)) then
         self.following_at = nil
+        self.seen_position = progress
         return
     end
     self.following = nil
+    -- KOReader also says the page changed when nothing moved: on opening the
+    -- book, laying it out again or drawing a dialog over it. Only a new
+    -- position is reading; otherwise "read just now" would be shown, and sent.
+    if progress == self.seen_position then return end
+    self.seen_position = progress
     self.last_move = os.time()
     local state = self:docState()
     if not state.moved then
@@ -1478,11 +1488,14 @@ function OPDShelf:addToMainMenu(menu_items)
     }
 end
 
+-- Tools › OPDShelf: where to go, what to do with the book open, the
+-- settings in one submenu, and the status. The home screen's menu shows
+-- the same settings, from settingsItems().
 function OPDShelf:menuItems()
     local in_book = self:hasBook()
     return {
         {
-            text = _("Home"),
+            text = _("OPDShelf home"),
             callback = function() self:showHome() end,
         },
         {
@@ -1492,29 +1505,102 @@ function OPDShelf:menuItems()
         {
             text = _("Search the library"),
             callback = function() self:showLibrary(true) end,
+            separator = true,
+        },
+        {
+            text = _("This book"),
+            enabled_func = function() return in_book end,
+            sub_item_table = self:bookItems(),
+        },
+        {
+            text = _("Settings"),
+            sub_item_table_func = function() return self:settingsItems() end,
+            separator = true,
+        },
+        {
+            text = _("Status and updates"),
+            help_text = _("The plugin's version, the connection to the server, what is waiting to be sent and the last error."),
+            callback = function() self:showStatus() end,
+        },
+    }
+end
+
+-- What can be done with the book open
+function OPDShelf:bookItems()
+    return {
+        {
+            text = _("Sync this book now"),
+            callback = function() self:onOPDShelfSync() end,
+        },
+        {
+            text = _("Go to where another device left it"),
+            enabled_func = function() return self:ready() end,
+            callback = function() self:showPositions() end,
+        },
+        {
+            text = _("Highlights and notes"),
+            help_text = _("The highlights and notes of this book, from every device. They sync with the web reader and the Android app."),
+            callback = function() self.ui:handleEvent(Event:new("ShowBookmark")) end,
+        },
+    }
+end
+
+-- The settings, for Tools › OPDShelf › Settings and the home screen's menu.
+-- `changed(what)` runs after the account ("account") or the download folder
+-- ("folder") changed, for the home screen to load again.
+function OPDShelf:settingsItems(changed)
+    local function after(what, touchmenu_instance)
+        return function()
+            if touchmenu_instance then touchmenu_instance:updateItems() end
+            if changed then changed(what) end
+        end
+    end
+    return {
+        {
+            text_func = function()
+                local server = self.state:readSetting("server")
+                return server and T(_("Server: %1"), server) or _("Server and account")
+            end,
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                self:editAccount(after("account", touchmenu_instance))
+            end,
+        },
+        {
+            text_func = function() return T(_("Device name: %1"), self:deviceName()) end,
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                local dialog
+                dialog = InputDialog:new{
+                    title = _("Name of this device on other devices"),
+                    input = self:deviceName(),
+                    buttons = { {
+                        { text = _("Cancel"), id = "close", callback = function() UIManager:close(dialog) end },
+                        { text = _("Save"), is_enter_default = true, callback = function()
+                            local name = util.trim(dialog:getInputText() or "")
+                            self.state:saveSetting("device_name", name ~= "" and name or nil)
+                            self.state:flush()
+                            UIManager:close(dialog)
+                            if touchmenu_instance then touchmenu_instance:updateItems() end
+                        end },
+                    } },
+                }
+                UIManager:show(dialog)
+                dialog:onShowKeyboard()
+            end,
+        },
+        {
+            text_func = function() return T(_("Download folder: %1"), self:downloadDir()) end,
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                self:chooseDownloadDir(after("folder", touchmenu_instance))
+            end,
         },
         {
             text = _("Show the home screen at start"),
             help_text = _("Opens OPDShelf's home screen instead of the file browser when KOReader starts and after closing a book, and the file browser's home button goes there."),
             checked_func = function() return self:launcherEnabled() end,
             callback = function() self:setLauncher(not self:launcherEnabled()) end,
-            separator = true,
-        },
-        {
-            text = _("Sync this book now"),
-            enabled_func = function() return in_book end,
-            callback = function() self:onOPDShelfSync() end,
-        },
-        {
-            text = _("Highlights and notes"),
-            help_text = _("The highlights and notes of this book, from every device. They sync with the web reader and the Android app."),
-            enabled_func = function() return in_book end,
-            callback = function() self.ui:handleEvent(Event:new("ShowBookmark")) end,
-        },
-        {
-            text = _("Go to where another device left it"),
-            enabled_func = function() return in_book and self:ready() end,
-            callback = function() self:showPositions() end,
             separator = true,
         },
         {
@@ -1551,56 +1637,6 @@ function OPDShelf:menuItems()
                 { "jump", _("Go there") },
                 { "ignore", _("Stay here") },
             }),
-            separator = true,
-        },
-        {
-            text = _("Status and updates"),
-            help_text = _("The plugin's version, the connection to the server, what is waiting to be sent and the last error."),
-            callback = function() self:showStatus() end,
-        },
-        {
-            text_func = function()
-                local server = self.state:readSetting("server")
-                return server and T(_("Server: %1"), server) or _("Server and account")
-            end,
-            keep_menu_open = true,
-            callback = function(touchmenu_instance)
-                self:editAccount(function()
-                    if touchmenu_instance then touchmenu_instance:updateItems() end
-                end)
-            end,
-        },
-        {
-            text_func = function() return T(_("Device name: %1"), self:deviceName()) end,
-            keep_menu_open = true,
-            callback = function(touchmenu_instance)
-                local dialog
-                dialog = InputDialog:new{
-                    title = _("Name of this device on other devices"),
-                    input = self:deviceName(),
-                    buttons = { {
-                        { text = _("Cancel"), id = "close", callback = function() UIManager:close(dialog) end },
-                        { text = _("Save"), is_enter_default = true, callback = function()
-                            local name = util.trim(dialog:getInputText() or "")
-                            self.state:saveSetting("device_name", name ~= "" and name or nil)
-                            self.state:flush()
-                            UIManager:close(dialog)
-                            if touchmenu_instance then touchmenu_instance:updateItems() end
-                        end },
-                    } },
-                }
-                UIManager:show(dialog)
-                dialog:onShowKeyboard()
-            end,
-        },
-        {
-            text_func = function() return T(_("Download folder: %1"), self:downloadDir()) end,
-            keep_menu_open = true,
-            callback = function(touchmenu_instance)
-                self:chooseDownloadDir(function()
-                    if touchmenu_instance then touchmenu_instance:updateItems() end
-                end)
-            end,
         },
     }
 end

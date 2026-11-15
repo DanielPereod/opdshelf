@@ -146,8 +146,13 @@ impl TestApp {
 }
 
 fn write_epub(path: &Path, title: &str, author: &str) {
+    write_epub_with(path, title, author, "");
+}
+
+/// An EPUB with `extra` added to its metadata.
+fn write_epub_with(path: &Path, title: &str, author: &str, extra: &str) {
     let opf = format!(
-        r#"<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata><dc:title>{title}</dc:title><dc:creator>{author}</dc:creator><dc:description>&lt;img src=x onerror=alert(1)&gt;Hola</dc:description><meta name="cover" content="c"/></metadata><manifest><item id="c" href="cover.jpg" media-type="image/jpeg"/></manifest></package>"#
+        r#"<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata><dc:title>{title}</dc:title><dc:creator>{author}</dc:creator><dc:description>&lt;img src=x onerror=alert(1)&gt;Hola</dc:description>{extra}<meta name="cover" content="c"/></metadata><manifest><item id="c" href="cover.jpg" media-type="image/jpeg"/></manifest></package>"#
     );
     let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
     let options = zip::write::SimpleFileOptions::default();
@@ -578,4 +583,101 @@ async fn api_upload_saves_books_for_apps() {
 
     // The new book is in the catalog right away
     assert!(t.text("/opds/folders/Saga").await.contains("Libro uno"));
+}
+
+#[tokio::test]
+async fn settings_tabs_have_their_own_addresses() {
+    let t = app();
+    t.write("a.txt", b"x");
+    for (uri, tab) in [
+        ("/admin/settings", "general"),
+        ("/admin/settings/apps", "apps"),
+        ("/admin/settings/maintenance", "maintenance"),
+        ("/admin/settings/about", "about"),
+    ] {
+        let html = t.text(uri).await;
+        assert!(html.contains("<title>Settings - OPDShelf</title>"), "{uri}");
+        assert!(
+            html.contains(&format!(r#"data-settings-tab="{tab}" aria-current="page""#)),
+            "{uri} marks its tab"
+        );
+        assert!(
+            html.contains(&format!(r#"data-settings-panel="{tab}" >"#)),
+            "{uri} shows its tab"
+        );
+        assert!(
+            html.contains(r#"id="libraryView" tabindex="-1" hidden"#),
+            "{uri} hides the library"
+        );
+        let nav = &html[html.find("settings-tabs").unwrap()..];
+        let nav = &nav[..nav.find("</nav>").unwrap()];
+        assert_eq!(nav.matches(r#"aria-current="page""#).count(), 1, "{uri} marks one tab");
+    }
+    let (status, _, _) = t.get("/admin/settings/nope").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = t.get("/admin/settings/general").await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "General is /admin/settings");
+
+    // General: theme, language and who is signed in
+    let general = t.text("/admin/settings").await;
+    assert!(general.contains(r#"data-theme-set="system""#) && general.contains(r#"data-lang-set="es""#));
+    assert!(general.contains(&format!("<strong>{USER}</strong>")));
+    let open = app_with(&[]);
+    let general = open.text("/admin/settings").await;
+    assert!(general.contains("<code>ADMIN_USERNAME</code>") && general.contains("<code>ADMIN_PASSWORD</code>"));
+
+    // Apps: downloads and the QR code moved here from the Devices page
+    let apps = t.text("/admin/settings/apps").await;
+    assert!(apps.contains(r#"id="connectQr""#) && apps.contains(r#"href="/apps/opdshelf.apk""#));
+    let devices = t.text("/admin/sync").await;
+    assert!(devices.contains("<title>Devices - OPDShelf</title>"));
+    assert!(devices.contains(r#"href="/admin/settings/apps" data-settings-tab="apps""#));
+
+    // About: the version and the folders
+    let about = t.text("/admin/settings/about").await;
+    assert!(about.contains(env!("CARGO_PKG_VERSION")));
+    let books = std::fs::canonicalize(t.books()).unwrap();
+    assert!(about.contains(&books.display().to_string()));
+    assert!(about.contains("Stable"));
+
+    // In Spanish
+    let (_, _, body) = t
+        .send(
+            Request::get("/admin/settings/apps")
+                .header(header::AUTHORIZATION, basic())
+                .header(header::COOKIE, "opdshelf_lang=es")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    let spanish = String::from_utf8(body).unwrap();
+    assert!(spanish.contains("<title>Ajustes - OPDShelf</title>"));
+    assert!(spanish.contains("Apps y conexiones") && spanish.contains("Acerca de"));
+}
+
+#[tokio::test]
+async fn the_book_panel_names_its_identifier() {
+    let t = app();
+    write_epub_with(
+        &t.books().join("isbn.epub"),
+        "With ISBN",
+        "A",
+        "<dc:identifier>978-0-316-76948-8</dc:identifier>",
+    );
+    write_epub_with(
+        &t.books().join("uuid.epub"),
+        "With uuid",
+        "A",
+        "<dc:identifier>urn:uuid:8f1d4b3c-0e3a-4a6f-9c1e-2b7d5a9e6f10</dc:identifier><dc:language>en</dc:language>",
+    );
+    let isbn = t.text("/info/isbn.epub?panel=1").await;
+    assert!(isbn.contains("<dt>ISBN</dt>"));
+    let uuid = t.text("/info/uuid.epub?panel=1").await;
+    assert!(uuid.contains("<dt>Identifier</dt>") && !uuid.contains("<dt>ISBN</dt>"));
+    assert!(
+        uuid.contains(r#"data-lang-code="en""#),
+        "the language is named in the browser"
+    );
+    assert!(uuid.contains("<dt>Metadata</dt>"));
+    assert!(uuid.contains("data-bytes="), "the size is shown like in the list");
 }

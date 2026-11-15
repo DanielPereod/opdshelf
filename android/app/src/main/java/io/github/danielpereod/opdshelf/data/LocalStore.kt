@@ -32,6 +32,8 @@ data class LocalBook(
     val lastOpenedAt: Long = 0,
     /** Marked as finished (true) or not (false) by hand; null goes by how far it was read. */
     val finishedByHand: Boolean? = null,
+    /** When [finishedByHand] was set, here or on another device, in Unix seconds (server time once synced). */
+    val markedAt: Long = 0,
     val meta: BookMeta = BookMeta(),
 ) {
     /** Finished, as the web counts it: read to 98 %, unless marked otherwise. */
@@ -73,6 +75,13 @@ class LocalStore(private val dir: File) {
     private val _annotations = MutableStateFlow(read(annotationsFile, annotationsSerializer) ?: emptyMap())
     /** Highlights of each book (by document id), as they change. */
     val annotations: StateFlow<Map<String, LocalAnnotations>> = _annotations.asStateFlow()
+
+    private val marksFile = File(dir, "marks.json")
+    private val marksSerializer = MapSerializer(String.serializer(), ReadMark.serializer())
+    /** Finished marks made here and not sent yet, by document id. */
+    private var pendingMarks: Map<String, ReadMark> = read(marksFile, marksSerializer) ?: emptyMap()
+
+    private val statsFile = File(dir, "stats.json")
 
     fun book(id: String): LocalBook? = _books.value.firstOrNull { it.id == id }
 
@@ -117,11 +126,58 @@ class LocalStore(private val dir: File) {
         write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
     }
 
+    /** Marks a book as finished or not, to be sent to the server ([pendingMarks]). */
     @Synchronized
-    fun setFinished(id: String, finished: Boolean) {
-        _books.value = _books.value.map { if (it.id == id) it.copy(finishedByHand = finished) else it }
+    fun setFinished(id: String, finished: Boolean, at: Long = System.currentTimeMillis() / 1000) {
+        val book = book(id) ?: return
+        _books.value = _books.value.map {
+            if (it.document == book.document) it.copy(finishedByHand = finished, markedAt = at) else it
+        }
         write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
+        pendingMarks = pendingMarks + (book.document to ReadMark.of(finished, at))
+        write(marksFile, marksSerializer, pendingMarks)
     }
+
+    @Synchronized
+    fun pendingMarks(): Map<String, ReadMark> = pendingMarks
+
+    /**
+     * After sending [sent]: it is no longer pending (unless marked again meanwhile),
+     * and the book takes the server's answer, which may be a newer mark from elsewhere.
+     */
+    @Synchronized
+    fun markSent(document: String, sent: ReadMark, server: ReadMark?) {
+        if (pendingMarks[document] != sent) return
+        pendingMarks = pendingMarks - document
+        write(marksFile, marksSerializer, pendingMarks)
+        if (server != null) {
+            _books.value = _books.value.map {
+                if (it.document == document) it.copy(finishedByHand = server.finished, markedAt = server.at) else it
+            }
+            write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
+        }
+    }
+
+    /** Applies the server's marks (by document id) to the books on this device. */
+    @Synchronized
+    fun adoptMarks(marks: Map<String, ReadMark>) {
+        val next = _books.value.map { it.withMark(marks[it.document], it.document in pendingMarks) }
+        if (next != _books.value) {
+            _books.value = next
+            write(booksFile, ListSerializer(LocalBook.serializer()), next)
+        }
+    }
+
+    /** Keeps downloaded books tied to their entries when a folder they are in moves from [from] to [to]. */
+    @Synchronized
+    fun folderMoved(from: String, to: String) {
+        _books.value.forEach { book -> bookIdAfterFolderMove(book.id, from, to)?.let { changeId(book.id, it) } }
+    }
+
+    /** The last statistics fetched, to show offline. */
+    fun cachedStats(): CachedStats? = read(statsFile, CachedStats.serializer())
+
+    fun saveStats(stats: CachedStats) = write(statsFile, CachedStats.serializer(), stats)
 
     @Synchronized
     fun bookmarks(id: String): List<Bookmark> = bookmarks[id].orEmpty()

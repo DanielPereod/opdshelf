@@ -121,9 +121,15 @@ function Client:getProgress(document)
     return self:json_request("GET", "/api/progress/" .. document)
 end
 
---- Today's reading time on every device, from the server's statistics.
-function Client:getToday()
-    return self:json_request("GET", "/api/stats/today")
+--- Every book's current position and finished mark (`books`, `marks`, `server_time`).
+function Client:getLibraryProgress()
+    return self:json_request("GET", "/api/progress")
+end
+
+--- Today's reading time on every device and the current streak, from the server's statistics.
+-- `date` ("2026-11-15") is this device's day, which may not be the server's.
+function Client:getToday(date)
+    return self:json_request("GET", "/api/stats/today" .. (date and ("?date=" .. date) or ""))
 end
 
 function Client:putProgress(document, record)

@@ -31,6 +31,9 @@
         b.setAttribute('aria-label', b.title);
         b.querySelector('i').className = saved === 'dark' ? 'far fa-moon' : saved === 'light' ? 'far fa-sun' : 'fas fa-circle-half-stroke';
       });
+      // The three choices of the settings
+      const choice = saved === 'dark' || saved === 'light' ? saved : 'system';
+      document.querySelectorAll('[data-theme-set]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.themeSet === choice));
     }
 
     function toggleTheme() {

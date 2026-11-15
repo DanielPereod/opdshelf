@@ -41,6 +41,30 @@ impl BookMeta {
     }
 }
 
+/// Whether a publication date is a real one: its year (the first four digits
+/// on their own) is from 1000 to next year. Calibre writes 0101-01-01 for an
+/// unknown date, and some books have their year as 0 or far in the future.
+pub fn plausible_date(date: &str) -> bool {
+    let bytes = date.as_bytes();
+    let next_year = chrono::Datelike::year(&chrono::Local::now()) + 1;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_digit() {
+            let start = i;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            if i - start == 4 {
+                let year: i32 = date[start..i].parse().unwrap_or(0);
+                return (1000..=next_year).contains(&year);
+            }
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
 /// Keeps a series position only when it is a number ("3", "2.5"), dropping
 /// trailing zeros that calibre writes ("3.0" becomes "3").
 fn clean_index(value: Option<String>) -> Option<String> {
@@ -333,7 +357,7 @@ fn parse_opf(opf: &str, base: &str) -> Result<BookMeta, String> {
         language: dc("language").next(),
         publisher: dc("publisher").next(),
         subjects: dc("subject").collect(),
-        date: dc("date").next(),
+        date: dc("date").find(|d| plausible_date(d)),
         identifier: dc("identifier")
             .find(|i| !i.starts_with("urn:uuid:"))
             .or_else(|| dc("identifier").next()),
@@ -525,7 +549,7 @@ pub(crate) fn parse_comic_info(xml: &str) -> Result<BookMeta, String> {
         subjects: field("Genre")
             .map(|g| g.split(',').map(|s| s.trim().to_string()).collect())
             .unwrap_or_default(),
-        date: field("Year"),
+        date: field("Year").filter(|d| plausible_date(d)),
         identifier: None,
         series_index: field("Series").and(clean_index(field("Number"))),
         series: field("Series"),
@@ -640,7 +664,13 @@ fn parse_fb2(xml: &str) -> Result<BookMeta, String> {
             .filter(|n| n.tag_name().name() == "genre")
             .filter_map(|g| text_of(Some(g)))
             .collect(),
-        date: text_of(child(title_info, "date")).or_else(|| publish_info.and_then(|p| text_of(child(p, "year")))),
+        date: text_of(child(title_info, "date"))
+            .filter(|d| plausible_date(d))
+            .or_else(|| {
+                publish_info
+                    .and_then(|p| text_of(child(p, "year")))
+                    .filter(|d| plausible_date(d))
+            }),
         identifier: publish_info.and_then(|p| text_of(child(p, "isbn"))),
         series: sequence.and_then(|s| clean(s.attribute("name"))),
         series_index: sequence.and_then(|s| clean_index(s.attribute("number").map(str::to_string))),
@@ -669,6 +699,17 @@ fn fb2_binary(xml: &str, id: &str) -> Result<Vec<u8>, String> {
 pub(crate) mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn placeholder_dates_are_not_dates() {
+        assert!(!plausible_date("0101-01-01T00:00:00+00:00"));
+        assert!(!plausible_date("0000"));
+        assert!(!plausible_date("9999-12-31"));
+        assert!(!plausible_date("unknown"));
+        assert!(plausible_date("2019-05-01"));
+        assert!(plausible_date("1605"));
+        assert!(plausible_date("19/05/2001"));
+    }
 
     pub fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
         let mut zip = zip::ZipWriter::new(File::create(path).unwrap());

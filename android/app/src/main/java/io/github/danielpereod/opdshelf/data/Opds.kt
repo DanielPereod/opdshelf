@@ -43,6 +43,16 @@ data class BookMeta(
     val isEmpty get() = publisher == null && issued == null && language == null && series == null && subjects.isEmpty()
 }
 
+/**
+ * The year a book was published, from the catalog's date ("2019-05-01",
+ * "2019"), or null when it is not a real one: Calibre writes 0101-01-01 for
+ * "unknown", and some books say year 0 or one far ahead.
+ */
+fun publishedYear(issued: String?, thisYear: Int = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)): String? {
+    val year = Regex("""(?<!\d)(\d{4})(?!\d)""").find(issued ?: return null)?.groupValues?.get(1) ?: return null
+    return year.takeIf { it.toInt() in 1000..thisYear + 1 }
+}
+
 data class Acquisition(val url: String, val type: String, val length: Long?, val format: String?)
 
 private const val ACQUISITION = "http://opds-spec.org/acquisition"
@@ -73,9 +83,10 @@ fun parseFeed(input: InputStream, baseUrl: String): Feed {
         val feed = links.firstOrNull {
             it.getAttribute("type").contains("profile=opds-catalog") || it.getAttribute("rel") == "subsection"
         }?.getAttribute("href")?.let(resolve)
+        val title = entry.childText("title") ?: ""
         Entry(
             id = entry.childText("id") ?: "",
-            title = entry.childText("title") ?: "",
+            title = if (acquisition == null) folderTitle(title) else title,
             authors = entry.children("author").mapNotNull { it.childText("name") },
             summary = entry.childText("summary") ?: entry.childText("content"),
             feedUrl = if (acquisition == null) feed else null,
@@ -98,6 +109,13 @@ fun parseFeed(input: InputStream, baseUrl: String): Feed {
     }
     return Feed(root.childText("title") ?: "", entries, next, search)
 }
+
+/**
+ * The server puts a folder emoji before folder names for readers that show no
+ * icons; the app draws its own, so it goes.
+ */
+internal fun folderTitle(title: String): String =
+    if (title.startsWith("\uD83D\uDCC1")) title.removePrefix("\uD83D\uDCC1").trimStart() else title
 
 private fun Element.children(name: String): List<Element> {
     val result = mutableListOf<Element>()
@@ -152,4 +170,30 @@ fun Entry.movedTo(oldPath: String, newPath: String): Entry {
         thumbnailUrl = thumbnailUrl?.let(swap),
         coverUrl = coverUrl?.let(swap),
     )
+}
+
+/** The path in the library of a folder of the Folders section ("Comics/Marvel"), null for other entries. */
+val Entry.folderPath: String?
+    get() {
+        if (acquisition != null) return null
+        val segments = feedUrl?.toHttpUrlOrNull()?.pathSegments ?: return null
+        val at = segments.indexOf("folders")
+        if (at < 1 || segments[at - 1] != "opds" || at == segments.lastIndex) return null
+        return segments.drop(at + 1).filter { it.isNotEmpty() }.joinToString("/").ifEmpty { null }
+    }
+
+/** How many books a folder holds, subfolders included, from its summary ("3 books", "3 libros"). */
+val Entry.folderBookCount: Int?
+    get() = summary?.let { Regex("""^\s*(\d+)""").find(it) }?.groupValues?.get(1)?.toIntOrNull()
+
+private const val BOOK_ID = "urn:opdshelf:book:"
+
+/**
+ * The id of a book inside the folder [from] once the folder is moved to [to],
+ * or null when the book is not inside it. Ids follow the book's path.
+ */
+fun bookIdAfterFolderMove(id: String, from: String, to: String): String? {
+    val prefix = BOOK_ID + encodeLibraryPath(from) + "/"
+    if (!id.startsWith(prefix)) return null
+    return BOOK_ID + encodeLibraryPath(to) + "/" + id.removePrefix(prefix)
 }

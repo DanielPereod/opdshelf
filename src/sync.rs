@@ -155,8 +155,9 @@ fn short(value: Option<String>) -> String {
 ///
 /// Sends `hello` with the server's time when connecting, then a `progress`
 /// event (`{document, current}`) per change of position, an `annotations`
-/// event (`{document, annotations}`) with the highlights that changed, and
-/// `resync` when changes were missed and the client should fetch its books'
+/// event (`{document, annotations}`) with the highlights that changed, a
+/// `marks` event (`{document, mark}`) when a book is marked as read or
+/// unread (`mark` is null when cleared), and `resync` when changes were missed and the client should fetch its books'
 /// positions and highlights again.
 pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQuery>) -> Response {
     let wanted: Option<HashSet<String>> = query.documents.map(|list| {
@@ -171,13 +172,14 @@ pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQue
         .data(json!({ "server_time": now() }).to_string());
     let changes = state.progress.subscribe();
     let notes = state.annotations.subscribe();
+    let marks = state.marks.subscribe();
     let device_id = short(query.device_id);
     let guard = (!device_id.is_empty()).then(|| state.presence.join(&device_id, &short(query.device)));
     let stream = futures_util::stream::unfold(
-        (Some(hello), changes, notes, wanted, guard),
-        |(first, mut changes, mut notes, wanted, guard)| async move {
+        (Some(hello), changes, notes, marks, wanted, guard),
+        |(first, mut changes, mut notes, mut marks, wanted, guard)| async move {
             if let Some(event) = first {
-                return Some((Ok::<_, Infallible>(event), (None, changes, notes, wanted, guard)));
+                return Some((Ok::<_, Infallible>(event), (None, changes, notes, marks, wanted, guard)));
             }
             loop {
                 let event = tokio::select! {
@@ -205,8 +207,20 @@ pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQue
                         Err(RecvError::Lagged(_)) => Event::default().event("resync").data("{}"),
                         Err(RecvError::Closed) => return None,
                     },
+                    change = marks.recv() => match change {
+                        Ok(change) => {
+                            if wanted.as_ref().is_some_and(|w| !w.contains(&change.document)) {
+                                continue;
+                            }
+                            Event::default()
+                                .event("marks")
+                                .data(serde_json::to_string(&change).unwrap_or_default())
+                        }
+                        Err(RecvError::Lagged(_)) => Event::default().event("resync").data("{}"),
+                        Err(RecvError::Closed) => return None,
+                    },
                 };
-                return Some((Ok(event), (None, changes, notes, wanted, guard)));
+                return Some((Ok(event), (None, changes, notes, marks, wanted, guard)));
             }
         },
     );
@@ -281,26 +295,64 @@ pub async fn list_progress(State(state): State<AppState>) -> Response {
 
 #[derive(Deserialize)]
 pub struct MarkRequest {
-    /// Books by their path in the library.
+    /// Books by their path in the library, as the web panel sends them.
+    #[serde(default)]
     paths: Vec<String>,
+    /// Books by document id, as the apps send them: they know the file they
+    /// downloaded, not where it is in the library now.
+    #[serde(default)]
+    documents: Vec<String>,
     /// `read`, `unread`, or null to clear the mark.
     state: Option<crate::marks::State>,
+    /// When the book was marked on the device (Unix seconds), for a mark sent
+    /// later because the device was offline. A newer mark of the same book is
+    /// kept. Left out, the mark is made now and replaces any other.
+    #[serde(default)]
+    at: Option<i64>,
+    /// The device's clock when it sent the request, to put `at` right.
+    #[serde(default)]
+    sent_at: Option<i64>,
 }
 
-/// Marks books as read or unread in the web panel (positions are not changed).
+/// Marks books as read or unread (positions are not changed). Answers each
+/// book's mark afterwards in `marks`, by document id.
 pub async fn put_marks(State(state): State<AppState>, Json(request): Json<MarkRequest>) -> Response {
-    let index = state.documents.index(&state.library).await;
-    let by_path: HashMap<&str, &str> = index.iter().map(|(id, path)| (path.as_str(), id.as_str())).collect();
-    let documents: Vec<String> = request
-        .paths
-        .iter()
-        .filter_map(|p| by_path.get(p.as_str()).map(|id| id.to_string()))
-        .collect();
+    if request.documents.iter().any(|d| !progress::valid_document(d)) {
+        return bad_document();
+    }
+    let mut documents = request.documents.clone();
+    if !request.paths.is_empty() {
+        let index = state.documents.index(&state.library).await;
+        let by_path: HashMap<&str, &str> = index.iter().map(|(id, path)| (path.as_str(), id.as_str())).collect();
+        documents.extend(
+            request
+                .paths
+                .iter()
+                .filter_map(|p| by_path.get(p.as_str()).map(|id| id.to_string())),
+        );
+    }
+    documents.sort();
+    documents.dedup();
     if documents.is_empty() {
         return (StatusCode::NOT_FOUND, Json(json!({ "error": "no such book" }))).into_response();
     }
-    match state.marks.set(&documents, request.state, now()) {
-        Ok(()) => Json(json!({ "marked": documents.len(), "state": request.state, "at": now() })).into_response(),
+    let now = now();
+    let (at, force) = match request.at {
+        // Corrected by how far the device's clock is from the server's, and never in the future
+        Some(at) => (
+            at.saturating_add(request.sent_at.map_or(0, |sent| now - sent)).min(now),
+            false,
+        ),
+        None => (now, true),
+    };
+    match state.marks.set_at(&documents, request.state, at, force) {
+        Ok(marks) => {
+            let marks: serde_json::Map<String, serde_json::Value> = marks
+                .into_iter()
+                .map(|(document, mark)| (document, json!(mark)))
+                .collect();
+            Json(json!({ "marked": documents.len(), "state": request.state, "at": at, "marks": marks })).into_response()
+        }
         Err(err) => save_failed(err),
     }
 }
@@ -474,6 +526,51 @@ pub async fn put_annotations(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "Cannot save the highlights" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// The bookmarks of a book made in the web readers, deleted ones included.
+pub async fn get_bookmarks(State(state): State<AppState>, Path(document): Path<String>) -> Response {
+    if !progress::valid_document(&document) {
+        return bad_document();
+    }
+    Json(json!({
+        "document": document,
+        "bookmarks": state.bookmarks.list(&document),
+        "server_time": now(),
+    }))
+    .into_response()
+}
+
+/// Merges the bookmarks a device sends (as highlights are merged) and answers
+/// every bookmark of the book.
+pub async fn put_bookmarks(
+    State(state): State<AppState>,
+    Path(document): Path<String>,
+    Json(batch): Json<annotations::Batch>,
+) -> Response {
+    if !progress::valid_document(&document) {
+        return bad_document();
+    }
+    if batch.device_id.trim().is_empty() && batch.annotations.iter().any(|a| a.device_id.trim().is_empty()) {
+        return missing_device();
+    }
+    match state.bookmarks.merge(&document, batch, now()) {
+        Ok(changed) => Json(json!({
+            "document": document,
+            "changed": changed.len(),
+            "bookmarks": state.bookmarks.list(&document),
+            "server_time": now(),
+        }))
+        .into_response(),
+        Err(err) => {
+            tracing::error!("cannot save bookmarks: {err}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Cannot save the bookmarks" })),
             )
                 .into_response()
         }

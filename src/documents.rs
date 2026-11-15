@@ -120,6 +120,29 @@ impl DocumentIds {
         index
     }
 
+    /// Keeps the ids of a book, or of every book in a folder, that moved to
+    /// a new path, so they are not read from the files again (slow on a NAS).
+    pub fn rename(&self, from: &str, to: &str) {
+        let changed = {
+            let mut known = self.known.lock().unwrap();
+            let moved: Vec<(String, Entry)> = known
+                .keys()
+                .filter_map(|k| crate::paths::relocate(k, from, to).map(|n| (k.clone(), n)))
+                .collect::<Vec<_>>()
+                .into_iter()
+                .filter_map(|(k, n)| Some((n, known.remove(&k)?)))
+                .collect();
+            let any = !moved.is_empty();
+            known.extend(moved);
+            any
+        };
+        if changed {
+            if let Err(err) = self.save() {
+                tracing::warn!("cannot save {}: {err}", self.file.display());
+            }
+        }
+    }
+
     fn save(&self) -> std::io::Result<()> {
         let json = serde_json::to_vec(&*self.known.lock().unwrap()).map_err(std::io::Error::other)?;
         if let Some(dir) = self.file.parent() {

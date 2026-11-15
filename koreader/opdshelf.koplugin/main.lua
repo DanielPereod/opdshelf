@@ -119,7 +119,11 @@ function OPDShelf:init()
         if not update_checked then
             update_checked = true
             UIManager:scheduleIn(UPDATE_DELAY, function()
-                if NetworkMgr:isOnline() then self:checkForUpdate(false) end
+                -- A background check must never take KOReader down
+                if NetworkMgr:isOnline() then
+                    local ok, err = pcall(self.checkForUpdate, self, false)
+                    if not ok then logger.warn("OPDShelf: update check failed:", err) end
+                end
             end)
         end
     end
@@ -1380,7 +1384,9 @@ end
 -- ---------------------------------------------------------------------------
 -- Updates and status
 
-function OPDShelf:version()
+-- Not called version(): KOReader's plugin loader copies every _meta.lua field
+-- onto the plugin, and a release's _meta.lua has a version number.
+function OPDShelf:installedVersion()
     return Update.localVersion(self:pluginDir())
 end
 
@@ -1389,7 +1395,7 @@ function OPDShelf:checkForUpdate(interactive)
     local function say(text)
         if interactive then UIManager:show(InfoMessage:new{ text = text, timeout = 4 }) end
     end
-    local current = self:version()
+    local current = self:installedVersion()
     if not current then
         return say(_("This copy of the plugin does not update itself: it is not a release."))
     end
@@ -1444,7 +1450,7 @@ function OPDShelf:connectionState()
 end
 
 function OPDShelf:showStatus()
-    local version = self:version()
+    local version = self:installedVersion()
     local lines = {
         T(_("Version: %1"), version and Update.describe(version) or _("development copy")),
         T(_("Server: %1"), self.state:readSetting("server") or _("not set up")),

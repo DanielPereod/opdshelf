@@ -890,6 +890,30 @@ async fn web_reader_bookmarks_are_kept_per_book() {
 }
 
 #[tokio::test]
+async fn the_panel_deletes_and_adds_books_without_reloading() {
+    let t = app();
+    let (_, rows) = t
+        .api("POST", "/api/books/rows", Some(json!({ "paths": ["One.epub"] })))
+        .await;
+    assert_eq!(rows["books"][0]["path"], "One.epub");
+    let (status, body) = t
+        .api(
+            "POST",
+            "/api/books/delete",
+            Some(json!({ "paths": ["One.epub", "Gone.epub"] })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["deleted"], json!(["One.epub"]));
+    assert_eq!(body["failed"].as_array().unwrap().len(), 1);
+    assert!(!t.dir.path().join("books/One.epub").exists());
+    let (status, _) = t
+        .api("POST", "/api/books/delete", Some(json!({ "paths": ["One.epub"] })))
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn statistics_follow_the_range_asked_for() {
     let t = app();
     for (range, unit, parts) in [("7d", "day", 7), ("30d", "day", 30), ("12m", "month", 12)] {

@@ -34,7 +34,7 @@
         {{#if readable}}
         <a class="btn btn-quiet btn-small" href="/read/{{urlPath path}}"><i class="fas fa-book-open"></i>{{t "Read"}}</a>
         {{/if}}
-        <form action="/admin/maintenance/delete" method="post" data-confirm="{{t "Delete this book?"}}"
+        <form action="/admin/maintenance/delete" method="post" data-delete-book data-confirm="{{t "Delete this book?"}}"
           data-confirm-text="{{t "{file} is removed from the books folder. This cannot be undone." file=path}}"
           data-confirm-ok="{{t "Delete"}}" data-danger>
           <input type="hidden" name="csrf" value="{{@root.csrf}}">

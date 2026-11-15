@@ -2104,6 +2104,28 @@ a.nav-item {
   width: 100%;
 }
 
+.thumb-pct {
+  display: none;
+}
+
+/* How far it was read, over the bottom of the cover, as in the list */
+.books.grid .book.started .thumb-pct {
+  display: block;
+  position: absolute;
+  right: var(--sp-2);
+  bottom: calc(var(--sp-2) + 8px);
+  z-index: 1;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.66);
+  color: #fff;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
 .flag {
   display: inline-flex;
   align-items: center;
@@ -2341,6 +2363,143 @@ a.nav-item {
 
 .upload-progress .track b {
   transition: width 0.2s;
+}
+
+/* Uploads in a corner, while the panel keeps working */
+.upload-hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.upload-tray {
+  position: fixed;
+  right: var(--sp-4);
+  bottom: var(--sp-4);
+  z-index: 65;
+  display: flex;
+  flex-direction: column;
+  width: min(380px, calc(100vw - 2 * var(--sp-4)));
+  max-height: min(420px, 60vh);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background: var(--pane);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.upload-tray[hidden] {
+  display: none;
+}
+
+.upload-tray header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
+}
+
+.upload-tray h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-tray[data-state="failed"] #uploadTrayIcon {
+  color: var(--danger);
+}
+
+.upload-tray[data-state="done"] #uploadTrayIcon {
+  color: var(--ok);
+}
+
+.upload-tray .upload-total {
+  flex: none;
+  height: 3px;
+  margin: 0 var(--sp-4) var(--sp-2);
+}
+
+.upload-tray .upload-total[hidden] {
+  display: none;
+}
+
+.upload-tray ul {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 var(--sp-2);
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+}
+
+.upload-tray.folded ul {
+  display: none;
+}
+
+.upload-tray.folded #uploadFold i {
+  transform: rotate(180deg);
+}
+
+.upload-tray li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: var(--sp-2);
+  row-gap: 4px;
+  padding: var(--sp-2) var(--sp-4);
+}
+
+.upload-tray li > i {
+  grid-row: 1 / 3;
+  padding-top: 2px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.upload-tray li[data-state="done"] > i {
+  color: var(--ok);
+}
+
+.upload-tray li[data-state="failed"] > i,
+.upload-tray li[data-state="failed"] small {
+  color: var(--danger);
+}
+
+.up-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.up-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+}
+
+.up-text small {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+
+.upload-tray li .track {
+  height: 3px;
+}
+
+.upload-tray li .track b {
+  transition: width 0.2s;
+}
+
+.upload-tray li[data-state="done"] .track,
+.upload-tray li[data-state="failed"] .track,
+.upload-tray li[data-state="waiting"] .track {
+  display: none;
 }
 
 /* Toasts of the panel */
@@ -2620,6 +2779,72 @@ a.nav-item {
   background: var(--pane);
 }
 
+/* The value of the bar picked, readable without hovering */
+.chart-readout {
+  min-height: 1.5em;
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-readout b {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart {
+  position: relative;
+  height: 200px;
+  padding: 16px 0 0 44px;
+}
+
+.chart-months {
+  height: 160px;
+  padding-left: 28px;
+}
+
+/* Two recessive lines, at the top value and at half, labelled on the left */
+.chart-grid {
+  position: absolute;
+  top: 16px;
+  left: 0;
+  right: 0;
+  bottom: 20px;
+  pointer-events: none;
+}
+
+.chart-grid span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed var(--line);
+}
+
+.chart-grid span::before {
+  content: attr(data-value);
+  position: absolute;
+  left: 0;
+  top: -6px;
+  padding-right: 4px;
+  background: var(--pane);
+  font-size: 10px;
+  line-height: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-plot {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 100%;
+}
+
 .chart-bar {
   flex: 1;
   min-width: 0;
@@ -2647,9 +2872,11 @@ a.nav-item {
 
 .chart-col i {
   display: block;
+  width: min(100%, 36px);
   min-height: 2px;
   border-radius: 4px 4px 0 0;
   background: var(--fg);
+  opacity: 0.78;
 }
 
 .chart-bar[aria-current="true"] .chart-col i {
@@ -2658,14 +2885,29 @@ a.nav-item {
 
 .chart-col i.zero {
   background: var(--line-strong);
+  opacity: 1;
+}
+
+.chart-col em {
+  margin-bottom: 3px;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .chart-bar small {
+  flex: none;
+  height: 20px;
+  padding-top: 5px;
   font-size: 10px;
   line-height: 1;
   color: var(--muted);
   text-align: center;
-  overflow: hidden;
+  overflow: visible;
   white-space: nowrap;
 }
 
@@ -2704,7 +2946,14 @@ a.nav-item {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-4);
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
+  border-radius: var(--r-sm);
+  color: inherit;
+  text-decoration: none;
+}
+
+a.top-book:hover {
+  background: var(--hover);
 }
 
 .top-book .thumb {
@@ -2715,6 +2964,13 @@ a.nav-item {
 .top-text {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.top-text b,
+.top-text small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2738,6 +2994,8 @@ a.nav-item {
 .top-time {
   flex: none;
   color: var(--muted);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
 }
 
 .activity {
@@ -2753,14 +3011,7 @@ a.nav-item {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
   gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
-  border-radius: var(--r-sm);
-  color: inherit;
-  text-decoration: none;
-}
-
-a.top-book:hover {
-  background: var(--hover);
+  padding: var(--sp-2) var(--sp-4);
   font-size: var(--fs-sm);
 }
 
@@ -2833,72 +3084,6 @@ a.top-book:hover {
   width: 16px;
   text-align: center;
   color: var(--muted);
-/* The value of the bar picked, readable without hovering */
-.chart-readout {
-  min-height: 1.5em;
-  margin: 0 0 var(--sp-2);
-  font-size: var(--fs-sm);
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chart-readout b {
-  color: var(--fg);
-  font-variant-numeric: tabular-nums;
-}
-
-.chart {
-  position: relative;
-  height: 200px;
-  padding: 16px 0 0 44px;
-}
-
-.chart-months {
-  height: 160px;
-  padding-left: 28px;
-}
-
-/* Two recessive lines, at the top value and at half, labelled on the left */
-.chart-grid {
-  position: absolute;
-  top: 16px;
-  left: 0;
-  right: 0;
-  bottom: 20px;
-  pointer-events: none;
-}
-
-.chart-grid span {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 0;
-  border-top: 1px dashed var(--line);
-}
-
-.chart-grid span::before {
-  content: attr(data-value);
-  position: absolute;
-  left: 0;
-  top: -6px;
-  padding-right: 4px;
-  background: var(--pane);
-  font-size: 10px;
-  line-height: 12px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.chart-plot {
-  position: relative;
-  display: flex;
-  align-items: stretch;
-  gap: 2px;
-  height: 100%;
-}
-
 }
 
 .connect-item p {
@@ -2911,33 +3096,16 @@ a.top-book:hover {
   align-items: center;
   gap: var(--sp-1);
   margin-bottom: var(--sp-1);
-  width: min(100%, 36px);
   padding: 2px 2px 2px var(--sp-3);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  opacity: 0.78;
   background: var(--bg);
 }
 
 .connect-qr {
-  opacity: 1;
-}
-
-.chart-col em {
-  margin-bottom: 3px;
-  font-style: normal;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.1;
-  color: var(--fg);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
   margin-top: var(--sp-2);
   font-size: var(--fs-sm);
 }
-  flex: none;
-  height: 20px;
-  padding-top: 5px;
 
 .connect-qr summary {
   cursor: pointer;
@@ -2955,7 +3123,7 @@ a.top-book:hover {
 .copy-row code {
   flex: 1;
   min-width: 0;
-  overflow: visible;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2979,13 +3147,6 @@ a.top-book:hover {
 .connect-note {
   margin: var(--sp-3) 0 0;
   font-size: var(--fs-xs);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.top-text b,
-.top-text small {
 }
 
 .connect-item > :last-child {
@@ -2994,8 +3155,6 @@ a.top-book:hover {
 
 /* Devices: the way to the apps, in one line */
 .connect-link {
-  font-size: var(--fs-sm);
-  font-variant-numeric: tabular-nums;
   display: flex;
   align-items: center;
   gap: var(--sp-3);
@@ -3426,6 +3585,195 @@ a.top-book:hover {
   padding: 0 var(--sp-4) var(--sp-4);
 }
 
+/* Contents and bookmarks share the left panel of the reader */
+.toc-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 0 var(--sp-1) var(--sp-3);
+  padding: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+}
+
+.toc .toc-tabs button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: auto;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-align: center;
+  color: var(--muted);
+}
+
+.toc .toc-tabs button[aria-selected="true"] {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.toc .tab-count[hidden] {
+  display: none;
+}
+
+.bm-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.bm-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  border-radius: var(--r-sm);
+}
+
+.bm-item:hover {
+  background: var(--hover);
+}
+
+.bm-item[aria-current="true"] {
+  background: var(--soft);
+}
+
+.toc .bm-item .icon-btn {
+  flex: none;
+  width: var(--control);
+  padding: 0;
+  text-align: center;
+  color: var(--muted);
+}
+
+.toc .bm-item .icon-btn:hover {
+  color: var(--fg);
+}
+
+.toc .bm-go {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+}
+
+.toc .bm-go:hover {
+  background: none;
+}
+
+.bm-go b {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.bm-go span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  color: var(--fg);
+}
+
+.bm-go small {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.bm-empty,
+.search-empty {
+  padding: var(--sp-5) var(--sp-2);
+}
+
+/* Search in the book, in the right panel */
+.search-form {
+  display: flex;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-4);
+}
+
+.search-form .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-status {
+  min-height: 1.4em;
+  margin: var(--sp-2) var(--sp-4) var(--sp-1);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.search-results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--sp-2) var(--sp-4);
+}
+
+.search-group h3 {
+  position: sticky;
+  top: 0;
+  margin: 0;
+  padding: var(--sp-2) var(--sp-2) var(--sp-1);
+  background: var(--pane);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-hit {
+  display: block;
+  width: 100%;
+  padding: 6px var(--sp-2);
+  border-radius: var(--r-sm);
+  text-align: left;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+
+.search-hit:hover {
+  background: var(--hover);
+}
+
+.search-hit[aria-current="true"] {
+  background: var(--soft);
+  box-shadow: inset 3px 0 0 var(--fg);
+}
+
+.search-hit mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: #ffd27a;
+  color: #111;
+}
+
+/* A match of the search on a PDF page */
+.pdf-page {
+  position: relative;
+}
+
+.pdf-hit {
+  position: absolute;
+  z-index: 1;
+  border-radius: 2px;
+  background: rgb(255 152 0 / 0.4);
+  box-shadow: 0 0 0 2px rgb(255 152 0 / 0.7);
+  pointer-events: none;
+}
+
+.stage:has(.notes-panel:not([hidden])) .pdf-pages {
+  margin-right: 360px;
+}
+
 /* The list, in the reader and in the book's panel */
 .hl-view {
   display: flex;
@@ -3745,195 +4093,6 @@ a.top-book:hover {
   padding: var(--sp-5);
 }
 
-/* Contents and bookmarks share the left panel of the reader */
-.toc-tabs {
-  display: flex;
-  gap: 2px;
-  margin: 0 var(--sp-1) var(--sp-3);
-  padding: 2px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
-}
-
-.toc .toc-tabs button {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  width: auto;
-  padding: 5px 8px;
-  border-radius: var(--r-sm);
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  text-align: center;
-  color: var(--muted);
-}
-
-.toc .toc-tabs button[aria-selected="true"] {
-  background: var(--hover);
-  color: var(--fg);
-}
-
-.toc .tab-count[hidden] {
-  display: none;
-}
-
-.bm-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.bm-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 2px;
-  border-radius: var(--r-sm);
-}
-
-.bm-item:hover {
-  background: var(--hover);
-}
-
-.bm-item[aria-current="true"] {
-  background: var(--soft);
-}
-
-.toc .bm-item .icon-btn {
-  flex: none;
-  width: var(--control);
-  padding: 0;
-  text-align: center;
-  color: var(--muted);
-}
-
-.toc .bm-item .icon-btn:hover {
-  color: var(--fg);
-}
-
-.toc .bm-go {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px 8px;
-}
-
-.toc .bm-go:hover {
-  background: none;
-}
-
-.bm-go b {
-  font-size: var(--fs-sm);
-  font-weight: 600;
-}
-
-.bm-go span {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-  font-size: var(--fs-sm);
-  color: var(--fg);
-}
-
-.bm-go small {
-  font-size: var(--fs-xs);
-  color: var(--muted);
-}
-
-.bm-empty,
-.search-empty {
-  padding: var(--sp-5) var(--sp-2);
-}
-
-/* Search in the book, in the right panel */
-.search-form {
-  display: flex;
-  gap: var(--sp-2);
-  padding: 0 var(--sp-4);
-}
-
-.search-form .input {
-  flex: 1;
-  min-width: 0;
-}
-
-.search-status {
-  min-height: 1.4em;
-  margin: var(--sp-2) var(--sp-4) var(--sp-1);
-  font-size: var(--fs-xs);
-  color: var(--muted);
-}
-
-.search-results {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0 var(--sp-2) var(--sp-4);
-}
-
-.search-group h3 {
-  position: sticky;
-  top: 0;
-  margin: 0;
-  padding: var(--sp-2) var(--sp-2) var(--sp-1);
-  background: var(--pane);
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.search-hit {
-  display: block;
-  width: 100%;
-  padding: 6px var(--sp-2);
-  border-radius: var(--r-sm);
-  text-align: left;
-  font-size: var(--fs-sm);
-  line-height: 1.45;
-}
-
-.search-hit:hover {
-  background: var(--hover);
-}
-
-.search-hit[aria-current="true"] {
-  background: var(--soft);
-  box-shadow: inset 3px 0 0 var(--fg);
-}
-
-.search-hit mark {
-  padding: 0 1px;
-  border-radius: 2px;
-  background: #ffd27a;
-  color: #111;
-}
-
-/* A match of the search on a PDF page */
-.pdf-page {
-  position: relative;
-}
-
-.pdf-hit {
-  position: absolute;
-  z-index: 1;
-  border-radius: 2px;
-  background: rgb(255 152 0 / 0.4);
-  box-shadow: 0 0 0 2px rgb(255 152 0 / 0.7);
-  pointer-events: none;
-}
-
-.stage:has(.notes-panel:not([hidden])) .pdf-pages {
-  margin-right: 360px;
-}
-
 .note-dialog h2 {
   margin: 0;
   font-size: var(--fs-lg);
@@ -3988,6 +4147,10 @@ a.top-book:hover {
 
   .stage:has(.notes-panel:not([hidden])) .epub-viewer {
     right: auto;
+  }
+
+  .stage:has(.notes-panel:not([hidden])) .pdf-pages {
+    margin-right: 0;
   }
 
   .sel-bar {
@@ -4309,10 +4472,6 @@ a.top-book:hover {
 
 /* Every highlight of the library */
 .all-hl {
-  .stage:has(.notes-panel:not([hidden])) .pdf-pages {
-    margin-right: 0;
-  }
-
   max-width: 820px;
 }
 
@@ -4465,6 +4624,19 @@ a.top-book:hover {
 
 .settings-tabs::-webkit-scrollbar {
   display: none;
+}
+
+/* More tabs to that side: they fade out under the edge */
+.settings-tabs.more-right {
+  mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+}
+
+.settings-tabs.more-left {
+  mask-image: linear-gradient(to left, #000 calc(100% - 48px), transparent);
+}
+
+.settings-tabs.more-left.more-right {
+  mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
 }
 
 .settings-tabs .tab {

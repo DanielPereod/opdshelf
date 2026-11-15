@@ -122,6 +122,8 @@ pub fn router(config: Config) -> Router {
         .route("/api/folders/delete", post(api_delete_folder))
         .route("/api/books/move", post(api_move_books))
         .route("/api/books/rename", post(api_rename_book))
+        .route("/api/books/delete", post(api_delete_books))
+        .route("/api/books/rows", post(api_book_rows))
         .route("/admin/edit/{*path}", get(edit::edit_page))
         .route(
             "/admin/edit",
@@ -156,12 +158,12 @@ pub fn router(config: Config) -> Router {
             get(sync::get_annotations).put(sync::put_annotations),
         )
         .route("/api/annotations/{document}/export", get(sync::export_annotations))
-        .route("/api/marks", axum::routing::put(sync::put_marks))
-        .route("/api/devices/{device}", axum::routing::delete(sync::forget_device))
         .route(
             "/api/bookmarks/{document}",
             get(sync::get_bookmarks).put(sync::put_bookmarks),
         )
+        .route("/api/marks", axum::routing::put(sync::put_marks))
+        .route("/api/devices/{device}", axum::routing::delete(sync::forget_device))
         .route(
             "/api/progress/{document}",
             get(sync::get_progress).put(sync::put_progress),
@@ -329,32 +331,32 @@ pub fn admin_redirect(folder: &str, notice: Option<&str>, error: Option<&str>) -
 
 /// The books of the library page as JSON for a `<script>` block: the page
 /// builds only the rows it shows, which keeps it light with thousands of books.
-fn books_script(books: &[&Book]) -> String {
+/// A book as a row of the library page.
+fn book_row(book: &Book) -> serde_json::Value {
     let flag = |on: bool| if on { "1" } else { "" };
-    let rows: Vec<_> = books
-        .iter()
-        .map(|book| {
-            json!({
-                "path": book.path,
-                "title": book.title,
-                "authors": book.author_line(),
-                "authorList": book.authors.join("\n"),
-                "folder": book.folder,
-                "format": book.format,
-                "added": book.modified.to_rfc3339(),
-                "bytes": book.size.to_string(),
-                "series": book.meta.series.as_deref().unwrap_or_default(),
-                "index": book.meta.series_index.as_deref().unwrap_or_default(),
-                "incomplete": flag(book.authors.is_empty() || !book.has_cover),
-                "readable": flag(book.readable),
-                "cover": if book.has_cover {
-                    format!("/thumb/{}?v={}", paths::url_encode(&book.path), covers::version(book))
-                } else {
-                    String::new()
-                },
-            })
-        })
-        .collect();
+    json!({
+        "path": book.path,
+        "title": book.title,
+        "authors": book.author_line(),
+        "authorList": book.authors.join("\n"),
+        "folder": book.folder,
+        "format": book.format,
+        "added": book.modified.to_rfc3339(),
+        "bytes": book.size.to_string(),
+        "series": book.meta.series.as_deref().unwrap_or_default(),
+        "index": book.meta.series_index.as_deref().unwrap_or_default(),
+        "incomplete": flag(book.authors.is_empty() || !book.has_cover),
+        "readable": flag(book.readable),
+        "cover": if book.has_cover {
+            format!("/thumb/{}?v={}", paths::url_encode(&book.path), covers::version(book))
+        } else {
+            String::new()
+        },
+    })
+}
+
+fn books_script(books: &[&Book]) -> String {
+    let rows: Vec<_> = books.iter().map(|book| book_row(book)).collect();
     // No `<` at all, so no text can end the script block early
     serde_json::to_string(&rows)
         .unwrap_or_else(|_| "[]".into())
@@ -929,6 +931,48 @@ async fn api_rename_book(State(state): State<AppState>, Json(request): Json<Rena
         }
     }
     Json(json!({ "path": new_rel, "from": rel })).into_response()
+}
+
+#[derive(Deserialize)]
+struct PathsRequest {
+    paths: Vec<String>,
+}
+
+/// Deletes books for the panel, which then takes them out of the page without
+/// reloading it. Answers the paths deleted and what failed.
+async fn api_delete_books(State(state): State<AppState>, Json(request): Json<PathsRequest>) -> Response {
+    let mut deleted = Vec::new();
+    let mut failed = Vec::new();
+    for path in &request.paths {
+        let Some((rel, file)) = state.library.book_path(path) else {
+            failed.push(format!("{path}: not found"));
+            continue;
+        };
+        match delete_book(&state, &rel, &file).await {
+            Ok(()) => deleted.push(rel),
+            Err(err) => failed.push(format!("{}: {err}", paths::file_name(&rel))),
+        }
+    }
+    let status = if deleted.is_empty() && !failed.is_empty() {
+        StatusCode::BAD_REQUEST
+    } else {
+        StatusCode::OK
+    };
+    (status, Json(json!({ "deleted": deleted, "failed": failed }))).into_response()
+}
+
+/// The rows of the library page for some books, such as the ones just
+/// uploaded, so the page adds them without reloading.
+async fn api_book_rows(State(state): State<AppState>, Json(request): Json<PathsRequest>) -> Response {
+    let snapshot = state.library.snapshot().await;
+    let wanted: std::collections::HashSet<&str> = request.paths.iter().map(String::as_str).collect();
+    let rows: Vec<_> = snapshot
+        .books
+        .iter()
+        .filter(|b| wanted.contains(b.path.as_str()))
+        .map(book_row)
+        .collect();
+    Json(json!({ "books": rows, "folders": snapshot.folders })).into_response()
 }
 
 /// A JSON error for the apps and the panel: `code` says what went wrong in

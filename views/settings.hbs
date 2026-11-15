@@ -227,14 +227,37 @@
       location.reload();
     }));
 
+    // On a phone the tabs do not fit: the side that has more fades out, and
+    // the open tab is scrolled into view
+    const tabs = document.querySelector('.settings-tabs');
+    function tabEdges() {
+      const more = tabs.scrollWidth - tabs.clientWidth;
+      tabs.classList.toggle('more-left', tabs.scrollLeft > 2);
+      tabs.classList.toggle('more-right', more - tabs.scrollLeft > 2);
+    }
+    function showCurrentTab() {
+      const current = tabs.querySelector('[aria-current="page"]');
+      if (current && tabs.scrollWidth > tabs.clientWidth) {
+        tabs.scrollLeft = current.offsetLeft - tabs.offsetLeft - (tabs.clientWidth - current.offsetWidth) / 2;
+      }
+      tabEdges();
+    }
+    tabs.addEventListener('scroll', tabEdges, { passive: true });
+    window.addEventListener('resize', tabEdges);
+    document.addEventListener('pagechange', (e) => { if (e.detail.page === 'settings') requestAnimationFrame(showCurrentTab); });
+    requestAnimationFrame(showCurrentTab);
+
     // The Maintenance tab reads the whole library, so it is loaded when it is opened
     async function loadMaintenance() {
       const box = $('maintBody');
+      const scroller = box.closest('.sync-scroll');
+      const top = scroller ? scroller.scrollTop : 0;
       try {
         const response = await fetch('/admin/settings/maintenance?panel=1');
         if (!response.ok) throw new Error(response.statusText);
         box.innerHTML = await response.text();
         localizeFields(box);
+        if (scroller) scroller.scrollTop = top;
       } catch {
         box.innerHTML = '';
         const p = document.createElement('p');
@@ -243,6 +266,10 @@
         box.append(p);
       }
     }
+    // After a book was deleted there, without reloading the page
+    document.addEventListener('maintenancechange', () => {
+      if ($('maintBody').hasAttribute('data-loaded')) loadMaintenance();
+    });
     document.addEventListener('pagechange', (e) => {
       if (e.detail.page !== 'settings' || e.detail.tab !== 'maintenance') return;
       if (e.detail.changed || !$('maintBody').hasAttribute('data-loaded')) {

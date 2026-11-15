@@ -198,7 +198,7 @@
         <div class="book">
           <label class="pick"><input type="checkbox"></label>
           <a class="book-link">
-            <span class="thumb"><span></span><i class="thumb-bar"></i></span>
+            <span class="thumb"><span></span><i class="thumb-pct" aria-hidden="true"></i><i class="thumb-bar"></i></span>
             <span class="book-name"><b></b><span class="book-meta"></span></span>
           </a>
           <span class="c-folder"></span>
@@ -275,11 +275,7 @@
       <span>{{formats}}</span>
       <input type="file" id="uploadFiles" name="books" accept="{{accept}}" multiple required hidden>
     </label>
-    <div class="upload-progress" id="uploadProgress" hidden>
-      <div class="upload-line"><span id="uploadInfo"></span><span class="mono" id="uploadPct"></span></div>
-      <div class="track"><b id="uploadBar"></b></div>
-    </div>
-    <p class="error-text" id="uploadError" role="alert" hidden></p>
+    <p class="muted upload-hint">{{t "Each book is uploaded on its own, and you can keep using the panel meanwhile."}}</p>
     <div class="dialog-actions">
       <button type="button" class="btn" data-close-dialog id="uploadCancel">{{t "Cancel"}}</button>
     </div>
@@ -414,7 +410,7 @@
     <p>{{t "The files will be removed from the disk. This cannot be undone."}}</p>
     <div class="dialog-actions">
       <button type="button" class="btn" data-close-dialog>{{t "Cancel"}}</button>
-      <button type="submit" class="btn btn-danger" form="bulkForm" name="action" value="delete">{{t "Delete"}}</button>
+      <button type="button" class="btn btn-danger" id="bulkDeleteGo">{{t "Delete"}}</button>
     </div>
   </div>
 </dialog>
@@ -435,6 +431,17 @@
 </div>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
+<section class="upload-tray" id="uploadTray" aria-labelledby="uploadTrayTitle" hidden>
+  <header>
+    <i class="fas fa-arrow-up-from-bracket" id="uploadTrayIcon" aria-hidden="true"></i>
+    <h2 id="uploadTrayTitle" aria-live="polite"></h2>
+    <button type="button" class="btn btn-quiet btn-small" id="uploadStop">{{t "Cancel"}}</button>
+    <button type="button" class="icon-btn" id="uploadFold" aria-expanded="true" title="{{t "Hide the list"}}" aria-label="{{t "Hide the list"}}"><i class="fas fa-chevron-down" aria-hidden="true"></i></button>
+    <button type="button" class="icon-btn" id="uploadClose" title="{{t "Close"}}" aria-label="{{t "Close"}}" hidden><i class="fas fa-xmark" aria-hidden="true"></i></button>
+  </header>
+  <div class="track upload-total"><b id="uploadTotal"></b></div>
+  <ul id="uploadList"></ul>
+</section>
 
 <script src="/static/app/notes.js?v={{v}}"></script>
 <script src="/static/app/menu.js?v={{v}}"></script>
@@ -872,6 +879,8 @@
       el.classList.toggle('started', Boolean(p));
       if (p) cell.replaceChildren(progressCell(p));
       else cell.innerHTML = '<span class="muted">—</span>';
+      // The covers show it too, as the list does
+      el.querySelector('.thumb-pct').textContent = !p ? '' : isFinished(p) ? t('Done') : pct(p) + '%';
     }
     function paintProgress() {
       rows.forEach((row) => { if (row.el) paintRow(row); });
@@ -2122,6 +2131,94 @@
       loadProgress();
     }
 
+    // ------------------------------------------------------------ deleting and adding books in place
+    // The counts of the sidebar that come from the books of the page
+    function libraryCounts() {
+      const count = (shelf) => document.querySelector(`#side [data-shelf="${shelf}"] .count`);
+      count('all').textContent = rows.length;
+      const incomplete = rows.filter((r) => r.dataset.incomplete === '1').length;
+      count('incomplete').textContent = incomplete || '';
+      count('incomplete').classList.toggle('strong', incomplete > 0);
+      $('recentCount').textContent = rows.filter((r) => Date.parse(r.dataset.added) > weekAgo).length;
+      document.querySelectorAll('#side [data-shelf="format"]').forEach((b) => {
+        const n = rows.filter((r) => r.dataset.format === b.dataset.value).length;
+        b.querySelector('.count').textContent = n;
+        b.hidden = n === 0;
+      });
+    }
+    // Books deleted on the server leave the page, which keeps its shelf, search and scroll
+    function removeBooks(paths) {
+      const gone = new Set(paths);
+      if (!gone.size) return;
+      const hadFocus = list && list.contains(document.activeElement);
+      const index = shownRows().indexOf(activeRow);
+      for (let i = rows.length - 1; i >= 0; i--) {
+        const row = rows[i];
+        if (!gone.has(row.dataset.path)) continue;
+        if (row.el) row.el.remove();
+        rows.splice(i, 1);
+        byPath.delete(row.dataset.path);
+        progress.delete(row.dataset.path);
+        if (row === activeRow) activeRow = null;
+        if (row === anchorRow) anchorRow = null;
+      }
+      if (gone.has(selectedPath)) {
+        selectedPath = '';
+        closePanel(location.pathname.startsWith('/info/') || location.pathname.startsWith('/admin/edit/'));
+      }
+      libraryCounts();
+      renderFolders();
+      paintProgress();
+      refresh(true);
+      if (hadFocus) {
+        const visible = shownRows();
+        const next = visible[Math.min(Math.max(index, 0), visible.length - 1)];
+        if (next) setActive(next, true);
+      }
+    }
+    window.booksDeleted = removeBooks;
+    // New books (uploaded) join the page in their place in the order shown
+    function addBooks(data, serverFolders) {
+      let added = 0;
+      data.forEach((d) => {
+        if (byPath.has(d.path)) return;
+        const row = { dataset: d, hidden: false, checked: false, el: null };
+        rows.push(row);
+        byPath.set(d.path, row);
+        added++;
+      });
+      serverFolders.forEach((f) => { if (!folders.includes(f)) folders.push(f); });
+      if (!added) return;
+      libraryCounts();
+      renderFolders();
+      refresh(true);
+      loadProgress();
+    }
+    async function sendDelete(paths) {
+      const titles = paths.map((p) => byPath.get(p)?.dataset.title || baseName(p));
+      let data;
+      try { data = await api('/api/books/delete', { paths }); } catch (err) {
+        showToast(t('Cannot delete: {reason}', { reason: err.message }));
+        return;
+      }
+      const deleted = data.deleted || [];
+      removeBooks(deleted);
+      if (deleted.length === 1) showToast(t('Deleted {title}', { title: titles[paths.indexOf(deleted[0])] || baseName(deleted[0]) }));
+      else if (deleted.length > 1) showToast(t('Deleted {n} books', { n: deleted.length }));
+      if (data.failed && data.failed.length) showToast(t('Not deleted: {reason}', { reason: data.failed.join('; ') }));
+    }
+    $('deleteDialog').querySelector('form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      $('deleteDialog').close();
+      sendDelete([$('deletePath').value]);
+    });
+    $('bulkDeleteGo').addEventListener('click', () => {
+      $('bulkDeleteDialog').close();
+      const paths = picked().map((r) => r.dataset.path);
+      setSelecting(false);
+      sendDelete(paths);
+    });
+
     // ------------------------------------------------------------ drag and drop
     // Books (one, or the selection) and folders are dragged onto a folder of the
     // sidebar, or onto "The library root" shown above them while dragging. Files
@@ -2227,63 +2324,158 @@
     // ------------------------------------------------------------ upload, with progress
     const isAccepted = (file) => accepted.some((ext) => file.name.toLowerCase().endsWith(ext));
     const sizeText = (bytes) => bytes > 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.ceil(bytes / 1024) + ' KB';
-    let uploading = null;
     // `folder` picks where the books go; without it, the folder shown
     function openUpload(folder) {
       if (typeof folder === 'string') $('uploadFolder').value = folder;
-      $('uploadError').hidden = true;
-      $('uploadProgress').hidden = true;
-      $('dropZone').hidden = false;
       $('uploadDialog').showModal();
     }
+    // Each file is sent on its own, one after another, with its own bar, and
+    // the list of them stays in a corner while the panel keeps working. The
+    // new books join the list of the page when they are all done.
+    const uploads = [];
+    let uploadXhr = null;
+    let uploadTimer = null;
+    const uploading = () => uploads.some((u) => u.state === 'waiting' || u.state === 'sending');
     function upload(files) {
+      files = Array.from(files || []);
       if (!files.length) return;
-      const invalid = Array.from(files).filter((f) => !isAccepted(f));
-      if (!$('uploadDialog').open) openUpload();
-      if (invalid.length) {
-        $('uploadError').textContent = t('Not a supported format: {files}', { files: invalid.map((f) => f.name).join(', ') });
-        $('uploadError').hidden = false;
-        return;
-      }
-      const total = Array.from(files).reduce((sum, f) => sum + f.size, 0);
-      $('uploadError').hidden = true;
-      $('dropZone').hidden = true;
-      $('uploadProgress').hidden = false;
-      $('uploadInfo').textContent = files.length === 1
-        ? t('Uploading {name}…', { name: files[0].name })
-        : t('Uploading {n} books ({size})…', { n: files.length, size: sizeText(total) });
-      const form = new FormData();
-      form.append('csrf', csrf);
-      form.append('folder', $('uploadFolder').value);
-      Array.from(files).forEach((f) => form.append('books', f));
+      if ($('uploadDialog').open) $('uploadDialog').close();
+      $('uploadFiles').value = '';
+      // A new batch after a finished one starts a new list
+      if (!uploading()) uploads.splice(0, uploads.length);
+      const folder = $('uploadFolder').value.trim();
+      files.forEach((file) => {
+        const job = { file, folder, state: 'waiting', loaded: 0, reason: '', path: null, el: null };
+        if (!isAccepted(file)) { job.state = 'failed'; job.reason = t('Not a supported format'); }
+        uploads.push(job);
+      });
+      clearTimeout(uploadTimer);
+      $('uploadTray').hidden = false;
+      foldTray(false);
+      paintUploads();
+      nextUpload();
+    }
+    function uploadRow(job) {
+      if (job.el) return job.el;
+      const li = document.createElement('li');
+      li.innerHTML = '<i aria-hidden="true"></i><span class="up-text"><span class="up-name"></span><small></small></span><span class="track"><b></b></span>';
+      li.querySelector('.up-name').textContent = job.file.name;
+      li.querySelector('.up-name').title = job.file.name;
+      job.el = li;
+      return li;
+    }
+    function paintUploads() {
+      const list = $('uploadList');
+      uploads.forEach((job) => {
+        const li = uploadRow(job);
+        if (li.parentNode !== list) list.append(li);
+        li.dataset.state = job.state;
+        const pctDone = job.state === 'done' ? 100 : Math.round((job.loaded / Math.max(1, job.file.size)) * 100);
+        li.querySelector('.track b').style.width = pctDone + '%';
+        li.querySelector('i').className = {
+          waiting: 'far fa-clock', sending: 'fas fa-spinner fa-spin', done: 'fas fa-check', failed: 'fas fa-circle-exclamation',
+        }[job.state];
+        li.querySelector('small').textContent = {
+          waiting: () => sizeText(job.file.size) + ' · ' + t('Waiting'),
+          sending: () => pctDone >= 100 ? t('Reading the new book…') : sizeText(job.file.size) + ' · ' + pctDone + '%',
+          done: () => t('Uploaded'),
+          failed: () => t('Failed: {reason}', { reason: job.reason }),
+        }[job.state]();
+      });
+      Array.from(list.children).forEach((li) => { if (!uploads.some((u) => u.el === li)) li.remove(); });
+      const done = uploads.filter((u) => u.state === 'done').length;
+      const failed = uploads.filter((u) => u.state === 'failed').length;
+      const total = uploads.length;
+      const busy = uploading();
+      const bytes = uploads.reduce((sum, u) => sum + u.file.size, 0) || 1;
+      const sent = uploads.reduce((sum, u) => sum + (u.state === 'done' || u.state === 'failed' ? u.file.size : u.loaded), 0);
+      $('uploadTotal').style.width = Math.round((sent / bytes) * 100) + '%';
+      $('uploadTotal').parentNode.hidden = !busy;
+      $('uploadTrayTitle').textContent = busy
+        ? t('Uploading {n} of {total}…', { n: Math.min(total, done + failed + 1), total })
+        : failed
+          ? (done === 1 ? t('1 book uploaded, {m} failed', { m: failed }) : t('{n} books uploaded, {m} failed', { n: done, m: failed }))
+          : (done === 1 ? t('1 book uploaded') : t('{n} books uploaded', { n: done }));
+      $('uploadTrayIcon').className = busy ? 'fas fa-arrow-up-from-bracket' : failed ? 'fas fa-circle-exclamation' : 'fas fa-check';
+      $('uploadTray').dataset.state = busy ? 'busy' : failed ? 'failed' : 'done';
+      $('uploadStop').hidden = !busy;
+      $('uploadClose').hidden = busy;
+    }
+    function uploadReason(xhr) {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch { }
+      if (xhr.status === 415) return t('Not a supported format');
+      if (xhr.status === 413 || /upload limit/i.test(data.error || '')) return t('Larger than the upload limit');
+      return data.error || (xhr.status + ' ' + xhr.statusText);
+    }
+    function nextUpload() {
+      if (uploadXhr) return;
+      const job = uploads.find((u) => u.state === 'waiting');
+      if (!job) { uploadsFinished(); return; }
+      job.state = 'sending';
       const xhr = new XMLHttpRequest();
-      uploading = xhr;
-      xhr.open('POST', '/admin/upload');
-      xhr.upload.onprogress = (e) => {
-        if (!e.lengthComputable) return;
-        const done = Math.round((e.loaded / e.total) * 100);
-        $('uploadBar').style.width = done + '%';
-        $('uploadPct').textContent = done + '%';
-        if (done === 100) $('uploadInfo').textContent = t('Reading the new books…');
+      uploadXhr = xhr;
+      xhr.open('PUT', '/api/upload/' + encodePath(job.folder ? job.folder + '/' + job.file.name : job.file.name));
+      xhr.setRequestHeader('Accept', 'application/json');
+      xhr.upload.onprogress = (e) => { job.loaded = e.loaded; paintUploads(); };
+      const end = (state, reason) => {
+        uploadXhr = null;
+        job.state = state;
+        job.reason = reason || '';
+        paintUploads();
+        nextUpload();
       };
       xhr.onload = () => {
-        uploading = null;
-        if (xhr.status >= 200 && xhr.status < 400) location.href = xhr.responseURL || '/admin';
-        else failUpload(xhr.status + ' ' + xhr.statusText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { job.path = JSON.parse(xhr.responseText).path; } catch { }
+          end('done');
+        } else end('failed', uploadReason(xhr));
       };
-      xhr.onerror = () => { uploading = null; failUpload(t('The connection was lost.')); };
-      xhr.send(form);
+      xhr.onerror = () => end('failed', t('The connection was lost.'));
+      xhr.onabort = () => end('failed', t('Cancelled'));
+      xhr.send(job.file);
+      paintUploads();
     }
-    function failUpload(reason) {
-      $('uploadProgress').hidden = true;
-      $('dropZone').hidden = false;
-      $('uploadError').textContent = t('Upload failed: {reason}', { reason });
-      $('uploadError').hidden = false;
+    async function uploadsFinished() {
+      paintUploads();
+      const paths = uploads.filter((u) => u.state === 'done' && u.path).map((u) => u.path);
+      const failed = uploads.some((u) => u.state === 'failed');
+      if (paths.length) {
+        if (!list) { rememberView(); location.reload(); return; }
+        try {
+          const data = await api('/api/books/rows', { paths });
+          addBooks(data.books || [], data.folders || []);
+        } catch {
+          rememberView();
+          location.reload();
+          return;
+        }
+        const folder = uploads.find((u) => u.path)?.folder || '';
+        showToast(paths.length === 1
+          ? t('Uploaded {title}', { title: byPath.get(paths[0])?.dataset.title || baseName(paths[0]) })
+          : t('Uploaded {n} books to {folder}', { n: paths.length, folder: folder || libraryRoot }));
+      }
+      // All went well: the list leaves by itself after a moment
+      if (!failed) uploadTimer = setTimeout(() => { if (!uploading()) $('uploadTray').hidden = true; }, 6000);
     }
-    $('uploadDialog').addEventListener('close', () => { if (uploading) uploading.abort(); uploading = null; });
+    function foldTray(fold) {
+      $('uploadTray').classList.toggle('folded', fold);
+      $('uploadFold').setAttribute('aria-expanded', !fold);
+      const label = fold ? t('Show the list') : t('Hide the list');
+      $('uploadFold').title = label;
+      $('uploadFold').setAttribute('aria-label', label);
+    }
+    $('uploadFold').addEventListener('click', () => foldTray(!$('uploadTray').classList.contains('folded')));
+    $('uploadStop').addEventListener('click', () => {
+      uploads.forEach((u) => { if (u.state === 'waiting') { u.state = 'failed'; u.reason = t('Cancelled'); } });
+      if (uploadXhr) uploadXhr.abort();
+      else paintUploads();
+    });
+    $('uploadClose').addEventListener('click', () => { $('uploadTray').hidden = true; });
+    window.addEventListener('beforeunload', (e) => { if (uploading()) e.preventDefault(); });
     $('uploadBtn').addEventListener('click', () => openUpload(currentFolder()));
     function uploadTo(files, folder) {
-      openUpload(folder);
+      if (typeof folder === 'string') $('uploadFolder').value = folder;
       upload(files);
     }
     $('uploadFiles').addEventListener('change', (e) => upload(e.target.files));
@@ -2317,7 +2509,7 @@
       if (!hasFiles(e)) return;
       e.preventDefault();
       endFileDrag();
-      uploadTo(e.dataTransfer.files, currentFolder());
+      uploadTo(e.dataTransfer.files, $('uploadDialog').open ? undefined : currentFolder());
     });
 
     // ------------------------------------------------------------ misc
@@ -2345,7 +2537,12 @@
       e.preventDefault();
       const ok = await confirmAction(form.dataset.confirm, form.dataset.confirmText || '',
         form.dataset.confirmOk || t('Delete'), form.hasAttribute('data-danger'));
-      if (ok) form.submit();
+      if (!ok) return;
+      // A book deleted from Maintenance leaves the tab and the library in place
+      if (form.hasAttribute('data-delete-book')) {
+        await sendDelete([form.elements.path.value]);
+        document.dispatchEvent(new CustomEvent('maintenancechange'));
+      } else form.submit();
     });
 
     // ------------------------------------------------------------ live changes from other devices
@@ -2400,7 +2597,6 @@
         }));
       } catch { }
     }
-    $('deleteDialog').querySelector('form').addEventListener('submit', rememberView);
     $('bulkForm').addEventListener('submit', rememberView);
     let restored = null;
     try {

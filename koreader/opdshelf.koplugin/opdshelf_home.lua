@@ -15,7 +15,6 @@ It can replace KOReader's start screen (File browser → Settings → Start with
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Button = require("ui/widget/button")
-local ButtonDialog = require("ui/widget/buttondialog")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
 local Font = require("ui/font")
@@ -42,6 +41,7 @@ local VerticalSpan = require("ui/widget/verticalspan")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local Browser = require("opdshelf_browser")
+local Menu = require("opdshelf_menu")
 local OPDS = require("opdshelf_opds")
 local Sync = require("opdshelf_sync")
 local T = require("ffi/util").template
@@ -525,7 +525,7 @@ function Home:serverItems()
             cover = self.browser:cachedCover(entry),
             mark = downloaded and "✓" or nil,
             callback = function() self.browser:showDetails(entry) end,
-            hold_callback = function() self.browser:quickDownload(entry) end,
+            hold_callback = function() self.browser:bookActions(entry) end,
         }
     end
     return items
@@ -655,33 +655,23 @@ function Home:showHistory()
     end
 end
 
+-- The settings tab: Refresh, then the plugin's settings, the same list as
+-- Tools › OPDShelf › Settings
 function Home:showMenu()
     local dialog
-    local function item(text, callback)
-        return { { text = text, align = "left", callback = function()
+    local refresh = { {
+        text = _("Refresh"),
+        align = "left",
+        callback = function()
             UIManager:close(dialog)
-            callback()
-        end } }
-    end
-    local starts = self.plugin:launcherEnabled()
-    dialog = ButtonDialog:new{
-        title = _("OPDShelf"),
-        title_align = "center",
-        shrink_unneeded_width = true,
-        buttons = {
-            item(_("Refresh"), function() self:refreshAll() end),
-            item(starts and _("Stop opening at start and after a book") or _("Open at start and after a book"), function()
-                self.plugin:setLauncher(not starts)
-            end),
-            item(_("Server and account"), function()
-                self.plugin:editAccount(function() self:loadRemote() end)
-            end),
-            item(T(_("Download folder: %1"), self.plugin:downloadDir()), function()
-                self.plugin:chooseDownloadDir()
-            end),
-        },
-    }
-    UIManager:show(dialog)
+            self:refreshAll()
+        end,
+    } }
+    local items = self.plugin:settingsItems(function(what)
+        if what == "account" then self:loadRemote() else self:refreshAll() end
+    end)
+    dialog = Menu.dialog(_("OPDShelf settings"), items, { refresh })
+    return dialog
 end
 
 function Home:onSwipe(_arg, ges)

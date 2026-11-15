@@ -187,6 +187,18 @@ local plugin = {
     launcherEnabled = function(self) return self.launcher end,
     setLauncher = function(self, on) self.launcher = on end,
 }
+-- The settings, as main.lua gives them to Tools › OPDShelf and the home screen
+function plugin:settingsItems(changed)
+    self.settings_changed = changed
+    return {
+        { text = "Show the home screen at start", checked_func = function() return self:launcherEnabled() end,
+          callback = function() self:setLauncher(not self:launcherEnabled()) end },
+        { text = "When another device is behind", sub_item_table = {
+            { text = "Ask", radio = true, checked_func = function() return self.behind ~= "jump" end, callback = function() self.behind = "ask" end },
+            { text = "Go there", radio = true, checked_func = function() return self.behind == "jump" end, callback = function() self.behind = "jump" end },
+        } },
+    }
+end
 function plugin:showLibrary(search, url, title) self.library_opened = { search = search, url = url, title = title } end
 
 os.execute("rm -rf /tmp/opdshelf-test")
@@ -244,6 +256,15 @@ b2:start("https://books.example/opds/books", "Books")
 check(b2:statusLine(b2:currentLevel().entries[1]):match("read 42 %%"), "downloaded books show how far they were read")
 b2:quickDownload(b2:currentLevel().entries[2])
 check(shown[#shown].ok_text == "Read now", "a long press downloads and offers to read")
+local hold = b2:bookActions(b2:currentLevel().entries[3])
+check(hold.title == b2:currentLevel().entries[3].title and hold.buttons[1][1].text == "Download and read"
+    and hold.buttons[2][1].text == "Download only" and hold.buttons[3][1].text == "Book details",
+    "holding a book that is not here offers to read, download or see it")
+local held = b2:bookActions(b2:currentLevel().entries[2])
+check(held.buttons[1][1].text == "Read" and #held.buttons == 2, "and one already downloaded offers to read it")
+local before_details = #shown
+held.buttons[2][1].callback()
+check(#shown == before_details + 1 and shown[#shown][1] ~= nil, "or to see its details")
 check(trapper.used == 2 and trapper.widget.text:match("Tap to cancel"), "downloads away from the tap, in a subprocess that can be cancelled")
 trapper.cancel = true
 local before = #shown
@@ -321,8 +342,19 @@ table.remove(ticks)()
 check(home.clock_widget.text == clock_before and #ticks == 1, "and then updates itself")
 home:showMenu()
 local home_menu = shown[#shown]
+check(home_menu.buttons[1][1].text == "Refresh" and home_menu.buttons[2][1].text == "☐ Show the home screen at start",
+    "the settings tab shows the plugin's own settings, ticked or not")
+check(home_menu.buttons[3][1].text == "When another device is behind ›", "and their submenus")
 home_menu.buttons[2][1].callback()
 check(plugin.launcher == true, "the menu turns opening at start on")
+check(plugin.settings_changed ~= nil, "and the home screen hears about changes to the account")
+home:showMenu()
+shown[#shown].buttons[3][1].callback()
+local choices = shown[#shown]
+check(choices.buttons[1][1].text == "● Ask" and choices.buttons[2][1].text == "○ Go there", "a submenu shows its choices")
+choices.buttons[2][1].callback()
+check(plugin.behind == "jump" and shown[#shown].buttons[3][1].text == "When another device is behind ›",
+    "and picking one goes back to the settings")
 check(settings.home_recent and #settings.home_recent == 12, "keeps the shelf for when there is no connection")
 home:openLibrary(false, home.recent_url, "Recently added")
 check(plugin.library_opened.url == "https://books.example/opds/books", "see all opens the library there")

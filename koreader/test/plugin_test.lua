@@ -408,7 +408,7 @@ check(start_with.text_func() == "Start with: file browser", "keeps KOReader's te
 start_with.sub_item_table[2].callback()
 check(global_settings:readSetting("start_with") == "opdshelf" and start_with.sub_item_table[2].checked_func(), "can be chosen")
 check(start_with.text_func() == "Start with: OPDShelf home", "and says so")
-check(menu_items.opdshelf.sub_item_table_func()[1].text == "Home", "the plugin's menu opens it")
+check(menu_items.opdshelf.sub_item_table_func()[1].text == "OPDShelf home", "the plugin's menu opens it")
 start_with.sub_item_table[1].callback = function() global_settings:saveSetting("start_with", "filemanager") end
 start_with.opdshelf = nil
 p:addStartWith(menu_items)
@@ -500,5 +500,57 @@ check(status:find("Version: 2026-02-02 00:00", 1, true) and status:find("Connect
     and status:find("Positions waiting to be sent: 2", 1, true) and status:find("Last error: Something broke", 1, true), "the status screen says how things are")
 state():saveSetting("pending", nil)
 os.execute("rm -rf '" .. tmp .. "'")
+
+-- The menu: where to go, this book, the settings in one submenu, the status
+local menu = q:menuItems()
+local labels = {}
+for i, item in ipairs(menu) do labels[i] = item.text or item.text_func() end
+check(table.concat(labels, "|") == "OPDShelf home|Library|Search the library|This book|Settings|Status and updates",
+    "the menu has three groups and the status")
+check(#menu[4].sub_item_table == 3 and menu[4].sub_item_table[1].text == "Sync this book now", "what to do with the book open")
+local settings = menu[5].sub_item_table_func()
+local names = {}
+for _i, item in ipairs(settings) do names[#names + 1] = item.text or item.text_func() end
+names = table.concat(names, "|")
+check(names:find("Server: ", 1, true) and names:find("Download folder: ", 1, true) and names:find("Show the home screen at start", 1, true)
+    and names:find("Live sync while reading", 1, true), "and every setting in one place")
+local heard
+settings = q:settingsItems(function(what) heard = what end)
+local chooser = q.chooseDownloadDir
+q.chooseDownloadDir = function(_self, done) done() end
+settings[3].callback()
+q.chooseDownloadDir = chooser
+check(heard == "folder", "the home screen hears when a setting it shows changed")
+
+-- Every text of the plugin speaks Spanish
+local missing = {}
+local I18n = dofile(plugin_dir .. "/opdshelf_i18n.lua")
+for _i, name in ipairs({ "main", "opdshelf_browser", "opdshelf_home", "opdshelf_menu", "opdshelf_notes", "opdshelf_update", "opdshelf_sync", "opdshelf_client", "opdshelf_stream" }) do
+    local f = io.open(plugin_dir .. "/" .. name .. ".lua")
+    if f then
+        local source = f:read("*a")
+        f:close()
+        -- Each _("...") with a whole literal inside, escapes read as Lua reads them
+        local at = 1
+        while true do
+            local s, e = source:find('[^%w_]_%("', at)
+            if not s then break end
+            local i, closed = e + 1, nil
+            while i <= #source do
+                local c = source:sub(i, i)
+                if c == "\\" then i = i + 2
+                elseif c == '"' then closed = i break
+                else i = i + 1 end
+            end
+            if closed and source:sub(closed + 1, closed + 1) == ")" then
+                local literal = source:sub(e + 1, closed - 1)
+                local text = loadstring('return "' .. literal .. '"')()
+                if not I18n.es[text] then missing[#missing + 1] = name .. ": " .. literal end
+            end
+            at = (closed or e) + 1
+        end
+    end
+end
+check(#missing == 0, "every text has its Spanish version" .. (#missing > 0 and (":\n  " .. table.concat(missing, "\n  ")) or ""))
 
 print("all good")

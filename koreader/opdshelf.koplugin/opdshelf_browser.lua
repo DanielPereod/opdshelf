@@ -398,7 +398,7 @@ function Browser:listItem(entry, w, h)
             width = w,
             height = h - Size.line.thin,
             callback = function() self:select(entry) end,
-            hold_callback = entry.is_book and function() self:quickDownload(entry) end or nil,
+            hold_callback = entry.is_book and function() self:bookActions(entry) end or nil,
             LeftContainer:new{
                 dimen = Geom:new{ w = w, h = h - Size.line.thin },
                 HorizontalGroup:new{ HorizontalSpan:new{ width = padding }, row },
@@ -440,7 +440,7 @@ function Browser:gridItem(entry, w, h)
         width = w,
         height = h,
         callback = function() self:select(entry) end,
-        hold_callback = entry.is_book and function() self:quickDownload(entry) end or nil,
+        hold_callback = entry.is_book and function() self:bookActions(entry) end or nil,
         CenterContainer:new{ dimen = Geom:new{ w = w, h = h }, column },
     }
 end
@@ -822,7 +822,38 @@ function Browser:fetchBook(entry, acquisition, path, after)
     end)
 end
 
--- Long press: download without opening the details
+-- Long press on a book: what can be done with it, read or download it or
+-- see its details, without opening them first
+function Browser:bookActions(entry)
+    local path, downloaded = self:localFile(entry)
+    local dialog
+    local function item(text, callback)
+        return { { text = text, align = "left", callback = function()
+            UIManager:close(dialog)
+            callback()
+        end } }
+    end
+    local buttons = {}
+    if downloaded then
+        buttons[#buttons + 1] = item(_("Read"), function() self:openBook(path) end)
+    else
+        buttons[#buttons + 1] = item(_("Download and read"), function()
+            self:download(entry, function(p) self:openBook(p) end)
+        end)
+        buttons[#buttons + 1] = item(_("Download only"), function() self:quickDownload(entry) end)
+    end
+    buttons[#buttons + 1] = item(_("Book details"), function() self:showDetails(entry) end)
+    dialog = ButtonDialog:new{
+        title = entry.title,
+        title_align = "center",
+        shrink_unneeded_width = true,
+        buttons = buttons,
+    }
+    UIManager:show(dialog)
+    return dialog
+end
+
+-- Download without opening the details, then offer to read it
 function Browser:quickDownload(entry)
     self:download(entry, function(path)
         UIManager:show(ConfirmBox:new{

@@ -335,15 +335,18 @@ private fun ContinueCard(book: LocalBook, loader: ImageLoader, onRead: () -> Uni
         }
         val status = listOfNotNull(percent(book.percentage), where).joinToString(" · ")
         val button = stringResource(if (book.percentage > 0) R.string.continue_reading else R.string.read)
-        Row {
+        val summary = book.summary?.trim()?.takeIf { it.isNotEmpty() && layout.summaryLines > 0 }
+        // With a description the text fills the cover's height, the progress on its bottom
+        // edge; without one the text is centred beside the cover rather than leaving a band
+        val pinned = large && summary != null
+        Row(verticalAlignment = if (large && !pinned) Alignment.CenterVertically else Alignment.Top) {
             Cover(
                 book.coverFile?.let { File(context.app.store.booksDir, it) }, book.title,
                 book.format, loader, Modifier.size(width = layout.coverWidthDp.dp, height = coverHeight),
                 large = large,
             )
             Spacer(Modifier.width(if (large) Space.xl else Space.l))
-            // As tall as the cover at least, so the progress and the button sit on its bottom edge
-            Column(Modifier.weight(1f).then(if (large) Modifier.heightIn(min = coverHeight) else Modifier)) {
+            Column(Modifier.weight(1f).then(if (pinned) Modifier.heightIn(min = coverHeight) else Modifier)) {
                 Text(
                     book.title, color = shelf.fg, fontSize = if (large) TextSize.headline else TextSize.title, fontWeight = FontWeight.Bold,
                     maxLines = if (large) 2 else 3, overflow = TextOverflow.Ellipsis, lineHeight = if (large) 28.sp else 26.sp,
@@ -355,7 +358,6 @@ private fun ContinueCard(book: LocalBook, loader: ImageLoader, onRead: () -> Uni
                         lineHeight = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
-                val summary = book.summary?.trim()?.takeIf { it.isNotEmpty() && layout.summaryLines > 0 }
                 if (summary != null) {
                     Spacer(Modifier.height(Space.m))
                     Text(
@@ -364,7 +366,7 @@ private fun ContinueCard(book: LocalBook, loader: ImageLoader, onRead: () -> Uni
                     )
                 }
                 if (large) {
-                    Spacer(Modifier.weight(1f))
+                    if (pinned) Spacer(Modifier.weight(1f))
                     Spacer(Modifier.height(Space.l))
                     ReadBar(book.percentage.toFloat(), Modifier.fillMaxWidth())
                     Spacer(Modifier.height(Space.m))

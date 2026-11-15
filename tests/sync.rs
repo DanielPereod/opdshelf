@@ -928,3 +928,39 @@ async fn statistics_follow_the_range_asked_for() {
     let (_, body) = t.api("GET", "/api/stats", None).await;
     assert_eq!(body["range"], "30d");
 }
+
+#[tokio::test]
+async fn today_follows_the_day_the_device_asks_for() {
+    let t = app();
+    let now = chrono::Utc::now().timestamp();
+    // The day the reading was counted on
+    let date = opdshelf::stats::day_of(now - 120);
+    for (progress, at) in [("/a", now - 300), ("/b", now - 120)] {
+        let (status, _) = t
+            .api(
+                "PUT",
+                &format!("/api/progress/{DOC}"),
+                Some(json!({ "progress": progress, "percentage": 0.2, "device": "Kobo", "device_id": "K1", "timestamp": at, "sent_at": now })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (_, body) = t.api("GET", &format!("/api/stats/today?date={date}"), None).await;
+    assert_eq!(
+        (body["seconds"].as_i64(), body["streak"].as_i64()),
+        (Some(180), Some(1)),
+        "{body}"
+    );
+    // Another day has nothing; a date that is not one is the server's today
+    let (_, body) = t.api("GET", "/api/stats/today?date=2001-01-01", None).await;
+    assert_eq!(
+        (body["seconds"].as_i64(), body["streak"].as_i64()),
+        (Some(0), Some(0)),
+        "{body}"
+    );
+    let (status, body) = t.api("GET", "/api/stats/today?date=yesterday", None).await;
+    assert_eq!(status, StatusCode::OK);
+    if opdshelf::stats::day_of(chrono::Utc::now().timestamp()) == date {
+        assert_eq!(body["seconds"].as_i64(), Some(180), "{body}");
+    }
+}

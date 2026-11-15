@@ -28,7 +28,7 @@ A highlight is stored with KOReader's xpointers of its start and end, the text, 
 
 They are worked out from the positions the devices send: the time between two page turns of the same device in the same book counts as reading, unless it is over 10 minutes, which starts a new session. A book counts as finished at 99 %, or when it is marked as read in the panel or as finished in the Android app (and no longer once it is marked as unread). Days follow the server's time zone (`TZ`). Only a daily summary is kept, in `DATA_DIR/stats.json`; on the first start it is filled from the positions already saved. Reading done offline counts only once its positions reach the server one by one, so pages read in KOReader without a connection are not counted.
 
-`GET /api/stats` returns the panel's summary and `GET /api/stats/today` today's seconds, sessions and streak.
+`GET /api/stats` returns the panel's summary and `GET /api/stats/today` today's seconds, sessions and streak; `?date=2026-11-15` asks for the device's own day instead of the server's (the KOReader plugin does, so its tiles follow the device's clock).
 
 ## KOReader
 

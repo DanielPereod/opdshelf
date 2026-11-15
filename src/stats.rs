@@ -440,9 +440,22 @@ fn finished_books(read: BTreeMap<String, i64>, marks: HashMap<String, crate::mar
     out
 }
 
-/// Just today, for the e-reader's home screen.
-pub async fn today(State(state): State<AppState>) -> Response {
-    let today = Local::now().date_naive();
+#[derive(Deserialize, Default)]
+pub struct TodayQuery {
+    /// The asking device's own date, "2026-11-15": its day may not be the
+    /// server's (a server left in UTC, a device a few hours away). Days are
+    /// still counted in the server's time zone.
+    date: Option<String>,
+}
+
+/// Just today, for the e-reader's home screen: the server's today, or the
+/// device's when it says which day that is.
+pub async fn today(State(state): State<AppState>, Query(query): Query<TodayQuery>) -> Response {
+    let today = query
+        .date
+        .as_deref()
+        .and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
+        .unwrap_or_else(|| Local::now().date_naive());
     let stats = state.progress.stats();
     let day = stats.day(&today.format("%Y-%m-%d").to_string());
     let (current, _) = streaks(&stats.days(), today);

@@ -185,7 +185,7 @@ local es = {
     ["When another device is further ahead"] = "Cuando otro dispositivo va más adelante",
     ["another device"] = "otro dispositivo",
     ["just now"] = "ahora mismo",
-    ["✓ downloaded"] = "✓ descargado",
+    ["Downloaded"] = "Descargado",
     ["✓ read %1 %"] = "✓ leído %1 %",
     ["✓ Finished"] = "✓ Terminado",
     -- Home screen

@@ -4,6 +4,7 @@
 package.path = arg[1] .. "/?.lua;" .. package.path
 
 local shown, closed, requests, ticks = {}, {}, {}, {}
+local broadcasts, windows = {}, {}
 local files = {}
 
 -- The screen: changed by the tests to lay the home screen out on other devices
@@ -48,8 +49,17 @@ function Widget:getSize()
         local max = rawget(self, "max_width")
         return { w = max and math.min(w, max) or w, h = h }
     elseif kind == "textboxwidget" then
-        local _w, h = textSize(self)
-        return { w = width or 100, h = height or h }
+        -- Wrapped at its width, as a text box does (roughly: by letters, not words)
+        local face = rawget(self, "face")
+        local line = face and math.floor(face.size * 1.3) or 40
+        local per_letter = (face and face.size or 20) * 0.5
+        local lines = 0
+        for part in ((rawget(self, "text") or "") .. "\n"):gmatch("([^\n]*)\n") do
+            local n = 0
+            for _c in part:gmatch("[%z\1-\127\194-\244][\128-\191]*") do n = n + 1 end
+            lines = lines + math.max(1, math.ceil(n * per_letter / (width or 100)))
+        end
+        return { w = width or 100, h = height or line * lines }
     elseif kind == "button" then
         return { w = width or (rawget(self, "text") and math.floor(#self.text * 8 * screen.scale)) or scaled(40), h = scaled(40) }
     elseif kind == "framecontainer" and not (width and height) and self[1] then
@@ -62,6 +72,7 @@ function Widget:getSize()
 end
 function Widget:getHeight() return self:getSize().h end
 function Widget:free() end
+function Widget:paintTo() self.painted = (self.painted or 0) + 1 end
 function Widget:resetLayout() end
 function Widget:disable() self.disabled = true end
 function Widget:getInputText() return self.input_text or "hobbit" end
@@ -80,6 +91,7 @@ local widgets = {
 for _, name in ipairs(widgets) do
     package.preload[name] = function() return Widget:extend{ kind = name:match("([^/]+)$") } end
 end
+package.preload["ui/event"] = function() return { new = function(_, name, ...) return { name = name, args = { ... } } end } end
 package.preload["ffi/blitbuffer"] = function() return { COLOR_WHITE = 0, COLOR_LIGHT_GRAY = 1, COLOR_GRAY_5 = 2, COLOR_BLACK = 3, COLOR_DARK_GRAY = 4 } end
 local global = {}
 _G.G_reader_settings = {
@@ -124,6 +136,14 @@ package.preload["ui/uimanager"] = function() return {
     unschedule = function(_, f) for i = #ticks, 1, -1 do if ticks[i] == f then table.remove(ticks, i) end end end,
     nextTick = function(_, f) f() end,
     setDirty = function() end,
+    -- Every window hears it: the ones the tests keep in `windows`
+    broadcastEvent = function(_, event)
+        broadcasts[#broadcasts + 1] = event
+        for _, w in ipairs(windows) do
+            local handler = w["on" .. event.name]
+            if handler then handler(w, table.unpack and table.unpack(event.args) or unpack(event.args)) end
+        end
+    end,
     forceRePaint = function() end,
 } end
 package.preload["libs/libkoreader-lfs"] = function() return { attributes = function(path, what)
@@ -216,7 +236,7 @@ local client = {
         requests[#requests + 1] = "progress " .. document
         return 200, { current = { device = "Phone", device_id = "PHONE", percentage = 0.6, timestamp = os.time() - 120 } }
     end,
-    getToday = function() return 200, { seconds = 1530, sessions = 2, streak = 4 } end,
+    getToday = function(_, date) requests[#requests + 1] = "today " .. tostring(date) return 200, { seconds = 1530, sessions = 2, streak = 4 } end,
     -- Where every book is: the one to continue further on the phone, one started
     -- there only, one finished, one marked as not finished afterwards and one
     -- read here but marked as finished on another device
@@ -255,6 +275,8 @@ local plugin = {
     ready = function() return true end,
     device_id = "KOBO",
     noteServerTime = function() end,
+    -- Sends the positions read here and not sent yet
+    flush = function(self) self.flushed = (self.flushed or 0) + 1 return false end,
     serverNow = function() return os.time() end,
     launcherEnabled = function(self) return self.launcher end,
     showStatus = function(self) self.status_shown = true end,
@@ -327,10 +349,29 @@ check(b.closed, "closing the library")
 -- Downloaded books are marked
 local b2 = Browser:new{ plugin = plugin }
 b2:start("https://books.example/opds/books", "Books")
-check(b2:statusLine(b2:currentLevel().entries[1]):match("· 42 %% read$"), "downloaded books show how far they were read, without a check mark")
+-- Book 1 is here at 42 %, read at a time not known; the phone took it to 60 % two minutes ago
+local feed_entries = b2:currentLevel().entries
+check(b2:statusLine(feed_entries[1]):match("· 60 %% read$"), "a book read further on another device shows that, without a check mark")
+doc_overrides["/books/b1.epub"] = { opdshelf_sync = { read_at = os.time() } }
+check(b2:statusLine(feed_entries[1]):match("· 42 %% read$") and b2:readBar(feed_entries[1]) == 0.42,
+    "and one read here since shows how far it was read here, with its bar")
 doc_overrides["/books/b1.epub"] = { summary = { status = "complete" }, percent_finished = 1 }
-check(b2:statusLine(b2:currentLevel().entries[1]):match("✓ Finished$"), "the check is for finished books")
+check(b2:statusLine(feed_entries[1]):match("✓ Finished$") and not b2:readBar(feed_entries[1]), "the check is for finished books")
 doc_overrides["/books/b1.epub"] = nil
+-- Book 5 is not on this device: started on the phone
+check(b2:statusLine(feed_entries[5]):match("· 30 %% read$") and b2:readBar(feed_entries[5]) == 0.3,
+    "every started book shows how far it was read, wherever it was read")
+check(b2:statusLine(feed_entries[6]):match("✓ Finished$") and not b2:statusLine(feed_entries[7]):match("read"),
+    "finished elsewhere is finished, and marked as not finished afterwards is not started")
+doc_overrides["/books/b2.epub"] = { percent_finished = false }
+files["/books/b2.epub"] = true
+check(b2:statusLine(feed_entries[2]):match("· Downloaded$"), "one only downloaded says so in words: ✓ is only for finished books")
+files["/books/b2.epub"] = nil
+doc_overrides["/books/b2.epub"] = nil
+check(Browser.mergeProgress({ percent = 0.2, read_at = 100 }, { percent = 0.5, time = 50 }).percent == 0.2
+    and Browser.mergeProgress({ percent = 0.2, read_at = 100 }, { percent = 0.5, time = 150 }).percent == 0.5
+    and Browser.mergeProgress(nil, { percent = 0.1, finished = true }).finished and Browser.mergeProgress(nil, nil) == nil,
+    "the newest position wins, and finished anywhere is finished")
 check(Browser.formatSize(1677722) == "1.6 MB" and Browser.languageName("es") == "Spanish" and Browser.languageName("xx") == "xx",
     "sizes and the language's name")
 global.language = "es"
@@ -378,6 +419,16 @@ check(plugin.browser == nil and plugin.library_session and #plugin.library_sessi
 local b4 = Browser:new{ plugin = plugin }
 b4:resume(plugin.library_session)
 check(b4:currentLevel().title == "All books" and not b4.closed, "and opens there again")
+-- Turned: Android tells every window the new size
+screen.w, screen.h = 800, 600
+b4:onSetDimensions({ w = 800, h = 600 })
+b4:onScreenResize({ w = 800, h = 600 })
+check(b4.dimen.w == 800 and b4[1].width == 800 and b4.ges_events.Swipe[1].range.w == 800 and b4:layout(b4:currentLevel()).w == 800,
+    "the library takes the new size of a turned screen")
+screen.w, screen.h = 600, 800
+b4:paintTo()
+check(b4.dimen.w == 600 and b4[1].width == 600 and b4.painted == 1, "and finds it out when painted, whatever turned it")
+b4:onClose()
 check(settings.covers and settings.covers["/books/b1.epub"], "downloads keep their cover for the home screen")
 
 
@@ -443,6 +494,20 @@ check(Home.statTexts({ date = day, today_seconds = 3900 }, day).today == "1 h 5 
 tiles = Home.statTexts({ date = "2001-01-01", today_seconds = 600, streak = 3 }, day)
 check(tiles.today == nil and tiles.streak == "3 days" and tiles.library == nil, "minutes from another day are not today's, and what is not known stays empty")
 
+-- The card's status line: the pages left go first when it does not fit
+local status_book = { title = "Status", authors = {}, percent = 0.16, time = os.time() - 7200, pages = 300, path = "/books/status.epub" }
+check(Home.progressText(nil, status_book, true) == "16 % · 2 h ago · 252 pages left" and Home.progressText(nil, status_book, true, false) == "16 % · 2 h ago",
+    "the status line with or without the pages left")
+local function statusOf(card)
+    for _, t in ipairs(texts(card)) do if t:match("^16 %%") then return t end end
+end
+local card_home = Home:new{ plugin = plugin }
+card_home.history = { status_book }
+check(statusOf((card_home:continueCard(1500, 800))) == "16 % · 2 h ago · 252 pages left", "a wide card says it all")
+check(statusOf((card_home:continueCard(450, 800))) == "16 % · 2 h ago", "a narrower one leaves out the pages left rather than cutting the line")
+check(statusOf((card_home:continueCard(320, 800))) == "16 % · 2 h", "and a narrow one says when in a few letters")
+card_home:onClose()
+
 files["/books/other.epub"] = true
 files["/books/done.epub"] = true
 files["/books/done-elsewhere.epub"] = true
@@ -461,6 +526,10 @@ home:show()
 local seen = texts(home)
 if os.getenv("DEBUG") then for _, t in ipairs(seen) do print("  text:", t) end end
 check(#home.history == 4, "looks at the books read on this device that are still there")
+local asked_today
+for i, r in ipairs(requests) do if r:match("^today ") then asked_today = i end end
+check(asked_today and requests[asked_today] == "today " .. os.date("%Y-%m-%d") and plugin.flushed == 1,
+    "today's minutes are asked for this device's day, once what was read here is sent")
 check(hasText(seen, "25 min") and hasText(seen, "4 days") and hasText(seen, "40") and hasText(seen, "Today") and hasText(seen, "Streak"),
     "tiles with the minutes read today, the streak and the size of the library")
 check(#home.recent == 12 and home.recent[1].title == "Book 1", "shows the newest books of the library")
@@ -470,7 +539,8 @@ order = {}
 for i, r in ipairs(home.started) do order[i] = r.title end
 check(table.concat(order, "|") == "Book 5|Title of other.epub", "started: from the server and from here, newest first, without finished books")
 check(hasText(seen, "Started") and hasText(seen, "30 % · 1 h") and hasText(seen, "42 % · 2 h"), "a shelf of them, with how far and when")
-check(hasText(seen, "↓") and hasText(seen, "✓"), "books not on this device are marked, and so are downloaded ones")
+check(hasText(seen, "↓") and hasText(seen, "Downloaded") and not hasText(seen, "✓"),
+    "books not on this device are marked, and downloaded ones say so in words: ✓ is only for finished books")
 check(has(seen, "^Recently added to the library$"), "the newest books of the library")
 check(has(seen, "^%d+:%d%d · %d+ %a+$") and has(seen, "^87 %%$") and hasText(seen, "OPDShelf"), "a header with the name, the time, date and battery")
 check(not has(seen, "^On this device$") and not has(seen, "^Offline"), "without the old shelf, and connected")
@@ -494,11 +564,52 @@ check(hold.buttons[1][1].text == "Download and read", "holding it offers the lib
 check(hold.width and hold.width >= 400 and not hold.shrink_unneeded_width, "a hold menu wide enough for its title")
 local long = Browser.holdDialog(string.rep("A very long title ", 20), {})
 check(long.title:match("…$") and #long.title < 200, "and a long title cut with an ellipsis")
+-- As wide as the dialog's title is, in its face: two lines at most, however long the words
+local TextBoxWidget = require("ui/widget/textboxwidget")
+local Font = require("ui/font")
+for _, title in ipairs({ string.rep("Comprehensive ", 9), "El señor de los anillos: la comunidad del anillo, edición ilustrada completa", "Short" }) do
+    local cut = Browser.holdDialog(title, {}).title
+    local box = TextBoxWidget:new{ text = cut, face = Font:getFace("infofont"), width = long.width - 4 * 10 }
+    local two = TextBoxWidget:new{ text = "Ag\nAg", face = Font:getFace("infofont"), width = long.width - 4 * 10 }
+    check(box:getSize().h <= two:getSize().h and (cut == title or cut:match("…$")) and not cut:match(" …$"),
+        "the hold menu's title takes two lines at most: " .. cut)
+end
+check(Browser.holdDialog("Short", {}).title == "Short", "and a short one stays whole")
 hold = home:recordActions(home.started[2])
 check(hold.buttons[1][1].text == "Read", "and a book on this device offers to read it")
 
 -- All the started books
+local refreshes = 0
+local home_refresh = home.refresh
+home.refresh = function(...) refreshes = refreshes + 1 return home_refresh(...) end
 local list = home:showStarted()
+check(#list.books == #home.started + 1 and list.books[1].path == "/books/b1.epub" and hasText(texts(list), "3 books"),
+    "see all also lists the book of the Continue card, and counts it")
+-- Turning the screen: Android sends SetDimensions and ScreenResize to every window
+windows = { home, list }
+screen.w, screen.h = 800, 600
+local UIManager = require("ui/uimanager")
+local Event = require("ui/event")
+UIManager:broadcastEvent(Event:new("SetDimensions", { w = 800, h = 600 }))
+UIManager:broadcastEvent(Event:new("ScreenResize", { w = 800, h = 600 }))
+check(list.dimen.w == 800 and list[1].width == 800 and list.ges_events.Swipe[1].range.w == 800,
+    "the full list takes the new size of a turned screen")
+check(home.dimen.w == 800 and home[1].width == 800 and home.ges_events.Swipe[1].range.h == 600 and home.layout_info.left ~= nil
+    and refreshes == 1, "and the home screen under it is laid out again, once, in landscape")
+-- Turned with the home screen on top (a gesture, the gyro): the file browser under it turns the screen
+local turned
+package.loaded["apps/filemanager/filemanager"] = { instance = { onSetRotationMode = function(_, mode)
+    turned = mode
+    screen.w, screen.h = 600, 800
+end } }
+broadcasts = {}
+check(home:onSetRotationMode(0) and turned == 0 and broadcasts[1].name == "ScreenResize", "turning from the home screen goes to the file browser")
+check(home.dimen.w == 600 and home[1].width == 600 and not home.layout_info.left and list.dimen.w == 600 and refreshes == 2,
+    "and every window is laid out again for it")
+package.loaded["apps/filemanager/filemanager"] = nil
+check(home:onSetRotationMode(1) == false, "without a file browser that turns it, KOReader goes on as it would")
+windows = {}
+home.refresh = home_refresh
 check(shown[#shown] == list and has(texts(list), "^Book 5$") and has(texts(list), "on this device$") and has(texts(list), "in the library$"),
     "see all lists every started book, here or not")
 list:onClose()
@@ -552,17 +663,33 @@ local expected = {
     files = nil, history = "history:onShowHist", favorites = "favorites", collections = "collections",
     search = "filesearcher:onShowFileSearch", menu = "menu:onShowMenu",
 }
+local h
 for _, id in ipairs({ "files", "history", "favorites", "collections", "search", "menu" }) do
     calls = {}
-    local h = Home:new{ plugin = plugin }
+    h = Home:new{ plugin = plugin }
     local opened = h:openNative(id)
-    check(opened and calls[1] == expected[id] and ((h.closed or false) == (id ~= "menu")),
-        "KOReader's " .. id .. (id == "menu" and " opens over the home screen" or " opens, leaving the home screen"))
+    check(opened and calls[1] == expected[id] and ((h.closed or false) == (id == "files")),
+        "KOReader's " .. id .. (id == "files" and " opens, leaving the home screen" or " opens over the home screen, so closing it comes back"))
+    h:onClose()
 end
+-- A screen over the home screen that goes to a folder of the file browser: the home screen leaves
+fm.file_chooser = { changeToPath = function(self, path) calls[#calls + 1] = "folder " .. path assert(self == fm.file_chooser) end }
+calls = {}
+h = Home:new{ plugin = plugin }
+h:openNative("history")
+check(not h.closed and rawget(fm.file_chooser, "changeToPath") ~= nil, "History shows over the home screen")
+fm.file_chooser:changeToPath("/books/saga")
+check(h.closed and calls[#calls] == "folder /books/saga", "and its Show folder leaves it, to show the folder")
+h = Home:new{ plugin = plugin }
+h:openNative("search")
+local wrapped = fm.file_chooser.changeToPath
+h:onClose()
+check(fm.file_chooser.changeToPath ~= wrapped and fm.file_chooser.changeToPath ~= nil, "closing the home screen gives the file browser its own way back")
+fm.file_chooser = nil
 fm.collections = nil
 fm.menu = { onShowMenu = function() error("broken") end }
 calls = {}
-local h = Home:new{ plugin = plugin }
+h = Home:new{ plugin = plugin }
 check(h:openNative("collections") == false and h.closed and #calls == 0, "a screen this KOReader lacks leaves the file browser instead")
 h = Home:new{ plugin = plugin }
 check(h:openNative("menu") == false and h.closed, "and one that fails too, without an error")
@@ -588,7 +715,8 @@ local function fits(name, w, hgt, scale)
     local L = s.layout_info
     print(string.format("  %s: %d per row, %d row(s) of started, covers %dx%d, captions %s, recently added %s%s",
         name, L.count, L.rows, L.cover_w, L.cover_h, tostring(L.captions), tostring(L.recent),
-        L.left and string.format(" (left: %d per row, covers %dx%d)", L.left.count, L.left.cover_w, L.left.cover_h) or ""))
+        L.recent_beside and " (recently added under Started, the card in a column of its own)"
+            or L.left and string.format(" (left: %d per row, covers %dx%d)", L.left.count, L.left.cover_w, L.left.cover_h) or ""))
     s:onClose()
     return L
 end
@@ -602,6 +730,15 @@ check(tablet.rows == 2 and tablet.captions and tablet.recent, "a tall screen get
 local landscape = fits("Xiaomi Pad 6, landscape", 2880, 1800, 2.5)
 check(landscape.right and landscape.recent and landscape.rows >= 1 and landscape.cover_h >= tablet.cover_h * 0.8,
     "landscape puts the card and the newest books beside Started, with covers as large")
+-- Few started books: the newest books go under them, with their titles, beside a tall card
+local few = {}
+for i = 1, 3 do few[i] = many[i] end
+settings.home_started = few
+local beside = fits("Xiaomi Pad 6, landscape, 3 started", 2880, 1800, 2.5)
+check(beside.recent_beside and beside.captions and beside.left.card_tall and beside.rows == 1,
+    "landscape with few started books puts the newest books under them, with titles, and the card fills its column")
+settings.home_started = many
+check(not fits("Xiaomi Pad 6, landscape, 20 started", 2880, 1800, 2.5).recent_beside, "and with many, Started keeps its column")
 local small = fits("6\" e-reader", 1072, 1448, 1.875)
 check(small.rows == 1, "a small screen keeps one row")
 fits("small, landscape", 1448, 1072, 1.875)

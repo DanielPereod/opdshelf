@@ -82,29 +82,7 @@ local function fileTitle(path)
 end
 
 -- What KOReader knows of a book on this device
-local function localBook(path)
-    local book = { path = path, title = fileTitle(path), authors = {} }
-    local ok = pcall(function()
-        local DocSettings = require("docsettings")
-        if not DocSettings:hasSidecarFile(path) then return end
-        local settings = DocSettings:open(path)
-        local props = settings:readSetting("doc_props") or {}
-        if type(props.title) == "string" and props.title ~= "" then book.title = props.title end
-        if type(props.authors) == "string" and props.authors ~= "" then
-            for author in props.authors:gmatch("[^\n]+") do book.authors[#book.authors + 1] = author end
-        end
-        book.percent = tonumber(settings:readSetting("percent_finished"))
-        local summary = settings:readSetting("summary") or {}
-        book.finished = summary.status == "complete"
-        book.document = settings:readSetting("partial_md5_checksum")
-        book.pages = tonumber(settings:readSetting("doc_pages"))
-        -- When the position last changed here (KOReader's history says when it was opened)
-        local sync = settings:readSetting("opdshelf_sync")
-        book.read_at = type(sync) == "table" and tonumber(sync.read_at) or nil
-    end)
-    if not ok then logger.dbg("OPDShelf: cannot read the settings of", path) end
-    return book
-end
+local localBook = Browser.localBook
 
 -- The first letters of the first two words, for a cover that is not there
 local function initials(title)
@@ -143,11 +121,7 @@ local Home = InputContainer:extend{
 -- Data, kept apart from the widgets so it can be tested on its own
 
 --- The path in the library of an OPDS entry of OPDShelf ("urn:opdshelf:book:<path>").
-function Home.libraryPath(entry)
-    local encoded = type(entry) == "table" and type(entry.id) == "string" and entry.id:match("^urn:opdshelf:book:(.+)$")
-    if not encoded then return nil end
-    return (encoded:gsub("%%(%x%x)", function(hex) return string.char(tonumber(hex, 16)) end))
-end
+Home.libraryPath = Browser.libraryPath
 
 --- An entry for a book of the library that the feed did not list, enough
 --- for its details and its download.
@@ -540,8 +514,10 @@ function Home:loadLocal()
     end
 end
 
-function Home:startedBooks()
-    return Home.mergeStarted(self.history, self.remote_started, self.history[1], function(entry)
+-- The started books of the shelf, without the one in the Continue card;
+-- `all` keeps that one too, for the full list
+function Home:startedBooks(all)
+    return Home.mergeStarted(self.history, self.remote_started, not all and self.history[1] or nil, function(entry)
         local path, downloaded = self.browser:localFile(entry)
         return downloaded and path or nil
     end)
@@ -598,8 +574,10 @@ function Home:loadRemote()
             if entry.is_book and #self.recent < 12 then self.recent[#self.recent + 1] = entry end
         end
     end
-    -- Time read today on every device, and the streak
-    local c, today = client:getToday()
+    -- Time read today on every device, and the streak, on this device's day.
+    -- What was read here and not sent yet goes first, so it counts.
+    if self.plugin.flush then pcall(self.plugin.flush, self.plugin, false) end
+    local c, today = client:getToday(os.date("%Y-%m-%d"))
     if c == 200 and type(today) == "table" and tonumber(today.seconds) then
         self.stats.date = os.date("%Y-%m-%d")
         self.stats.today_seconds = tonumber(today.seconds)
@@ -614,6 +592,8 @@ function Home:loadRemote()
         local rc, reading_body = client:fetch(reading_url)
         local reading = rc == 200 and OPDS.parse(reading_body, reading_url) or nil
         self.remote_started = Home.remoteStarted(progress, reading, self.plugin.server_offset, client.server)
+        -- The details and hold menus shown from here say the same
+        self.browser.remote = self.remote_started
         self:noteFurther(progress)
     end
     self:keep()
@@ -738,7 +718,7 @@ function Home:cover(title, cover, w, h, badge)
         bordersize = border, radius = Size.radius.window, margin = Size.padding.small,
         padding = 0, padding_left = Size.padding.small, padding_right = Size.padding.small,
         background = Blitbuffer.COLOR_WHITE,
-        TextWidget:new{ text = badge, face = Font:getFace("smallinfofontbold", 12) },
+        TextWidget:new{ text = badge, face = Font:getFace("smallinfofontbold", 12), max_width = math.max(1, w - 4 * Size.padding.small) },
     }
     return OverlapGroup:new{
         dimen = Geom:new{ w = w, h = h },
@@ -785,8 +765,10 @@ local function bar(width, height, percent)
     }
 end
 
--- "42 % · 3 days ago · 120 pages left"
-function Home:progressText(book, long)
+-- "42 % · 3 days ago · 120 pages left"; `long` says when in words, and
+-- `pages` (as `long` when not given) adds the pages left
+function Home:progressText(book, long, pages)
+    if pages == nil then pages = long end
     local parts = {}
     if book.finished then
         parts[1] = _("Finished")
@@ -796,15 +778,17 @@ function Home:progressText(book, long)
     if book.time then
         parts[#parts + 1] = long and Sync.ago(book.time, os.time(), _, T) or Sync.shortAgo(book.time, os.time(), _, T)
     end
-    if long and book.pages and book.pages > 0 and not book.finished then
+    if pages and book.pages and book.pages > 0 and not book.finished then
         local left = math.floor(book.pages * (1 - (book.percent or 0)) + 0.5)
         if left > 0 then parts[#parts + 1] = left == 1 and _("1 page left") or T(_("%1 pages left"), left) end
     end
     return table.concat(parts, " · ")
 end
 
--- Continue reading: the card on top, as tall as its contents need, up to `max_h`
-function Home:continueCard(w, max_h)
+-- Continue reading: the card on top, as tall as its contents need, up to `max_h`.
+-- `tall` fills `max_h` with a large cover over the text, for a column of its
+-- own; the third value says whether it did.
+function Home:continueCard(w, max_h, tall)
     local border = Size.border.thin
     local pad = Size.padding.large
     local book = self.history[1]
@@ -838,66 +822,109 @@ function Home:continueCard(w, max_h)
         return frame(CenterContainer:new{ dimen = Geom:new{ w = w - 2 * border, h = h - 2 * border }, inner }, h), h
     end
 
-    local cover_w = math.max(Screen:scaleBySize(60), math.min(Screen:scaleBySize(150), math.floor(w * 0.24)))
-    local text_w = w - 2 * border - 3 * pad - cover_w
     local inner_max = max_h - 2 * border - 2 * pad
     local title_face = Font:getFace("tfont", 20)
     local small = Font:getFace("cfont", 15)
-    -- Continue ›, as a button on the right of the progress line
-    local continue = FrameContainer:new{
-        bordersize = 0, radius = Size.radius.window, margin = 0,
-        padding = Size.padding.small, padding_left = pad, padding_right = pad,
-        background = Blitbuffer.COLOR_BLACK,
-        TextWidget:new{ text = _("Continue") .. " ›", face = Font:getFace("smallinfofontbold", 15), fgcolor = Blitbuffer.COLOR_WHITE },
-    }
-    local continue_w = continue:getSize().w
-    local status_row = OverlapGroup:new{
-        dimen = Geom:new{ w = text_w, h = continue:getSize().h },
-        LeftContainer:new{
-            dimen = Geom:new{ w = text_w, h = continue:getSize().h },
-            TextWidget:new{ text = self:progressText(book, true), face = small, max_width = math.max(1, text_w - continue_w - pad) },
-        },
-        RightContainer:new{ dimen = Geom:new{ w = text_w, h = continue:getSize().h }, continue },
-    }
     local remote_text = book.remote and T(_("Further on %1: %2 % (%3). Open it to continue from there."),
         (type(book.remote.device) == "string" and book.remote.device ~= "") and book.remote.device or _("another device"),
         math.floor((tonumber(book.remote.percentage) or 0) * 100 + 0.5),
         Sync.ago(book.remote.timestamp, self.plugin:serverNow(), _, T))
 
-    -- From everything to the least, until it fits
-    local info
-    for level = 0, 4 do
-        if info then info:free() end
-        info = VerticalGroup:new{ align = "left" }
-        local function add(widget, space)
-            if space and #info > 0 then table.insert(info, VerticalSpan:new{ width = space }) end
-            table.insert(info, widget)
+    -- The text of the card `text_w` wide, from everything to the least, until it is `budget` tall at most
+    local function details(text_w, budget)
+        -- Continue ›, as a button on the right of the progress line
+        local function statusRow()
+            local continue = FrameContainer:new{
+                bordersize = 0, radius = Size.radius.window, margin = 0,
+                padding = Size.padding.small, padding_left = pad, padding_right = pad,
+                background = Blitbuffer.COLOR_BLACK,
+                TextWidget:new{ text = _("Continue") .. " ›", face = Font:getFace("smallinfofontbold", 15), fgcolor = Blitbuffer.COLOR_WHITE },
+            }
+            local row_h = continue:getSize().h
+            -- The whole line when it fits; else without the pages left, then when in a few letters
+            local status_w = math.max(1, text_w - continue:getSize().w - pad)
+            local status_text
+            for _i, form in ipairs({ { true, true }, { true, false }, { false, false } }) do
+                status_text = self:progressText(book, form[1], form[2])
+                local probe = TextWidget:new{ text = status_text, face = small }
+                local fits = probe:getSize().w <= status_w
+                probe:free()
+                if fits then break end
+            end
+            return OverlapGroup:new{
+                dimen = Geom:new{ w = text_w, h = row_h },
+                LeftContainer:new{
+                    dimen = Geom:new{ w = text_w, h = row_h },
+                    TextWidget:new{ text = status_text, face = small, max_width = status_w },
+                },
+                RightContainer:new{ dimen = Geom:new{ w = text_w, h = row_h }, continue },
+            }
         end
-        if level < 2 then
-            add(TextWidget:new{ text = _("CONTINUE READING"), face = Font:getFace("smallinfofont", 12), fgcolor = GRAY, max_width = text_w })
-        end
-        local title_lines = level < 3 and 2 or 1
-        add(TextBoxWidget:new{
-            text = book.title, face = title_face, bold = true, width = text_w,
-            height = linesHeight(title_face, title_lines, text_w), height_adjust = true, height_overflow_show_ellipsis = true,
-        }, Size.padding.small)
-        if #book.authors > 0 and level < 3 then
-            add(TextWidget:new{ text = table.concat(book.authors, ", "), face = Font:getFace("cfont", 16), fgcolor = GRAY, max_width = text_w }, Size.padding.small)
-        end
-        add(ProgressWidget:new{
-            width = text_w, height = Screen:scaleBySize(7), percentage = book.finished and 1 or (book.percent or 0),
-            margin_h = 0, margin_v = 0, radius = Screen:scaleBySize(3), bordersize = Size.border.thin,
-            fillcolor = Blitbuffer.COLOR_BLACK,
-        }, Size.padding.large)
-        add(status_row, Size.padding.default)
-        if remote_text and level < 4 then
+        local info
+        for level = 0, 4 do
+            if info then info:free() end
+            info = VerticalGroup:new{ align = "left" }
+            local function add(widget, space)
+                if space and #info > 0 then table.insert(info, VerticalSpan:new{ width = space }) end
+                table.insert(info, widget)
+            end
+            if level < 2 then
+                add(TextWidget:new{ text = _("CONTINUE READING"), face = Font:getFace("smallinfofont", 12), fgcolor = GRAY, max_width = text_w })
+            end
+            local title_lines = level < 3 and 2 or 1
             add(TextBoxWidget:new{
-                text = remote_text, face = small, bold = true, width = text_w,
-                height = linesHeight(small, level == 0 and 2 or 1, text_w), height_adjust = true, height_overflow_show_ellipsis = true,
-            }, Size.padding.default)
+                text = book.title, face = title_face, bold = true, width = text_w,
+                height = linesHeight(title_face, title_lines, text_w), height_adjust = true, height_overflow_show_ellipsis = true,
+            }, Size.padding.small)
+            if #book.authors > 0 and level < 3 then
+                add(TextWidget:new{ text = table.concat(book.authors, ", "), face = Font:getFace("cfont", 16), fgcolor = GRAY, max_width = text_w }, Size.padding.small)
+            end
+            add(ProgressWidget:new{
+                width = text_w, height = Screen:scaleBySize(7), percentage = book.finished and 1 or (book.percent or 0),
+                margin_h = 0, margin_v = 0, radius = Screen:scaleBySize(3), bordersize = Size.border.thin,
+                fillcolor = Blitbuffer.COLOR_BLACK,
+            }, Size.padding.large)
+            add(statusRow(), Size.padding.default)
+            if remote_text and level < 4 then
+                add(TextBoxWidget:new{
+                    text = remote_text, face = small, bold = true, width = text_w,
+                    height = linesHeight(small, level == 0 and 2 or 1, text_w), height_adjust = true, height_overflow_show_ellipsis = true,
+                }, Size.padding.default)
+            end
+            if info:getSize().h <= budget then break end
         end
-        if info:getSize().h <= inner_max then break end
+        return info
     end
+    local open = function() self:openBook(book.path) end
+    local hold = function() self:localActions(book) end
+
+    if tall then
+        -- A column of its own: the cover large on top, the text under it, as tall as the column
+        local text_w = w - 2 * border - 2 * pad
+        local min_cover = Screen:scaleBySize(120)
+        local info = details(text_w, inner_max - min_cover - pad)
+        local cover_h = inner_max - info:getSize().h - pad
+        local cover_w = math.min(text_w, math.floor(cover_h / Browser.COVER_RATIO))
+        cover_h = math.min(cover_h, math.floor(cover_w * Browser.COVER_RATIO))
+        if cover_h >= min_cover then
+            local content = VerticalGroup:new{
+                align = "left",
+                CenterContainer:new{ dimen = Geom:new{ w = text_w, h = cover_h },
+                    self:cover(book.title, self:localCover(book), cover_w, cover_h) },
+                VerticalSpan:new{ width = pad },
+                info,
+            }
+            local inner = HorizontalGroup:new{ HorizontalSpan:new{ width = pad },
+                VerticalGroup:new{ align = "left", VerticalSpan:new{ width = pad }, content } }
+            return frame(LeftContainer:new{ dimen = Geom:new{ w = w - 2 * border, h = max_h - 2 * border }, inner },
+                max_h, open, hold), max_h, true
+        end
+        info:free()
+    end
+
+    local cover_w = math.max(Screen:scaleBySize(60), math.min(Screen:scaleBySize(150), math.floor(w * 0.24)))
+    local text_w = w - 2 * border - 3 * pad - cover_w
+    local info = details(text_w, inner_max)
     -- As tall as the text; the cover follows
     local content_h = math.min(inner_max, math.max(info:getSize().h, Screen:scaleBySize(100)))
     local h = content_h + 2 * pad + 2 * border
@@ -910,9 +937,7 @@ function Home:continueCard(w, max_h)
         HorizontalSpan:new{ width = pad },
         info,
     }
-    return frame(LeftContainer:new{ dimen = Geom:new{ w = w - 2 * border, h = h - 2 * border }, content }, h,
-        function() self:openBook(book.path) end,
-        function() self:localActions(book) end), h
+    return frame(LeftContainer:new{ dimen = Geom:new{ w = w - 2 * border, h = h - 2 * border }, content }, h, open, hold), h
 end
 
 -- One row of covers. `kind` is "started" (with progress and a line under the
@@ -977,7 +1002,8 @@ function Home:recentItems(count)
         items[#items + 1] = {
             title = entry.title,
             cover = self.browser:cachedCover(entry),
-            badge = downloaded and "✓" or nil,
+            -- In words: ✓ is only for finished books, ↓ for books still to download
+            badge = downloaded and _("Downloaded") or nil,
             callback = function() self.browser:showDetails(entry) end,
             hold_callback = function() self.browser:bookActions(entry) end,
         }
@@ -1008,13 +1034,14 @@ function Home:layout(w, avail, parts)
     L.section_h = self:sectionHeader(w, "Ag", "Ag"):getSize().h
     L.empty_h = linesHeight(Font:getFace("cfont", 15), 2, w)
     local natural = math.floor(L.cell_w * Browser.COVER_RATIO)
+    L.natural = natural
     local has_started = #self.started > 0
     local has_recent = #self.recent > 0
     local started_extra = 2 * L.space + L.bar_h + L.caption_h + L.meta_h
     local function recentExtra(captions) return captions and (L.space + L.caption_h) or 0 end
     L.card_h = 0
     if parts.card then
-        L.card, L.card_h = self:continueCard(w, math.max(Screen:scaleBySize(110), parts.card_max))
+        L.card, L.card_h, L.card_tall = self:continueCard(w, math.max(Screen:scaleBySize(110), parts.card_max), parts.tall)
     end
     L.started, L.recent = parts.started, parts.recent
     local function total(rows, cover_h, captions, recent)
@@ -1037,7 +1064,8 @@ function Home:layout(w, avail, parts)
     end
     L.rows, L.cover_h, L.captions = 1, natural, true
     if total(1, natural, true, L.recent) > avail then
-        L.captions = not L.recent
+        -- `parts.captions`: smaller covers rather than no titles
+        L.captions = not L.recent or parts.captions or false
         if total(1, natural, L.captions, L.recent) > avail then
             -- Smaller covers for every shelf
             local n = covers(1, L.recent)
@@ -1068,7 +1096,8 @@ function Home:layout(w, avail, parts)
     L.started_row_h = L.cover_h + started_extra
     L.recent_row_h = L.cover_h + recentExtra(L.captions)
     -- Some of what is left loosens the gaps between the sections
-    local spare = avail - total(L.rows, L.cover_h, L.captions, L.recent)
+    L.used = total(L.rows, L.cover_h, L.captions, L.recent)
+    local spare = avail - L.used
     if spare > 0 then L.gap_v = L.gap_v + math.min(math.floor(spare / 3), Screen:scaleBySize(16)) end
     return L
 end
@@ -1144,8 +1173,20 @@ function Home:refresh()
         local right_w = w - gap - left_w
         local left = self:layout(left_w, avail, { card = true, recent = true, card_max = math.floor(avail * 0.5) })
         local right = self:layout(right_w, avail, { started = true, max_rows = 3 })
+        -- With room under Started, the newest books go there, a full row with
+        -- their titles, and the card takes its column with a large cover:
+        -- no gap under Started, no squeezed shelf beside it
+        if self.history[1] and #self.recent > 0 then
+            local both = self:layout(right_w, avail, { started = true, recent = true, captions = true, max_rows = 3 })
+            if both.recent and both.captions and both.rows >= right.rows and both.cover_h >= right.cover_h * 0.8 then
+                local card = self:layout(left_w, avail, { card = true, tall = true, card_max = avail })
+                if card.card_tall then left, right = card, both end
+            end
+        end
+        local recent = right.recent and right or left
         self.layout_info = { left = left, right = right, count = right.count, rows = right.rows,
-            cover_w = right.cover_w, cover_h = right.cover_h, captions = left.captions, recent = left.recent }
+            cover_w = right.cover_w, cover_h = right.cover_h, captions = recent.recent and recent.captions,
+            recent = left.recent or right.recent, recent_beside = right.recent or nil }
         content = HorizontalGroup:new{
             align = "top",
             self:column(left_w, left),
@@ -1325,7 +1366,8 @@ function StartedList:onClose()
 end
 
 function Home:showStarted()
-    local list = StartedList:new{ home = self, books = self.started or self:startedBooks() }
+    -- Every started book, the one in the Continue card too
+    local list = StartedList:new{ home = self, books = self:startedBooks(true) }
     self.list = list
     UIManager:show(list, "flashui")
     list:refresh()
@@ -1379,17 +1421,47 @@ function Home:openLibrary(search, url, title)
     self.plugin:showLibrary(search, url, title)
 end
 
---- KOReader's own screens, opened from the file browser that is under this one.
+--- KOReader's own screens, opened from the file browser that is under this
+--- one. All but the file browser show over this screen, so closing them comes
+--- back here.
 function Home:nativeEntries()
     return {
         { id = "files", text = _("File browser") },
-        { id = "history", text = _("History"), module = "history", method = "onShowHist" },
-        { id = "favorites", text = _("Favorites"), module = "collections", method = "onShowColl" },
-        { id = "collections", text = _("Collections"), module = "collections", method = "onShowCollList" },
-        { id = "search", text = _("File search"), module = "filesearcher", method = "onShowFileSearch" },
-        -- Frontlight, Wi-Fi, device and screen settings: shown over this screen
+        { id = "history", text = _("History"), module = "history", method = "onShowHist", over = true },
+        { id = "favorites", text = _("Favorites"), module = "collections", method = "onShowColl", over = true },
+        { id = "collections", text = _("Collections"), module = "collections", method = "onShowCollList", over = true },
+        { id = "search", text = _("File search"), module = "filesearcher", method = "onShowFileSearch", over = true },
+        -- Frontlight, Wi-Fi, device and screen settings
         { id = "menu", text = _("KOReader menu"), module = "menu", method = "onShowMenu", over = true },
     }
+end
+
+--[[--
+A screen shown over this one that goes to a folder of the file browser
+("Show folder" in History or Collections, a folder found by File search)
+changes the file browser hidden under this screen: then this one leaves, so
+the folder is seen. Only while this screen is open: closing it puts the file
+browser's own way back.
+--]]
+function Home:followFileBrowser(fm)
+    local chooser = type(fm) == "table" and fm.file_chooser or nil
+    if type(chooser) ~= "table" or self.followed == chooser then return end
+    local method = chooser.changeToPath
+    if type(method) ~= "function" then return end
+    self:unfollowFileBrowser()
+    self.followed, self.followed_own = chooser, rawget(chooser, "changeToPath")
+    chooser.changeToPath = function(...)
+        self:onClose()
+        return method(...)
+    end
+end
+
+function Home:unfollowFileBrowser()
+    local chooser = self.followed
+    if not chooser then return end
+    self.followed = nil
+    chooser.changeToPath = self.followed_own
+    self.followed_own = nil
 end
 
 --[[--
@@ -1406,6 +1478,7 @@ function Home:callNative(module, method, over)
     if not over or type(fn) ~= "function" then self:onClose() end
     if not module then return true end
     if type(fn) == "function" then
+        self:followFileBrowser(fm)
         local done, err = pcall(fn, target)
         if done then return true end
         logger.warn("OPDShelf: cannot open", module, method, err)
@@ -1492,6 +1565,7 @@ function Home:onClose()
     self.closed = true
     if self.clock_task then UIManager:unschedule(self.clock_task) self.clock_task = nil end
     if self.list then self.list:onClose() end
+    self:unfollowFileBrowser()
     UIManager:close(self, "flashui")
     if self.plugin then self.plugin.home = nil end
     return true
@@ -1500,6 +1574,51 @@ end
 function Home:onCloseWidget()
     -- Covers taken from the books stay cached; nothing else to free
     self.closed = true
+    self:unfollowFileBrowser()
+end
+
+-- ---------------------------------------------------------------------------
+-- Turning the screen
+
+-- The new size, when the screen turned or changed (see Browser.fitScreen)
+function Home:onScreenResize(dimen)
+    if Browser.fitScreen(self, dimen) then
+        self.browser.dimen = self.dimen:copy()
+        self:refresh()
+        UIManager:setDirty(self, "flashui")
+    end
+end
+Home.onSetDimensions = Home.onScreenResize
+
+-- Turned while this screen is on top: the file browser under it turns it
+function Home:onSetRotationMode(rotation)
+    return Browser.turnScreen(rotation)
+end
+
+-- Whatever turned the screen without saying so, the next paint has the right size
+function Home:paintTo(bb, x, y)
+    if not self.closed and Browser.fitScreen(self) then
+        self.browser.dimen = self.dimen:copy()
+        self:refresh()
+    end
+    InputContainer.paintTo(self, bb, x, y)
+end
+
+function StartedList:onScreenResize(dimen)
+    if Browser.fitScreen(self, dimen) and not self.closed then
+        self:refresh()
+        UIManager:setDirty(self, "flashui")
+    end
+end
+StartedList.onSetDimensions = StartedList.onScreenResize
+
+function StartedList:onSetRotationMode(rotation)
+    return Browser.turnScreen(rotation)
+end
+
+function StartedList:paintTo(bb, x, y)
+    if not self.closed and self.books and Browser.fitScreen(self) then self:refresh() end
+    InputContainer.paintTo(self, bb, x, y)
 end
 
 Home.StartedList = StartedList

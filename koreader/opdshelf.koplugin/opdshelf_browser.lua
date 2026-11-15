@@ -77,19 +77,36 @@ local function languageName(code)
     return name and _(name) or code
 end
 
--- A title cut to about `lines` lines of `face` at `width`, with an ellipsis,
--- for places that cannot limit their lines themselves (a dialog's title)
+-- A title cut to `lines` lines of `face` at `width`, with an ellipsis, for
+-- places that cannot limit their lines themselves (a dialog's title). The
+-- lines are measured as a text box wraps them, words and all.
 local function shortTitle(text, face, width, lines)
     text = text or ""
-    local probe = TextWidget:new{ text = text, face = face }
-    local full = probe:getSize().w
-    probe:free()
-    local room = width * (lines or 2) * 0.9
-    if full <= room then return text end
+    lines = lines or 2
+    local function height(s)
+        local box = TextBoxWidget:new{ text = s, face = face, width = width, for_measurement_only = true }
+        local h = box:getSize().h
+        box:free()
+        return h
+    end
+    local room = height("Ag" .. string.rep("\nAg", lines - 1))
+    if height(text) <= room then return text end
     local chars = {}
     for c in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do chars[#chars + 1] = c end
-    local keep = math.max(1, math.floor(#chars * room / full) - 1)
-    return (table.concat(chars, "", 1, math.min(keep, #chars)):gsub("%s+$", "")) .. "…"
+    local function head(n)
+        return (table.concat(chars, "", 1, n):gsub("%s+$", "")) .. "…"
+    end
+    -- The most characters that still fit, then back to the end of a word
+    local lo, hi = 1, #chars
+    while lo < hi do
+        local mid = math.ceil((lo + hi) / 2)
+        if height(head(mid)) <= room then lo = mid else hi = mid - 1 end
+    end
+    local keep = lo
+    for i = lo, math.max(1, lo - 12), -1 do
+        if chars[i]:match("^%s$") then keep = i - 1 break end
+    end
+    return head(math.max(1, keep))
 end
 
 local function formatName(acquisition)
@@ -249,6 +266,7 @@ end
 --- Loads a feed and shows it as a new level.
 function Browser:open(url, title)
     NetworkMgr:runWhenOnline(function()
+        if #self.stack == 0 then self:loadProgress() end
         local feed, err = self:load(url)
         if not feed then
             self:showError(err)
@@ -361,17 +379,125 @@ local function readPercent(path)
     return (readState(path))
 end
 
--- What the library says of a book on this device: finished, how far read, or only downloaded
-function Browser:readingNote(entry)
-    local path, downloaded = self:localFile(entry)
-    if not downloaded then return nil end
-    local percent, finished = readState(path)
-    if finished then
-        return _("✓ Finished")
-    elseif percent and percent > 0 then
-        return T(_("%1 % read"), math.floor(percent * 100 + 0.5))
+local function fileTitle(path)
+    return ((path:match("([^/]+)$") or path):gsub("%.[^.]+$", ""))
+end
+
+--- What KOReader knows of a book on this device: title, authors, how far
+--- it was read, whether it is finished, its document id and when its
+--- position last changed here (`read_at`, nil when not known).
+local function localBook(path)
+    local book = { path = path, title = fileTitle(path), authors = {} }
+    local ok = pcall(function()
+        local DocSettings = require("docsettings")
+        if not DocSettings:hasSidecarFile(path) then return end
+        local settings = DocSettings:open(path)
+        local props = settings:readSetting("doc_props") or {}
+        if type(props.title) == "string" and props.title ~= "" then book.title = props.title end
+        if type(props.authors) == "string" and props.authors ~= "" then
+            for author in props.authors:gmatch("[^\n]+") do book.authors[#book.authors + 1] = author end
+        end
+        book.percent = tonumber(settings:readSetting("percent_finished"))
+        local summary = settings:readSetting("summary") or {}
+        book.finished = summary.status == "complete"
+        book.document = settings:readSetting("partial_md5_checksum")
+        book.pages = tonumber(settings:readSetting("doc_pages"))
+        -- When the position last changed here (KOReader's history says when it was opened)
+        local sync = settings:readSetting("opdshelf_sync")
+        book.read_at = type(sync) == "table" and tonumber(sync.read_at) or nil
+    end)
+    if not ok then logger.dbg("OPDShelf: cannot read the settings of", path) end
+    return book
+end
+
+--- The path in the library of an OPDS entry of OPDShelf ("urn:opdshelf:book:<path>").
+local function libraryPath(entry)
+    local encoded = type(entry) == "table" and type(entry.id) == "string" and entry.id:match("^urn:opdshelf:book:(.+)$")
+    if not encoded then return nil end
+    return (encoded:gsub("%%(%x%x)", function(hex) return string.char(tonumber(hex, 16)) end))
+end
+
+--[[--
+How far a book was read, as the home screen's Started shelf counts it:
+`here` is what this device knows (from localBook), `remote` what the server
+knows (a record of the home's remoteStarted). The newest position wins, and a
+book read here at a time not known gives way to the server's; finished on
+either side is finished. Nil when neither knows of it.
+--]]
+local function mergeProgress(here, remote)
+    if not here and not remote then return nil end
+    local percent = here and here.percent or 0
+    local finished = here and here.finished or false
+    if remote then
+        if remote.finished then finished = true end
+        local newer = not here or not here.read_at or (remote.time or 0) > here.read_at
+        if newer and (remote.percent or 0) > 0 then percent = remote.percent end
     end
-    return _("✓ downloaded")
+    return { percent = percent, finished = finished }
+end
+
+-- The server's books, by their path in the library and by document id: the
+-- ones loaded with this screen, else those the home screen kept
+function Browser:remoteIndex()
+    local list = self.remote or self.plugin.state:readSetting("home_started") or {}
+    if self.remote_index and self.remote_index.list == list then return self.remote_index end
+    local index = { list = list, by_path = {}, by_document = {} }
+    for _i, record in ipairs(list) do
+        if type(record) == "table" then
+            if record.lib_path then index.by_path[record.lib_path] = record end
+            if record.document then index.by_document[record.document] = record end
+        end
+    end
+    self.remote_index = index
+    return index
+end
+
+--- Where the server says every book is: asked once when the library opens.
+function Browser:loadProgress()
+    if self.remote_loaded or not self.plugin:ready() or not NetworkMgr:isOnline() then return end
+    self.remote_loaded = true
+    local client = self.plugin.client
+    if not client.getLibraryProgress then return end
+    local code, body = client:getLibraryProgress()
+    if code ~= 200 or type(body) ~= "table" then return end
+    if self.plugin.noteServerTime then self.plugin:noteServerTime(body) end
+    -- Loaded here, not when this file is: the home screen needs this file first
+    local Home = require("opdshelf_home")
+    self.remote = Home.remoteStarted(body, nil, self.plugin.server_offset, client.server)
+end
+
+--- How far a book of the library was read, here or on any device: { percent, finished }, or nil.
+function Browser:progressFor(entry)
+    local path, downloaded = self:localFile(entry)
+    local index = self:remoteIndex()
+    local here = downloaded and localBook(path) or nil
+    local lib = libraryPath(entry)
+    local remote = (lib and index.by_path[lib]) or (here and here.document and index.by_document[here.document])
+    if here and here.percent == nil and not here.finished then
+        -- Downloaded but never opened here
+        if not remote then return nil end
+        here = nil
+    end
+    return mergeProgress(here, remote)
+end
+
+-- What the library says of a book: finished, how far read (here or on
+-- another device), or only that it is on this device. ✓ is only for finished.
+function Browser:readingNote(entry)
+    local _path, downloaded = self:localFile(entry)
+    local state = self:progressFor(entry)
+    if state and state.finished then
+        return _("✓ Finished")
+    elseif state and state.percent > 0 then
+        return T(_("%1 % read"), math.floor(state.percent * 100 + 0.5))
+    end
+    return downloaded and _("Downloaded") or nil
+end
+
+-- How far the bar under a book goes, nil without one
+function Browser:readBar(entry)
+    local state = self:progressFor(entry)
+    if state and not state.finished and state.percent > 0 then return state.percent end
 end
 
 function Browser:statusLine(entry)
@@ -424,9 +550,8 @@ function Browser:listItem(entry, w, h)
         addLine(table.concat(entry.authors, ", "))
         addLine(seriesLine(entry), Font:getFace("cfont", 15))
         addLine(self:statusLine(entry), Font:getFace("cfont", 14))
-        local path, downloaded = self:localFile(entry)
-        local percent = downloaded and readPercent(path)
-        if percent and percent > 0 then
+        local percent = self:readBar(entry)
+        if percent then
             table.insert(lines, VerticalSpan:new{ width = Size.padding.small })
             table.insert(lines, ProgressWidget:new{
                 width = math.min(text_w, Screen:scaleBySize(160)), height = Screen:scaleBySize(4),
@@ -712,6 +837,64 @@ function Browser:onSwipe(_arg, ges)
     end
 end
 
+--[[--
+A full-screen window takes the screen's new size after it turned or changed.
+Android sends ScreenResize to every window, with SetDimensions just before
+it; the size is read from the screen, so both events, or the same one twice,
+lay the window out once. Returns whether the size changed.
+--]]
+function Browser.fitScreen(widget, dimen)
+    local w, h = Screen:getWidth(), Screen:getHeight()
+    if not (w and h) and type(dimen) == "table" then w, h = dimen.w, dimen.h end
+    if not (w and h) then return false end
+    local old = widget.dimen
+    if old and old.w == w and old.h == h then return false end
+    widget.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
+    if widget.ges_events and widget.ges_events.Swipe then
+        widget.ges_events.Swipe = { GestureRange:new{ ges = "swipe", range = widget.dimen } }
+    end
+    return true
+end
+
+--[[--
+Turning the screen asked for while one of these windows is on top (a
+gesture, a key, the gyro on Kobo and others): KOReader's file browser,
+underneath, is what turns it, as when it is on top. Then every window hears
+of the new size, as on Android. Returns false (not handled) without a file
+browser that can do it, so KOReader goes on as it would.
+--]]
+function Browser.turnScreen(rotation)
+    local ok, FileManager = pcall(require, "apps/filemanager/filemanager")
+    local fm = ok and type(FileManager) == "table" and FileManager.instance or nil
+    if not fm or type(fm.onSetRotationMode) ~= "function" then return false end
+    local done, err = pcall(fm.onSetRotationMode, fm, rotation)
+    if not done then
+        logger.warn("OPDShelf: cannot turn the screen", err)
+        return false
+    end
+    local size = Geom:new{ x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() }
+    local Event = require("ui/event")
+    UIManager:broadcastEvent(Event:new("ScreenResize", size))
+    return true
+end
+
+function Browser:onScreenResize(dimen)
+    if Browser.fitScreen(self, dimen) and not self.closed and self:currentLevel() then
+        self:refresh()
+    end
+end
+Browser.onSetDimensions = Browser.onScreenResize
+
+function Browser:onSetRotationMode(rotation)
+    return Browser.turnScreen(rotation)
+end
+
+-- Whatever turned the screen without saying so, the next paint has the right size
+function Browser:paintTo(bb, x, y)
+    if Browser.fitScreen(self) and self:currentLevel() then self:refresh() end
+    InputContainer.paintTo(self, bb, x, y)
+end
+
 function Browser:onClose()
     self.closed = true
     self.cover_token = nil
@@ -731,6 +914,7 @@ function Browser:resume(session)
     self.stack = session.stack
     self.root = session.root
     self.closed = false
+    self:loadProgress()
     UIManager:show(self, "flashui")
     self:refresh()
 end
@@ -918,13 +1102,23 @@ end
 function Browser:showDetails(entry)
     local Details = InputContainer:extend{ covers_fullscreen = true }
     local details = Details:new{}
-    local w, h = self.dimen.w, self.dimen.h
+    -- The screen's size: the home screen's browser is never shown, so its own may be old
+    local w, h = Screen:getWidth(), Screen:getHeight()
     details.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
     local padding = Size.padding.large
     local close = function()
         UIManager:close(details, "flashui")
     end
     details.onClose = function() close() return true end
+    -- Turned: laid out again for the new size
+    local function relayout()
+        if Screen:getWidth() == w and Screen:getHeight() == h then return end
+        UIManager:close(details)
+        self:showDetails(entry)
+    end
+    details.onScreenResize = relayout
+    details.onSetDimensions = relayout
+    details.onSetRotationMode = function(_self, rotation) return Browser.turnScreen(rotation) end
     if Device:hasKeys() then
         details.key_events = { Close = { { Input.group.Back } } }
     end
@@ -977,8 +1171,8 @@ function Browser:showDetails(entry)
         table.insert(info, TextBoxWidget:new{
             text = status, face = Font:getFace("cfont", 17), bold = downloaded, width = info_w,
         })
-        local percent = downloaded and readPercent(path)
-        if percent and percent > 0 then
+        local percent = self:readBar(entry)
+        if percent then
             table.insert(info, VerticalSpan:new{ width = Size.padding.default })
             table.insert(info, ProgressWidget:new{
                 width = info_w, height = Screen:scaleBySize(6), percentage = percent,
@@ -1079,6 +1273,9 @@ Browser.shortTitle = shortTitle
 Browser.coverWidget = coverWidget
 Browser.Item = Item
 Browser.readPercent = readPercent
+Browser.localBook = localBook
+Browser.libraryPath = libraryPath
+Browser.mergeProgress = mergeProgress
 Browser.seriesLine = seriesLine
 Browser.COVER_RATIO = COVER_RATIO
 

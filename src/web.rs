@@ -38,6 +38,8 @@ pub struct AppState {
     pub documents: DocumentIds,
     pub presence: sync::Presence,
     pub annotations: crate::annotations::Annotations,
+    /// Bookmarks of the web readers, kept like highlights.
+    pub bookmarks: crate::annotations::Annotations,
 }
 
 pub fn router(config: Config) -> Router {
@@ -55,6 +57,7 @@ pub fn router(config: Config) -> Router {
         documents: DocumentIds::open(&config.data_dir),
         presence: sync::Presence::default(),
         annotations: crate::annotations::Annotations::open(&config.data_dir),
+        bookmarks: crate::annotations::Annotations::open_bookmarks(&config.data_dir),
         config: Arc::new(config),
     };
     let upload_limit = state.config.max_upload_bytes;
@@ -155,6 +158,10 @@ pub fn router(config: Config) -> Router {
         .route("/api/annotations/{document}/export", get(sync::export_annotations))
         .route("/api/marks", axum::routing::put(sync::put_marks))
         .route("/api/devices/{device}", axum::routing::delete(sync::forget_device))
+        .route(
+            "/api/bookmarks/{document}",
+            get(sync::get_bookmarks).put(sync::put_bookmarks),
+        )
         .route(
             "/api/progress/{document}",
             get(sync::get_progress).put(sync::put_progress),

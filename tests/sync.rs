@@ -852,3 +852,39 @@ async fn apps_mark_books_by_document_and_the_newest_mark_wins() {
         .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn web_reader_bookmarks_are_kept_per_book() {
+    let t = app();
+    let mark = |id: &str, updated: i64, deleted: bool| {
+        json!({ "id": id, "cfi": "epubcfi(/6/4!/4/2/1:0)", "pos0": "/body/DocFragment[2]/body/p[1]/text().0",
+                "text": "It was a dark night", "chapter": "One", "percentage": 0.25,
+                "updated": updated, "deleted": deleted })
+    };
+    let now = chrono::Utc::now().timestamp();
+    let (status, body) = t
+        .api(
+            "PUT",
+            &format!("/api/bookmarks/{DOC}"),
+            Some(json!({ "device": "Web", "device_id": "web1", "sent_at": now, "bookmarks": [mark("b1", now - 10, false)] })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["bookmarks"][0]["text"], "It was a dark night");
+    assert_eq!(body["bookmarks"][0]["device"], "Web");
+    // Deleting it leaves a tombstone, so other browsers delete it too
+    t.api(
+        "PUT",
+        &format!("/api/bookmarks/{DOC}"),
+        Some(json!({ "device": "Web", "device_id": "web1", "sent_at": now, "bookmarks": [mark("b1", now, true)] })),
+    )
+    .await;
+    let (_, body) = t.api("GET", &format!("/api/bookmarks/{DOC}"), None).await;
+    assert_eq!(body["bookmarks"][0]["deleted"], true);
+    // Kept apart from the highlights, in their own file
+    let (_, notes) = t.api("GET", &format!("/api/annotations/{DOC}"), None).await;
+    assert_eq!(notes["annotations"].as_array().unwrap().len(), 0);
+    assert!(t.dir.path().join("books/.opdshelf/bookmarks.json").exists());
+    let (status, _) = t.api("GET", "/api/bookmarks/not-an-id!", None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

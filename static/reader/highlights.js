@@ -297,6 +297,7 @@
       toast: (message, action) => ReaderSync.toast(message, action),
     });
     function showPanel(open) {
+      if (open) document.dispatchEvent(new CustomEvent('readerpanel', { detail: { name: 'notes' } }));
       panel.hidden = !open;
       notesBtn.setAttribute('aria-pressed', open);
       if (open) list.paint();
@@ -304,6 +305,7 @@
     }
     notesBtn.onclick = () => showPanel(panel.hidden);
     document.getElementById('notesClose').onclick = () => showPanel(false);
+    document.addEventListener('readerpanel', (e) => { if (e.detail.name !== 'notes' && !panel.hidden) showPanel(false); });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !panel.hidden && !dialog.open) showPanel(false);
     });

@@ -23,8 +23,11 @@
 
   // ------------------------------------------------------------------ store
 
-  function store(documentId) {
-    const key = 'opdshelf:notes:' + documentId;
+  // `opts.kind` "bookmarks" keeps the bookmarks of the web readers instead,
+  // in /api/bookmarks, merged on the server the same way
+  function store(documentId, opts = {}) {
+    const kind = opts.kind === 'bookmarks' ? 'bookmarks' : 'annotations';
+    const key = (kind === 'bookmarks' ? 'opdshelf:bookmarks:' : 'opdshelf:notes:') + documentId;
     const me = opdshelfDevice();
     const listeners = [];
     let timer = null;
@@ -45,7 +48,7 @@
     const get = (id) => merged().find((a) => a.id === id) || null;
 
     async function request(method, body, keepalive) {
-      const response = await fetch('/api/annotations/' + documentId, {
+      const response = await fetch('/api/' + kind + '/' + documentId, {
         method,
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: body ? JSON.stringify(body) : undefined,
@@ -71,7 +74,7 @@
       if (!documentId) return list();
       try {
         const body = await request('GET');
-        adopt(body.annotations || []);
+        adopt(body[kind] || []);
         emit();
         flush();
       } catch {
@@ -88,13 +91,13 @@
       if (!batch.length) return;
       sending = (async () => {
         try {
-          const body = await request('PUT', { device: me.name, device_id: me.id, sent_at: now(), annotations: batch }, keepalive);
+          const body = await request('PUT', { device: me.name, device_id: me.id, sent_at: now(), [kind]: batch }, keepalive);
           // Changed again while sending: those stay queued
           batch.forEach((a) => {
             const p = state.pending[a.id];
             if (p && p.updated === a.updated && p.note === a.note && p.color === a.color && p.deleted === a.deleted) delete state.pending[a.id];
           });
-          adopt(body.annotations || []);
+          adopt(body[kind] || []);
           emit();
         } catch {
           timer = setTimeout(flush, 15000);

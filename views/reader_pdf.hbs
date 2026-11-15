@@ -1,4 +1,7 @@
 <div data-controls>
+  <button type="button" id="tocBtn" class="icon-btn notes-btn" title="{{t "Bookmarks"}}" aria-label="{{t "Bookmarks"}}" aria-pressed="false"><i class="fas fa-list-ul"></i><span id="bookmarkCount" class="notes-count" hidden></span></button>
+  <button type="button" id="searchBtn" class="icon-btn" aria-pressed="false" aria-controls="searchPanel"><i class="fas fa-magnifying-glass"></i></button>
+  <button type="button" id="bookmarkBtn" class="icon-btn" aria-pressed="false"><i class="far fa-bookmark"></i></button>
   <button type="button" id="zoomOut" class="icon-btn" title="{{t "Zoom out"}}" aria-label="{{t "Zoom out"}}"><i class="fas fa-magnifying-glass-minus"></i></button>
   <button type="button" id="fit" class="icon-btn" title="{{t "Fit the whole page"}}" aria-label="{{t "Fit the whole page"}}"
     aria-pressed="false"><i class="fas fa-expand"></i></button>
@@ -6,11 +9,28 @@
   <a href="/download/{{urlPath book.path}}" class="icon-btn" title="{{t "Download"}}" aria-label="{{t "Download"}}"><i class="fas fa-download"></i></a>
 </div>
 
+<nav class="toc" id="toc" aria-labelledby="bookmarksTitle" hidden>
+  <h2 id="bookmarksTitle">{{t "Bookmarks"}}</h2>
+  <div id="bookmarkList"></div>
+</nav>
+
 <main class="stage">
   <h1 class="visually-hidden">{{book.title}}</h1>
   <div id="pages" class="scroll-stage pdf-pages" tabindex="0" role="region" aria-label="{{book.title}}">
     <div id="status" class="loading"><span><i class="fas fa-spinner fa-spin"></i> {{t "Loading…"}}</span></div>
   </div>
+  <aside class="notes-panel search-panel" id="searchPanel" aria-label="{{t "Search in the book"}}" hidden>
+    <header>
+      <h2>{{t "Search in the book"}}</h2>
+      <button type="button" id="searchClose" class="icon-btn" title="{{t "Close"}}" aria-label="{{t "Close"}}"><i class="fas fa-xmark"></i></button>
+    </header>
+    <form id="searchForm" class="search-form" role="search">
+      <input type="search" id="searchInput" class="input" placeholder="{{t "Search in the book"}}" aria-label="{{t "Search in the book"}}" autocomplete="off" enterkeyhint="search">
+      <button type="submit" class="btn btn-primary" title="{{t "Search"}}" aria-label="{{t "Search"}}"><i class="fas fa-magnifying-glass"></i></button>
+    </form>
+    <p class="search-status" id="searchStatus" aria-live="polite"></p>
+    <div id="searchResults" class="search-results"></div>
+  </aside>
 </main>
 
 <footer class="reader-foot">
@@ -18,6 +38,8 @@
   <div class="track"><b id="progressBar"></b></div>
 </footer>
 
+<script src="/static/app/notes.js?v={{v}}"></script>
+<script src="/static/reader/tools.js?v={{v}}"></script>
 <div id="pdfData" hidden data-url="/download/{{urlPath book.path}}?inline=1" data-key="{{book.path}}" data-document="{{document}}"></div>
 <script type="module">
   import * as pdfjsLib from '/static/vendor/pdfjs/pdf.min.mjs';
@@ -33,6 +55,9 @@
   let scale = 1;
   let observer;
   const rendered = new Map();
+  // Search in the book and bookmarks (static/reader/tools.js), set up below
+  let tools = null;
+  let shownPage = 0;
 
   try {
     pdf = await pdfjsLib.getDocument({ url, isEvalSupported: false }).promise;
@@ -75,6 +100,7 @@
       transform: ratio !== 1 ? [ratio, 0, 0, ratio, 0, 0] : null,
     }).promise;
     wrapper.replaceChildren(canvas);
+    paintHit(wrapper);
   }
 
   function build(keepPage) {
@@ -115,6 +141,7 @@
   container.addEventListener('scroll', () => {
     const page = currentPage();
     showPage(page);
+    if (tools && page !== shownPage) { shownPage = page; tools.update(); }
     if (savedPage !== null && page !== savedPage) {
       savedPage = page;
       sync.save({ progress: String(page), percentage: page / pdf.numPages });
@@ -137,12 +164,127 @@
     document.getElementById('progressBar').style.width = Math.round((page / pdf.numPages) * 100) + '%';
   }
 
+  // ------------------------------------------------------------ search and bookmarks
+  // The text of a page, and for each character the text item it is in
+  const pageTexts = new Map();
+  async function pageText(number) {
+    if (pageTexts.has(number)) return pageTexts.get(number);
+    const page = await pdf.getPage(number);
+    const content = await page.getTextContent();
+    let text = '';
+    const at = [];
+    const items = content.items.filter((item) => typeof item.str === 'string');
+    items.forEach((item, i) => {
+      for (let c = 0; c < item.str.length; c++) { text += item.str[c]; at.push([i, c]); }
+      // Items of one line are kept apart by a space, unless the next one starts with one or with punctuation
+      const next = items[i + 1] && items[i + 1].str;
+      const gap = item.hasEOL ? '\n' : (item.str && next && !/\s$/.test(item.str) && !/^[\s.,;:!?)\]»”’]/.test(next) ? ' ' : '');
+      if (gap) { text += gap; at.push([i, item.str.length]); }
+    });
+    const result = { text, at, items };
+    pageTexts.set(number, result);
+    return result;
+  }
+  let hit = null;
+  const measure = document.createElement('canvas').getContext('2d');
+  // The boxes of the match on its page: part of each text item it covers
+  async function hitBoxes(h) {
+    const page = await pdf.getPage(h.page);
+    const viewport = page.getViewport({ scale });
+    const { at, items } = await pageText(h.page);
+    const boxes = [];
+    const parts = new Map();
+    for (let k = h.start; k < h.end; k++) {
+      const [i, c] = at[k];
+      const p = parts.get(i) || { from: c, to: c };
+      p.from = Math.min(p.from, c);
+      p.to = Math.max(p.to, c + 1);
+      parts.set(i, p);
+    }
+    parts.forEach((p, i) => {
+      const item = items[i];
+      if (!item.str) return;
+      const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+      const height = Math.hypot(tx[2], tx[3]);
+      const width = item.width * viewport.scale;
+      // Where the characters fall in the item, measured in a similar font
+      measure.font = '100px sans-serif';
+      const all = measure.measureText(item.str).width || 1;
+      const x0 = (measure.measureText(item.str.slice(0, p.from)).width / all) * width;
+      const x1 = (measure.measureText(item.str.slice(0, p.to)).width / all) * width;
+      boxes.push({ left: tx[4] + x0, top: tx[5] - height, width: Math.max(2, x1 - x0), height: height * 1.15 });
+    });
+    return boxes;
+  }
+  async function paintHit(wrapper) {
+    wrapper.querySelectorAll('.pdf-hit').forEach((b) => b.remove());
+    if (!hit || Number(wrapper.dataset.page) !== hit.page) return;
+    const boxes = await hitBoxes(hit);
+    boxes.forEach((b) => {
+      const mark = document.createElement('span');
+      mark.className = 'pdf-hit';
+      Object.entries(b).forEach(([k, v]) => { mark.style[k] = v + 'px'; });
+      wrapper.append(mark);
+    });
+    return boxes;
+  }
+  const toc = document.getElementById('toc');
+  function showList(open) {
+    toc.hidden = !open;
+    document.getElementById('tocBtn').setAttribute('aria-pressed', open);
+  }
+  document.getElementById('tocBtn').onclick = () => showList(toc.hidden);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !toc.hidden && !window.matchMedia('(min-width: 761px)').matches) showList(false);
+  });
+  tools = ReaderTools.mount({
+    documentId,
+    sections: () => pdf.numPages,
+    async searchSection(i, find) {
+      const number = i + 1;
+      const { text } = await pageText(number);
+      return find(text).map((m) => ({ ...m, page: number, group: t('Page {n}', { n: number }) }));
+    },
+    async showHit(h) {
+      const old = hit;
+      hit = h;
+      if (old && old.page !== h.page) {
+        const before = container.querySelector(`[data-page="${old.page}"]`);
+        if (before) paintHit(before);
+      }
+      const wrapper = container.querySelector(`[data-page="${h.page}"]`);
+      if (!wrapper) return;
+      const boxes = await paintHit(wrapper) || [];
+      // The match in the middle of the screen, not just its page
+      const top = boxes.length ? boxes[0].top : 0;
+      container.scrollTop = Math.max(0, wrapper.offsetTop + top - container.clientHeight / 3);
+    },
+    clearHit() {
+      const old = hit;
+      hit = null;
+      if (!old) return;
+      const wrapper = container.querySelector(`[data-page="${old.page}"]`);
+      if (wrapper) paintHit(wrapper);
+    },
+    async here() {
+      const page = currentPage();
+      let text = '';
+      try { text = (await pageText(page)).text.replace(/\s+/g, ' ').trim().slice(0, 160); } catch { }
+      return { pos0: String(page), page, percentage: page / pdf.numPages, text };
+    },
+    isHere: (b) => Number(b.page || b.pos0) === currentPage(),
+    goTo: (b) => goTo(Math.min(pdf.numPages, Math.max(1, Number(b.page || b.pos0) || 1))),
+    where: (b) => t('Page {page} of {total}', { page: b.page || b.pos0, total: pdf.numPages }),
+    closeList: () => showList(false),
+  });
+
   const { record, from } = await sync.load();
   const startPage = Math.min(pdf.numPages, Math.max(1, Math.round(
     record ? Number(record.progress) || record.percentage * pdf.numPages : Number(storeGet(legacyKey) || 1),
   ) || 1));
   build(startPage);
   showPage(currentPage());
+  tools.update();
   savedPage = startPage;
   if (from) ReaderSync.toast(t('Continuing from {device} (page {page})', { device: from, page: startPage }));
   sync.follow((remote) => ReaderSync.remoteToast(remote, () => {

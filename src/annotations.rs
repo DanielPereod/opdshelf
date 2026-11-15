@@ -6,6 +6,11 @@
 //! the device's clock corrected, as for positions). A deleted highlight stays
 //! as a tombstone for a while so the deletion reaches devices that were
 //! offline. Highlights are kept in DATA_DIR/annotations.json, by document id.
+//!
+//! Bookmarks of the web readers are kept the same way, in
+//! DATA_DIR/bookmarks.json: a bookmark is an entry with where it is (`cfi`,
+//! `pos0` or `page`), a few words of the page as `text`, its chapter and
+//! percentage, and is merged, deleted and forgotten like a highlight.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -88,7 +93,7 @@ fn default_style() -> String {
 /// Highlights sent by a device.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Batch {
-    #[serde(default)]
+    #[serde(default, alias = "bookmarks")]
     pub annotations: Vec<Annotation>,
     /// The sending device, used for highlights that do not name one.
     #[serde(default)]
@@ -186,7 +191,15 @@ impl Annotation {
 
 impl Annotations {
     pub fn open(dir: &Path) -> Self {
-        let file = dir.join("annotations.json");
+        Self::open_file(dir.join("annotations.json"))
+    }
+
+    /// The bookmarks of the web readers, kept like highlights.
+    pub fn open_bookmarks(dir: &Path) -> Self {
+        Self::open_file(dir.join("bookmarks.json"))
+    }
+
+    fn open_file(file: PathBuf) -> Self {
         let books = match std::fs::read(&file) {
             Ok(json) => serde_json::from_slice(&json).unwrap_or_else(|err| {
                 tracing::error!("ignoring unreadable {}: {err}", file.display());

@@ -1,13 +1,19 @@
 <div data-controls>
-  <button type="button" id="tocBtn" class="icon-btn" title="{{t "Contents"}}" aria-label="{{t "Contents"}}"><i class="fas fa-list-ul"></i></button>
+  <button type="button" id="tocBtn" class="icon-btn" title="{{t "Contents and bookmarks"}}" aria-label="{{t "Contents and bookmarks"}}"><i class="fas fa-list-ul"></i></button>
+  <button type="button" id="searchBtn" class="icon-btn" aria-pressed="false" aria-controls="searchPanel"><i class="fas fa-magnifying-glass"></i></button>
+  <button type="button" id="bookmarkBtn" class="icon-btn" aria-pressed="false"><i class="far fa-bookmark"></i></button>
   <button type="button" id="smaller" class="icon-btn" title="{{t "Smaller text"}}" aria-label="{{t "Smaller text"}}"><i class="fas fa-minus"></i></button>
   <button type="button" id="larger" class="icon-btn" title="{{t "Larger text"}}" aria-label="{{t "Larger text"}}"><i class="fas fa-plus"></i></button>
   <button type="button" id="notesBtn" class="icon-btn notes-btn" title="{{t "Highlights and notes"}}" aria-label="{{t "Highlights and notes"}}" aria-pressed="false"><i class="fas fa-highlighter"></i><span id="notesCount" class="notes-count" hidden></span></button>
 </div>
 
-<nav class="toc" id="toc" aria-label="{{t "Contents"}}" hidden>
-  <h2>{{t "Contents"}}</h2>
-  <div id="tocList"></div>
+<nav class="toc" id="toc" aria-label="{{t "Contents and bookmarks"}}" hidden>
+  <div class="toc-tabs" role="tablist">
+    <button type="button" role="tab" id="tocTab" aria-selected="true" aria-controls="tocList">{{t "Contents"}}</button>
+    <button type="button" role="tab" id="bookmarkTab" aria-selected="false" aria-controls="bookmarkList" tabindex="-1">{{t "Bookmarks"}}<span class="tab-count" id="bookmarkCount" hidden></span></button>
+  </div>
+  <div id="tocList" role="tabpanel" aria-labelledby="tocTab"></div>
+  <div id="bookmarkList" role="tabpanel" aria-labelledby="bookmarkTab" hidden></div>
 </nav>
 
 <main class="stage">
@@ -26,6 +32,18 @@
       <button type="button" id="notesClose" class="icon-btn" title="{{t "Close"}}" aria-label="{{t "Close"}}"><i class="fas fa-xmark"></i></button>
     </header>
     <div id="notesList"></div>
+  </aside>
+  <aside class="notes-panel search-panel" id="searchPanel" aria-label="{{t "Search in the book"}}" hidden>
+    <header>
+      <h2>{{t "Search in the book"}}</h2>
+      <button type="button" id="searchClose" class="icon-btn" title="{{t "Close"}}" aria-label="{{t "Close"}}"><i class="fas fa-xmark"></i></button>
+    </header>
+    <form id="searchForm" class="search-form" role="search">
+      <input type="search" id="searchInput" class="input" placeholder="{{t "Search in the book"}}" aria-label="{{t "Search in the book"}}" autocomplete="off" enterkeyhint="search">
+      <button type="submit" class="btn btn-primary" title="{{t "Search"}}" aria-label="{{t "Search"}}"><i class="fas fa-magnifying-glass"></i></button>
+    </form>
+    <p class="search-status" id="searchStatus" aria-live="polite"></p>
+    <div id="searchResults" class="search-results"></div>
   </aside>
   <div id="status" class="loading"><span><i class="fas fa-spinner fa-spin"></i> {{t "Loading…"}}</span></div>
 </main>
@@ -58,6 +76,7 @@
 <script src="/static/reader/typography.js?v={{v}}"></script>
 <script src="/static/app/notes.js?v={{v}}"></script>
 <script src="/static/reader/highlights.js?v={{v}}"></script>
+<script src="/static/reader/tools.js?v={{v}}"></script>
 <script data-url="/download/{{urlPath book.path}}?inline=1" data-key="{{book.path}}" data-document="{{document}}">
   (function () {
     const { url, key, document: documentId } = document.currentScript.dataset;
@@ -129,6 +148,25 @@
     }
     showToc(wide.matches && storeGet('opdshelf:toc') !== '0');
     document.getElementById('tocBtn').onclick = () => showToc(toc.hidden);
+    // Contents or bookmarks, in the same panel
+    const tabs = [document.getElementById('tocTab'), document.getElementById('bookmarkTab')];
+    function showTab(tab, focus) {
+      tabs.forEach((b) => {
+        const on = b === tab;
+        b.setAttribute('aria-selected', on);
+        b.tabIndex = on ? 0 : -1;
+        document.getElementById(b.getAttribute('aria-controls')).hidden = !on;
+      });
+      storeSet('opdshelf:toc-tab', tab.id);
+      if (focus) tab.focus();
+    }
+    tabs.forEach((b, i) => {
+      b.addEventListener('click', () => showTab(b));
+      b.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); showTab(tabs[1 - i], true); }
+      });
+    });
+    showTab(tabs.find((b) => b.id === storeGet('opdshelf:toc-tab')) || tabs[0]);
 
     // Positions are only saved once the reader moves, so opening a book does
     // not replace a point set on another device with the start of its page
@@ -138,12 +176,15 @@
     document.getElementById('prev').onclick = prev;
     document.getElementById('next').onclick = next;
     const onKey = (e) => {
+      // Not while typing, nor on the tabs and lists of the panels
+      if (e.target && e.target.closest && e.target.closest('input, textarea, select, dialog, [role="tab"], .notes-panel, .toc')) return;
       if (e.key === 'ArrowLeft' || e.key === 'PageUp') prev();
       if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') next();
-      if (e.key === 'Escape' && !wide.matches) showToc(false);
+      if (e.key === 'Escape' && !wide.matches && document.getElementById('searchPanel').hidden) showToc(false);
     };
     document.addEventListener('keydown', onKey);
     rendition.on('keydown', onKey);
+    rendition.on('keydown', (e) => { if (tools) tools.onKey(e); });
     // Screen readers name the frame that holds the page
     rendition.on('rendered', (section, view) => {
       if (view && view.iframe) view.iframe.title = document.title;
@@ -266,6 +307,105 @@
       percentageOf: (cfi, index) => { try { return percentage(cfi, index); } catch { return index / Math.max(1, book.spine.length); } },
       onJump: () => { moved = true; },
     });
+    // Search in the book and bookmarks (static/reader/tools.js)
+    let hitCfi = null;
+    function clearHit() {
+      if (!hitCfi) return;
+      try { rendition.annotations.remove(hitCfi, 'highlight'); } catch { }
+      hitCfi = null;
+    }
+    // The text of a chapter, with where each character came from, so a match
+    // can become a range: blocks are kept apart by a line break
+    const BLOCK = 'p,div,li,h1,h2,h3,h4,h5,h6,blockquote,td,th,dt,dd,section,article,pre,figcaption';
+    function chapterText(doc) {
+      let text = '';
+      const nodes = [];
+      const offsets = [];
+      let lastBlock = null;
+      const walker = doc.createTreeWalker(doc.body || doc.documentElement, 4);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const block = n.parentElement && n.parentElement.closest(BLOCK);
+        if (text && block !== lastBlock) { text += '\n'; nodes.push(nodes[nodes.length - 1]); offsets.push(offsets[offsets.length - 1]); }
+        lastBlock = block;
+        for (let i = 0; i < n.data.length; i++) { text += n.data[i]; nodes.push(n); offsets.push(i); }
+      }
+      return { text, nodes, offsets };
+    }
+    // A few words from a point on, for the list of bookmarks
+    function wordsFrom(doc, node, offset) {
+      const { text, nodes, offsets } = chapterText(doc);
+      let k = 0;
+      while (k < nodes.length && !(nodes[k] === node && offsets[k] >= offset)) k++;
+      if (k >= nodes.length) k = 0;
+      const words = text.slice(k, k + 200).replace(/\s+/g, ' ').trim();
+      return words.length < 140 ? words : words.slice(0, 140).replace(/\s\S*$/, '') + '…';
+    }
+    const sectionLoad = book.load.bind(book);
+    let tools = null;
+    tools = ReaderTools.mount({
+      documentId,
+      sections: () => book.spine.spineItems.length,
+      async searchSection(i, find) {
+        const section = book.spine.get(i);
+        if (!section) return [];
+        const wasLoaded = Boolean(section.contents);
+        await section.load(sectionLoad);
+        const doc = section.document;
+        const { text, nodes, offsets } = chapterText(doc);
+        const name = chapterOf(section.href) || t('Chapter {n}', { n: i + 1 });
+        const out = find(text).map((m) => {
+          const range = doc.createRange();
+          range.setStart(nodes[m.start], offsets[m.start]);
+          const last = m.end - 1;
+          range.setEnd(nodes[last], offsets[last] + 1);
+          return { ...m, group: name, cfi: section.cfiFromRange(range) };
+        });
+        if (!wasLoaded) section.unload();
+        return out;
+      },
+      async showHit(hit) {
+        clearHit();
+        moved = true;
+        await rendition.display(hit.cfi);
+        hitCfi = hit.cfi;
+        rendition.annotations.highlight(hit.cfi, {}, null, 'search-mark', { fill: '#ff9800', 'fill-opacity': 0.5, 'mix-blend-mode': 'multiply' });
+      },
+      clearHit,
+      here() {
+        const loc = rendition.currentLocation();
+        if (!loc || !loc.start) return null;
+        const contents = rendition.getContents().find((c) => c.sectionIndex === loc.start.index);
+        const base = { cfi: loc.start.cfi, chapter: chapterOf(loc.start.href) || '', percentage: percentage(loc.start.cfi, loc.start.index) };
+        if (!contents) return base;
+        try {
+          const range = contents.range(loc.start.cfi);
+          const pos = position(contents, range);
+          return { ...base, pos0: pos.progress, text: wordsFrom(contents.document, range.startContainer, range.startOffset) };
+        } catch {
+          return base;
+        }
+      },
+      isHere(b) {
+        const loc = rendition.currentLocation();
+        if (!loc || !loc.start || !loc.end || !b.cfi) return false;
+        try {
+          const cfi = new ePub.CFI();
+          return cfi.compare(b.cfi, loc.start.cfi) >= 0 && cfi.compare(b.cfi, loc.end.cfi) <= 0;
+        } catch {
+          return false;
+        }
+      },
+      goTo(b) {
+        moved = true;
+        rendition.display(b.cfi || (locationsReady ? book.locations.cfiFromPercentage(b.percentage || 0) : undefined));
+      },
+      where: (b) => [b.chapter, Math.round((b.percentage || 0) * 100) + '%'].filter(Boolean).join(' · '),
+      closeList: () => showToc(false),
+      resize: () => { if (rendition.manager) rendition.resize(); },
+    });
+    rendition.on('relocated', () => tools.update());
+    document.getElementById('bookmarkTab').addEventListener('click', () => tools.update());
+
     markBtn.onclick = () => {
       const selection = highlights.selection();
       if (!selection) return;

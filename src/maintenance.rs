@@ -172,11 +172,13 @@ pub struct Orphans {
     pub covers: usize,
     pub progress: usize,
     pub highlights: usize,
+    pub bookmarks: usize,
     pub marks: usize,
 }
 
 /// Counts what is left of books that are gone, or removes it: only the parts
-/// named in `clean` (`metadata`, `covers`, `progress`, `highlights`, `marks`).
+/// named in `clean` (`metadata`, `covers`, `progress`, `highlights`,
+/// `bookmarks`, `marks`).
 /// With an empty library nothing is removed: the books folder may just be
 /// unavailable (an unplugged disk), and its books would all look gone.
 async fn orphans(state: &AppState, clean: &[&str]) -> std::io::Result<Orphans> {
@@ -193,6 +195,7 @@ async fn orphans(state: &AppState, clean: &[&str]) -> std::io::Result<Orphans> {
         covers: store.unused_covers(dry("covers")),
         progress: state.progress.retain_documents(present, dry("progress"))?,
         highlights: state.annotations.retain_documents(present, dry("highlights"))?,
+        bookmarks: state.bookmarks.retain_documents(present, dry("bookmarks"))?,
         marks: state.marks.retain_documents(present, dry("marks"))?,
     })
 }
@@ -245,6 +248,7 @@ pub async fn tab_data(state: &AppState) -> std::io::Result<serde_json::Value> {
         ("covers", "Uploaded covers", counts.covers),
         ("progress", "Reading positions", counts.progress),
         ("highlights", "Highlights and notes", counts.highlights),
+        ("bookmarks", "Bookmarks", counts.bookmarks),
         ("marks", "Read marks", counts.marks),
     ];
     let orphan_total = rows.iter().map(|r| r.2).sum::<usize>();
@@ -352,7 +356,7 @@ pub async fn clean(State(state): State<AppState>, Form(form): Form<CleanForm>) -
     if !state.auth.check_csrf(&form.csrf) {
         return (StatusCode::FORBIDDEN, "Invalid CSRF token").into_response();
     }
-    const ALL: &[&str] = &["metadata", "covers", "progress", "highlights", "marks"];
+    const ALL: &[&str] = &["metadata", "covers", "progress", "highlights", "bookmarks", "marks"];
     let parts: Vec<&str> = match form.what.as_str() {
         "all" => ALL.to_vec(),
         what if ALL.contains(&what) => vec![what],
@@ -368,6 +372,7 @@ pub async fn clean(State(state): State<AppState>, Form(form): Form<CleanForm>) -
                 ("covers", found.covers),
                 ("progress", found.progress),
                 ("highlights", found.highlights),
+                ("bookmarks", found.bookmarks),
                 ("marks", found.marks),
             ]
             .iter()

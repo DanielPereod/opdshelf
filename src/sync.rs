@@ -532,6 +532,51 @@ pub async fn put_annotations(
     }
 }
 
+/// The bookmarks of a book made in the web readers, deleted ones included.
+pub async fn get_bookmarks(State(state): State<AppState>, Path(document): Path<String>) -> Response {
+    if !progress::valid_document(&document) {
+        return bad_document();
+    }
+    Json(json!({
+        "document": document,
+        "bookmarks": state.bookmarks.list(&document),
+        "server_time": now(),
+    }))
+    .into_response()
+}
+
+/// Merges the bookmarks a device sends (as highlights are merged) and answers
+/// every bookmark of the book.
+pub async fn put_bookmarks(
+    State(state): State<AppState>,
+    Path(document): Path<String>,
+    Json(batch): Json<annotations::Batch>,
+) -> Response {
+    if !progress::valid_document(&document) {
+        return bad_document();
+    }
+    if batch.device_id.trim().is_empty() && batch.annotations.iter().any(|a| a.device_id.trim().is_empty()) {
+        return missing_device();
+    }
+    match state.bookmarks.merge(&document, batch, now()) {
+        Ok(changed) => Json(json!({
+            "document": document,
+            "changed": changed.len(),
+            "bookmarks": state.bookmarks.list(&document),
+            "server_time": now(),
+        }))
+        .into_response(),
+        Err(err) => {
+            tracing::error!("cannot save bookmarks: {err}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Cannot save the bookmarks" })),
+            )
+                .into_response()
+        }
+    }
+}
+
 /// Every book with highlights: how many, how many with notes, and the last change.
 pub async fn list_annotations(State(state): State<AppState>) -> Response {
     let books = books_by_document(&state).await;

@@ -65,16 +65,17 @@
     const RANGES = ['7d', '30d', '12m', 'all'];
     let range = RANGES.includes(storeGet('opdshelf:stats-range')) ? storeGet('opdshelf:stats-range') : '30d';
 
-    // "13 h", never "13 h 0 min"
+    // "13 h", never "13 h 0 min". Whole minutes read, as a day only counts
+    // for the streak from its first full minute (33 s are "0 min", not "1 min")
     function duration(seconds) {
-      const minutes = Math.round(seconds / 60);
+      const minutes = Math.floor(seconds / 60);
       if (minutes < 60) return t('{n} min', { n: minutes });
       const hours = Math.floor(minutes / 60);
       return minutes % 60 ? t('{h} h {m} min', { h: hours, m: minutes % 60 }) : t('{h} h', { h: hours });
     }
     // Short, for the values over the bars
     function short(seconds) {
-      const minutes = Math.round(seconds / 60);
+      const minutes = Math.floor(seconds / 60);
       if (minutes < 60) return t('{n} min', { n: minutes });
       return t('{h} h', { h: (minutes / 60).toLocaleString(lang, { maximumFractionDigits: minutes < 600 ? 1 : 0 }) });
     }

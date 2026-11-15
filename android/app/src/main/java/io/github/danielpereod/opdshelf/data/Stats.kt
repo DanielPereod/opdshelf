@@ -2,7 +2,6 @@ package io.github.danielpereod.opdshelf.data
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlin.math.roundToLong
 
 /** Reading statistics as the server works them out (`GET /api/stats`), from every device's reading. */
 @Serializable
@@ -23,7 +22,8 @@ data class ReadingStats(
 
     val last30Seconds: Long get() = days.sumOf { it.seconds }
 
-    val readingDaysIn30: Int get() = days.count { it.seconds > 0 }
+    /** Days with a full minute of reading or more, as the server counts them for the streak. */
+    val readingDaysIn30: Int get() = days.count { it.seconds >= READING_DAY_SECONDS }
 
     /** Books finished in [year] (e.g. "2026"), as far as the last 12 months go. */
     fun finishedIn(year: String): Int = finished.filter { it.month.startsWith("$year-") }.sumOf { it.count }
@@ -54,12 +54,19 @@ data class FinishedBook(val document: String = "", val title: String? = null, va
 data class CachedStats(val stats: ReadingStats, val fetchedAt: Long)
 
 /**
+ * A day counts as a reading day (for the streak and the days read) from this
+ * much reading on, as on the server; durations are written in whole minutes
+ * read, so a day with "1 min" is always a reading day and 33 s show "0 min".
+ */
+const val READING_DAY_SECONDS = 60L
+
+/**
  * A duration as the web panel writes it: whole minutes under an hour, then
  * hours and minutes, without "0 min" ("13 h", never "13 h 0 min").
  */
 data class ReadingTime(val hours: Long, val minutes: Long)
 
 fun readingTime(seconds: Long): ReadingTime {
-    val minutes = (seconds.coerceAtLeast(0) / 60.0).roundToLong()
+    val minutes = seconds.coerceAtLeast(0) / 60
     return if (minutes < 60) ReadingTime(0, minutes) else ReadingTime(minutes / 60, minutes % 60)
 }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -207,16 +208,25 @@ private fun StatsContent(
                     stringResource(R.string.stats_in_year, year),
                 ),
             )
-            val perRow = when {
-                isWide -> 4
-                LocalDensity.current.fontScale >= 1.5f -> 1
-                else -> 2
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
-                tiles.chunked(perRow).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(Space.m), modifier = Modifier.fillMaxWidth()) {
-                        row.forEach { (label, value, detail) -> StatTile(label, value, detail, Modifier.weight(1f)) }
-                        repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
+            // As many tiles in a row as fit at the font's size (4, 2 or 1, never 3 and 1),
+            // so no label has to break inside a word; the tiles of a row are as tall as each other
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val minTile = 150.dp * LocalDensity.current.fontScale
+                val fit = ((maxWidth + Space.m) / (minTile + Space.m)).toInt()
+                val perRow = when {
+                    fit >= 4 -> 4
+                    fit >= 2 -> 2
+                    else -> 1
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
+                    tiles.chunked(perRow).forEach { row ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(Space.m),
+                            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                        ) {
+                            row.forEach { (label, value, detail) -> StatTile(label, value, detail, Modifier.weight(1f).fillMaxHeight()) }
+                            repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
                     }
                 }
             }
@@ -304,10 +314,13 @@ private fun StatTile(label: String, value: String, detail: String, modifier: Mod
         modifier.clip(RoundedCornerShape(8.dp)).background(shelf.pane).border(1.dp, shelf.line, RoundedCornerShape(8.dp))
             .padding(Space.l).semantics(mergeDescendants = true) {},
     ) {
-        Text(label.uppercase(), color = shelf.muted, fontSize = TextSize.overline, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp, lineHeight = 16.sp)
+        Text(
+            label.uppercase(), color = shelf.muted, fontSize = TextSize.overline, fontWeight = FontWeight.Bold,
+            letterSpacing = 0.8.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
         Spacer(Modifier.height(Space.xs))
         Text(value, color = shelf.fg, fontSize = TextSize.headline, fontWeight = FontWeight.Bold, lineHeight = 28.sp)
-        Text(detail, color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
+        Text(detail, color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 

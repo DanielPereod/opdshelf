@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -137,6 +138,31 @@ val Mono = FontFamily.Monospace
 /** The appearance chosen in Settings (0 system, 1 light, 2 dark), read by every [AppTheme]. */
 object AppearanceState {
     var mode by androidx.compose.runtime.mutableIntStateOf(0)
+
+    /** Whether the app shows dark now, outside composition (the window behind it). */
+    fun isDark(context: android.content.Context): Boolean = when (mode) {
+        1 -> false
+        2 -> true
+        else -> context.resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
+    }
+
+    /** The background of the screens, to paint the window with before Compose draws. */
+    fun background(context: android.content.Context): Int = (if (isDark(context)) Dark else Light).bg.toArgb()
+
+    /**
+     * Tells Android 12+ the appearance chosen here, so that its start screen,
+     * drawn before the app runs, is light or dark as the app is.
+     */
+    fun tellSystem(context: android.content.Context) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) return
+        val night = when (mode) {
+            1 -> android.app.UiModeManager.MODE_NIGHT_NO
+            2 -> android.app.UiModeManager.MODE_NIGHT_YES
+            else -> android.app.UiModeManager.MODE_NIGHT_AUTO
+        }
+        runCatching { context.getSystemService(android.app.UiModeManager::class.java)?.setApplicationNightMode(night) }
+    }
 }
 
 /**
@@ -495,21 +521,14 @@ fun EmptyState(
     }
 }
 
-/** The logo, on a light tile in dark mode, where its navy would vanish. */
+/** The logo, straight on the background: in dark mode its navy turns a lighter blue that stays visible. */
 @Composable
 fun Logo(size: Dp, modifier: Modifier = Modifier) {
-    val dark = shelf.isDark
-    Box(
-        modifier.size(size).then(
-            if (dark) Modifier.clip(RoundedCornerShape(size / 4)).background(Color(0xFFDCE3EE)).padding(size / 8) else Modifier,
-        ),
-        contentAlignment = Alignment.Center,
-    ) {
-        androidx.compose.foundation.Image(
-            androidx.compose.ui.res.painterResource(R.drawable.logo), stringResource(R.string.logo),
-            Modifier.fillMaxSize(),
-        )
-    }
+    androidx.compose.foundation.Image(
+        androidx.compose.ui.res.painterResource(if (shelf.isDark) R.drawable.logo_dark else R.drawable.logo),
+        stringResource(R.string.logo),
+        modifier.size(size),
+    )
 }
 
 /** One entry of a book's ⋮ menu. */

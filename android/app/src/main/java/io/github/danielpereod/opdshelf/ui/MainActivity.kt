@@ -72,6 +72,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // The start screen's mark goes: behind the app there is just its background, in its appearance
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(AppearanceState.background(this)))
         val link = io.github.danielpereod.opdshelf.data.ConnectLink.parse(intent?.dataString)
         setContent { AppTheme { Main(library, link, ::openBook) } }
         if (savedInstanceState == null) receiveShared(intent)

@@ -316,7 +316,9 @@ pub async fn dismiss(State(state): State<AppState>, Form(form): Form<DismissForm
     let dir = state.library.store().dir().to_path_buf();
     let mut keys = dismissed(&dir);
     if form.key.len() < 100_000 {
-        keys.insert(form.key);
+        // The key lists the paths one per line, and browsers send the line
+        // breaks of a form field as CRLF
+        keys.insert(form.key.replace("\r\n", "\n"));
     }
     // Forget groups that no longer exist, so the file does not grow forever
     let snapshot = state.library.snapshot().await;

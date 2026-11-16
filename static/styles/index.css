@@ -5157,3 +5157,9 @@ a.top-book:hover {
     margin-bottom: var(--sp-2);
   }
 }
+
+/* The page of the EPUB reader takes the focus after a jump from a list, so the
+   arrow keys turn pages: it needs no ring of its own */
+#stage:focus {
+  outline: none;
+}

@@ -503,6 +503,12 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("separate with ;", "separa con ;"),
     ("Number in series", "Número en la serie"),
     ("ISBN / identifier", "ISBN / identificador"),
+    ("This is not a valid ISBN", "No es un ISBN válido"),
+    ("No book found for this ISBN", "No se ha encontrado ningún libro con este ISBN"),
+    (
+        "Open Library and Google Books cannot be reached. Try again later.",
+        "No se puede conectar con Open Library ni con Google Books. Inténtalo más tarde.",
+    ),
     ("separate with ,", "separa con ,"),
     ("Description", "Descripción"),
     ("Saved by OPDShelf. The book file is not modified.", "Lo guarda OPDShelf. El archivo del libro no se modifica."),
@@ -609,7 +615,8 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("Show more", "Ver más"),
     ("Cannot load the highlights.", "No se pueden cargar los subrayados."),
     ("A few highlights to read again, different every day", "Unos pocos subrayados para releer, distintos cada día"),
-    ("{n} highlights · {m} with a note · {b} books", "{n} subrayados · {m} con nota · {b} libros"),
+    ("{n} highlights", "{n} subrayados"),
+    ("{m} with a note", "{m} con nota"),
     // OPDS catalog
     ("Recently added", "Añadidos recientemente"),
     ("All books by title", "Todos los libros por título"),

@@ -226,7 +226,13 @@ async fn require_auth(State(state): State<AppState>, request: Request, next: Nex
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.contains("text/html"));
     if wants_html {
-        return Redirect::to("/user/login").into_response();
+        // After signing in, back to the page asked for
+        let asked = request.uri().path_and_query().map_or("/admin", |p| p.as_str());
+        let login = match safe_next(Some(asked)) {
+            "/admin" => "/user/login".to_string(),
+            next => format!("/user/login?next={}", paths::url_encode(next)),
+        };
+        return Redirect::to(&login).into_response();
     }
     (
         StatusCode::UNAUTHORIZED,
@@ -1531,18 +1537,37 @@ pub fn is_isbn(identifier: &str) -> bool {
 struct LoginQuery {
     error: Option<String>,
     username: Option<String>,
+    next: Option<String>,
+}
+
+/// Where to go after signing in: a page of this server (a path, never another
+/// site such as `//example.com`), or the panel.
+fn safe_next(next: Option<&str>) -> &str {
+    match next {
+        // Kept as the browser sent it, percent-encoded, so it is a valid Location header
+        Some(n)
+            if n.starts_with('/')
+                && !n.starts_with("//")
+                && !n.starts_with("/user/")
+                && n.bytes().all(|b| b.is_ascii_graphic() && b != b'\\') =>
+        {
+            n
+        }
+        _ => "/admin",
+    }
 }
 
 async fn login_page(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<LoginQuery>) -> Response {
+    let next = safe_next(query.next.as_deref());
     if state.auth.is_authorized(&headers) {
-        return Redirect::to("/admin").into_response();
+        return Redirect::to(next).into_response();
     }
     page(
         &state,
         &headers,
         "login",
         "Sign in - OPDShelf",
-        json!({ "error": query.error, "typedUsername": query.username }),
+        json!({ "error": query.error, "typedUsername": query.username, "next": (next != "/admin").then_some(next) }),
     )
 }
 
@@ -1550,21 +1575,26 @@ async fn login_page(State(state): State<AppState>, headers: HeaderMap, Query(que
 struct LoginForm {
     username: String,
     password: String,
+    next: Option<String>,
 }
 
 async fn login(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<LoginForm>) -> Response {
+    let next = safe_next(form.next.as_deref());
     if !state.auth.check_credentials(&form.username, &form.password) {
         // Slow down password guessing
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         // Keep what was typed as the username so only the password has to be typed again
-        return Redirect::to(&format!(
+        let mut again = format!(
             "/user/login?error=Invalid%20username%20or%20password&username={}",
             paths::url_encode(form.username.chars().take(100).collect::<String>().as_str())
-        ))
-        .into_response();
+        );
+        if next != "/admin" {
+            again.push_str(&format!("&next={}", paths::url_encode(next)));
+        }
+        return Redirect::to(&again).into_response();
     }
     let cookie = state.auth.session_cookie(is_https(&state, &headers));
-    ([(header::SET_COOKIE, cookie)], Redirect::to("/admin")).into_response()
+    ([(header::SET_COOKIE, cookie)], Redirect::to(next)).into_response()
 }
 
 #[derive(Deserialize)]

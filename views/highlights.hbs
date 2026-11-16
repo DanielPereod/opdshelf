@@ -150,8 +150,12 @@
       const withNotes = all.filter((a) => a.note && a.note.trim()).length;
       const books = new Set(all.map((a) => a.document)).size;
       $('allHlCount').textContent = all.length || '';
-      $('allHlStats').textContent = all.length
-        ? t('{n} highlights · {m} with a note · {b} books', { n: all.length, m: withNotes, b: books }) : '';
+      // "1 highlight", "1 book": each count with its own singular
+      $('allHlStats').textContent = all.length ? [
+        all.length === 1 ? t('1 highlight') : t('{n} highlights', { n: all.length }),
+        t('{m} with a note', { m: withNotes }),
+        books === 1 ? t('1 book') : t('{n} books', { n: books }),
+      ].join(' · ') : '';
       $('allHlTools').hidden = all.length === 0;
       paintFilters();
       list.replaceChildren();

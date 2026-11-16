@@ -204,6 +204,52 @@ async fn requires_auth_and_rejects_forged_cookies() {
     }
 }
 
+// Signing in goes back to the page that asked for it, and only to a page of
+// this server
+#[tokio::test]
+async fn login_returns_to_the_page_asked_for() {
+    let t = app();
+    let (status, headers, _) = t
+        .send(
+            Request::get("/admin/settings?tab=apps")
+                .header(header::ACCEPT, "text/html")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers["location"], "/user/login?next=/admin/settings%3Ftab%3Dapps");
+    let html = String::from_utf8(
+        t.send(
+            Request::get("/user/login?next=/admin/settings%3Ftab%3Dapps")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .2,
+    )
+    .unwrap();
+    assert!(html.contains(r#"name="next" value="/admin/settings?tab&#x3D;apps""#));
+
+    let login = |next: &str| {
+        Request::post("/user/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(format!("username={USER}&password={PASS}&next={next}")))
+            .unwrap()
+    };
+    let (_, headers, _) = t.send(login("%2Fread%2Fa.epub%3Fx%3D1")).await;
+    assert_eq!(headers["location"], "/read/a.epub?x=1");
+    for evil in [
+        "%2F%2Fevil.com",
+        "https%3A%2F%2Fevil.com",
+        "%2F%5Cevil.com",
+        "%2Fuser%2Flogout",
+    ] {
+        let (_, headers, _) = t.send(login(evil)).await;
+        assert_eq!(headers["location"], "/admin", "{evil}");
+    }
+}
+
 #[tokio::test]
 async fn login_sets_a_working_session_and_logout_needs_csrf() {
     let t = app();

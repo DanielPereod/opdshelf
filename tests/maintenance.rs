@@ -133,7 +133,9 @@ async fn finds_duplicates_and_cleans_data_of_gone_books() {
     // Not duplicates: the group is hidden
     let key_at = html.find(r#"name="key" value=""#).unwrap() + 18;
     let key = &html[key_at..key_at + html[key_at..].find('"').unwrap()];
-    let key = key.replace("&#x0A;", "\n").replace("&#10;", "\n");
+    // A browser sends the line breaks of a form field as CRLF
+    let key = key.replace("\n", "\r\n");
+    assert!(key.contains("\r\n"), "the key lists the paths one per line");
     let form = format!(
         "csrf={token}&key={}",
         form_urlencoded::byte_serialize(key.as_bytes()).collect::<String>()

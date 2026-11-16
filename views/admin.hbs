@@ -2087,20 +2087,33 @@
       return moved;
     }
     async function moveBooks(paths, folder) {
+      // Folders the move creates ("Create and move"), so undoing it removes them too
+      const created = folder ? [folder, ...ancestorsOf(folder)].filter((f) => !folders.includes(f)) : [];
       const moved = await sendBooks(paths, folder);
       if (!moved || !moved.length) return;
       const where = folder || libraryRoot;
       const message = moved.length === 1
         ? t('Moved {title} to {folder}', { title: byPath.get(moved[0].to)?.dataset.title || baseName(moved[0].to), folder: where })
         : t('Moved {n} books to {folder}', { n: moved.length, folder: where });
-      showToast(message, { label: t('Undo'), run: () => undoBookMoves(moved) });
+      showToast(message, { label: t('Undo'), run: () => undoBookMoves(moved, created) });
     }
     // Each book goes back to the folder it came from
-    async function undoBookMoves(moved) {
+    async function undoBookMoves(moved, created) {
       const groups = new Map();
       moved.forEach((m) => groups.set(parentOf(m.from), (groups.get(parentOf(m.from)) || []).concat(m.to)));
       let back = 0;
       for (const [folder, paths] of groups) back += ((await sendBooks(paths, folder)) || []).length;
+      // The deepest first; one that has books again by now stays
+      for (const folder of (created || []).slice().sort((a, b) => b.length - a.length)) {
+        if (booksUnder(folder) || folders.some((f) => f.startsWith(folder + '/'))) continue;
+        try { await api('/api/folders/delete', { path: folder }); } catch { continue; }
+        folders = folders.filter((f) => f !== folder);
+        if (state.shelf === 'folder' && state.value === folder) {
+          const parent = folderItem(parentOf(folder)) || document.querySelector('[data-shelf="all"]');
+          if (parent) selectShelf(parent);
+        }
+      }
+      renderFolders();
       if (back) showToast(t('Change undone'));
     }
     // The books' new paths, in the rows, the sidebar and the panel
@@ -2333,7 +2346,8 @@
 
     // ------------------------------------------------------------ upload, with progress
     const isAccepted = (file) => accepted.some((ext) => file.name.toLowerCase().endsWith(ext));
-    const sizeText = (bytes) => bytes > 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.ceil(bytes / 1024) + ' KB';
+    // In the page's language, as the sizes of the list ("28,6 MB")
+    const sizeText = (bytes) => formatBytes(bytes);
     // `folder` picks where the books go; without it, the folder shown
     function openUpload(folder) {
       if (typeof folder === 'string') $('uploadFolder').value = folder;

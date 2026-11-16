@@ -395,6 +395,10 @@ async fn web_reader() {
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, _, _) = t.get("/pages/b.epub").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+    // A damaged comic is a file the reader can name, not a server failure
+    std::fs::write(t.books().join("broken.cbz"), "not a zip").unwrap();
+    let (status, _, _) = t.get("/pages/broken.cbz").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 
     // The reader loads the file inline
     let (_, headers, _) = t.get("/download/b.epub?inline=1").await;

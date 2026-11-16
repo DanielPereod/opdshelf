@@ -285,10 +285,12 @@
       }
     }
 
+    // Where the page shown is; null before epub.js shows the first one (it throws then)
+    const whereNow = () => { try { return rendition.currentLocation(); } catch { return null; } };
     let locationsReady = false;
     const located = book.ready.then(() => book.locations.generate(1600)).then(() => {
       locationsReady = true;
-      const current = rendition.currentLocation();
+      const current = whereNow();
       if (current && current.start) showProgress(current.start.cfi);
     });
     function percentage(cfi, index) {
@@ -404,7 +406,7 @@
       },
       clearHit,
       here() {
-        const loc = rendition.currentLocation();
+        const loc = whereNow();
         if (!loc || !loc.start) return null;
         const contents = rendition.getContents().find((c) => c.sectionIndex === loc.start.index);
         const base = { cfi: loc.start.cfi, chapter: chapterOf(loc.start.href) || '', percentage: percentage(loc.start.cfi, loc.start.index) };
@@ -418,8 +420,9 @@
         }
       },
       isHere(b) {
-        const loc = rendition.currentLocation();
-        if (!loc || !loc.start || !loc.end || !b.cfi) return false;
+        if (!b.cfi) return false;
+        const loc = whereNow();
+        if (!loc || !loc.start || !loc.end) return false;
         try {
           const cfi = new ePub.CFI();
           return cfi.compare(b.cfi, loc.start.cfi) >= 0 && cfi.compare(b.cfi, loc.end.cfi) <= 0;
@@ -529,6 +532,11 @@
         }
       }), { annotations: (list) => notes.applyRemote(list), resync: () => notes.load() });
     }
-    book.ready.then(open).catch((err) => { status.textContent = t('Cannot open this book: {reason}', { reason: err }); });
+    const failed = (err) => {
+      status.textContent = t('Cannot open this book: {reason}', { reason: (err && err.message) || err });
+    };
+    // A file that is not a valid EPUB never gets ready: epub.js only says so with this event
+    book.on('openFailed', () => failed(t('the file is damaged or is not in this format')));
+    book.ready.then(open).catch(failed);
   })();
 </script>

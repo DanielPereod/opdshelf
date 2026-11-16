@@ -431,6 +431,34 @@ async fn download_cover_and_info() {
     assert!(!info.contains("<img src=x"), "descriptions must be escaped");
 }
 
+// The panel's script runs on an empty library too: an element it listens to
+// without checking must be on the page, or the script stops there and the
+// buttons to upload the first book do nothing.
+#[tokio::test]
+async fn the_panel_script_finds_its_elements_with_no_books() {
+    let t = app();
+    let html = t.text("/admin").await;
+    assert!(html.contains("data-upload"), "the empty library offers to upload");
+    let ids: std::collections::HashSet<&str> = html
+        .split("id=\"")
+        .skip(1)
+        .filter_map(|rest| rest.split('"').next())
+        .collect();
+    // Listeners added when the script starts: a statement of its own, at the
+    // first indent of the script's function
+    let missing: Vec<&str> = html
+        .lines()
+        .filter_map(|line| line.strip_prefix("    $('"))
+        .filter(|rest| rest.contains(".addEventListener("))
+        .filter_map(|rest| rest.split('\'').next())
+        .filter(|id| !ids.contains(id))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "used without a check but not on the page: {missing:?}"
+    );
+}
+
 #[tokio::test]
 async fn admin_escapes_filenames() {
     let t = app_with(&[]);

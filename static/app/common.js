@@ -8,6 +8,11 @@ function t(text, values) {
   return out;
 }
 
+// Text to search in: lower case and without accents, so "fundacion" finds "Fundación"
+function searchable(text) {
+  return String(text || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+}
+
 // "5 minutes ago", in the page's language
 function timeAgo(seconds) {
   if (!seconds) return '';

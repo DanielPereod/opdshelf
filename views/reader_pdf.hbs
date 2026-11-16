@@ -62,7 +62,8 @@
   try {
     pdf = await pdfjsLib.getDocument({ url, isEvalSupported: false }).promise;
   } catch (err) {
-    document.getElementById('status').textContent = t('Cannot open this PDF: {reason}', { reason: err.message });
+    const reason = err && err.name === 'InvalidPDFException' ? t('the file is damaged or is not in this format') : err.message;
+    document.getElementById('status').textContent = t('Cannot open this PDF: {reason}', { reason });
     throw err;
   }
 

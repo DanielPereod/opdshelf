@@ -68,10 +68,9 @@
         {{/each}}
       </div>
 
-      {{#if formatCounts}}
-      <details class="nav-group" id="formatsGroup">
+      <details class="nav-group" id="formatsGroup" {{#unless formatCounts}}hidden{{/unless}}>
         <summary><h2>{{t "Formats"}}</h2><i class="fas fa-chevron-down" aria-hidden="true"></i></summary>
-        <div>
+        <div id="formatShelves">
           {{#each formatCounts}}
           <button type="button" class="nav-item" data-shelf="format" data-value="{{name}}">
             <i class="far fa-file"></i><span class="label">{{name}}</span><span class="count">{{count}}</span>
@@ -79,7 +78,6 @@
           {{/each}}
         </div>
       </details>
-      {{/if}}
     </nav>
 
     <div class="side-foot">
@@ -588,23 +586,27 @@
     if ($('moreBooks')) $('moreBooks').addEventListener('click', () => { limit += PAGE; renderRows(); });
     $('recentCount').textContent = rows.filter((r) => Date.parse(r.dataset.added) > weekAgo).length;
 
-    // Authors and series shelves, from the books on the page
+    // Authors, series and formats shelves, from the books on the page. They are
+    // drawn again when books come, go or change, so the shelf shown stays marked.
     const authorsOf = (row) => (row.dataset.authorList || '').split('\n').filter(Boolean);
-    function buildShelves(group, box, kind, names) {
+    const shelfIcons = { author: 'far fa-user', series: 'fas fa-layer-group', format: 'far fa-file' };
+    function buildShelves(group, box, kind, names, byCount) {
       const counts = new Map();
       names.forEach((n) => counts.set(n, (counts.get(n) || 0) + 1));
-      if (counts.size === 0) return;
-      const sorted = Array.from(counts.entries()).sort((a, b) => collator.compare(a[0], b[0]));
+      group.hidden = counts.size === 0;
+      const sorted = Array.from(counts.entries())
+        .sort((a, b) => (byCount ? b[1] - a[1] : 0) || collator.compare(a[0], b[0]));
       box.replaceChildren(...sorted.map(([name, count]) => {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'nav-item';
         b.dataset.shelf = kind;
         b.dataset.value = name;
-        b.innerHTML = `<i class="${kind === 'author' ? 'far fa-user' : 'fas fa-layer-group'}"></i><span class="label"></span><span class="count"></span>`;
+        b.innerHTML = `<i class="${shelfIcons[kind]}"></i><span class="label"></span><span class="count"></span>`;
         b.querySelector('.label').textContent = name;
         b.querySelector('.label').title = name;
         b.querySelector('.count').textContent = count;
+        b.setAttribute('aria-current', state.shelf === kind && state.value === name);
         return b;
       }));
       // With many names, the first ones and a button for the rest
@@ -619,21 +621,27 @@
         label();
         box.append(more);
       }
-      group.hidden = false;
+      if (group.dataset.ready) return;
+      group.dataset.ready = '1';
       const key = 'opdshelf:open:' + kind;
       group.open = storeGet(key) === '1';
       group.addEventListener('toggle', () => storeSet(key, group.open ? '1' : '0'));
     }
-    buildShelves($('authorsGroup'), $('authorShelves'), 'author', rows.flatMap(authorsOf));
     // Suggestions for the editor
     const fillList = (id, names) => $(id).replaceChildren(...Array.from(new Set(names)).sort(collator.compare).map((n) => {
       const o = document.createElement('option');
       o.value = n;
       return o;
     }));
-    fillList('authorOptions', rows.flatMap(authorsOf));
-    fillList('seriesOptions', rows.map((r) => r.dataset.series).filter(Boolean));
-    buildShelves($('seriesGroup'), $('seriesShelves'), 'series', rows.map((r) => r.dataset.series).filter(Boolean));
+    function buildAllShelves() {
+      const series = rows.map((r) => r.dataset.series).filter(Boolean);
+      buildShelves($('authorsGroup'), $('authorShelves'), 'author', rows.flatMap(authorsOf));
+      buildShelves($('seriesGroup'), $('seriesShelves'), 'series', series);
+      buildShelves($('formatsGroup'), $('formatShelves'), 'format', rows.map((r) => r.dataset.format).filter(Boolean), true);
+      fillList('authorOptions', rows.flatMap(authorsOf));
+      fillList('seriesOptions', series);
+    }
+    if (list) buildAllShelves();
     $('dropOverlayTarget').textContent = libraryRoot;
 
     // ------------------------------------------------------------ toasts and confirmations
@@ -694,11 +702,11 @@
     };
 
     function refresh(keepPage) {
-      const query = state.query.toLowerCase().trim();
+      const query = searchable(state.query).trim();
       let shown = 0;
       rows.forEach((row) => {
         const d = row.dataset;
-        const text = (d.title + ' ' + d.authors + ' ' + d.series + ' ' + d.path).toLowerCase();
+        const text = searchable(d.title + ' ' + d.authors + ' ' + d.series + ' ' + d.path);
         const visible = inShelf(row) && (!query || text.includes(query));
         row.hidden = !visible;
         if (visible) shown++;
@@ -773,6 +781,9 @@
     }
 
     function selectShelf(button) {
+      // Coming from another page (settings, devices…) the library is a new step
+      // in the history, so Back returns to that page
+      const fromPage = currentPage();
       showPage('library');
       if (button.dataset.shelf === 'folder') revealFolder(button.dataset.value);
       const group = button.closest('details');
@@ -790,7 +801,8 @@
       if (pageFromPath(url.pathname).page !== 'library') url.pathname = '/admin';
       if (folder && url.pathname === '/admin') url.searchParams.set('folder', folder);
       else url.searchParams.delete('folder');
-      history.replaceState(history.state, '', url);
+      if (fromPage !== 'library') history.pushState({ page: 'library' }, '', url);
+      else history.replaceState(history.state, '', url);
       closeMenu();
       refresh();
     }
@@ -1977,6 +1989,8 @@
       if (viewing) state.value = relocate(state.value, from, to);
       applyBookMoves(rows.filter((r) => within(r.dataset.folder, from))
         .map((r) => ({ from: r.dataset.path, to: relocate(r.dataset.path, from, to) })));
+      // An empty folder moves no book, so the tree is drawn again here too
+      renderFolders();
       if (viewing && currentPage() === 'library') {
         const item = folderItem(state.value);
         if (item) selectShelf(item);
@@ -2005,7 +2019,7 @@
       }
       showToast(t('Deleted folder {folder}', { folder: path }));
     }
-    $('deleteFolderBtn').addEventListener('click', () => deleteFolder(currentFolder()));
+    if ($('deleteFolderBtn')) $('deleteFolderBtn').addEventListener('click', () => deleteFolder(currentFolder()));
 
     // ------------------------------------------------------------ moving books
     // The move dialog lists every folder: one click moves the books, or the folder, there
@@ -2109,7 +2123,7 @@
         if (row.el) row.el.remove();
         row.el = null;
         row.checked = false;
-        ancestorsOf(to + '/x').forEach((f) => { if (!folders.includes(f)) folders.push(f); });
+        ancestorsOf(to).forEach((f) => { if (!folders.includes(f)) folders.push(f); });
         if (from === selectedPath) panelTo = to;
       });
       renderFolders();
@@ -2140,11 +2154,7 @@
       count('incomplete').textContent = incomplete || '';
       count('incomplete').classList.toggle('strong', incomplete > 0);
       $('recentCount').textContent = rows.filter((r) => Date.parse(r.dataset.added) > weekAgo).length;
-      document.querySelectorAll('#side [data-shelf="format"]').forEach((b) => {
-        const n = rows.filter((r) => r.dataset.format === b.dataset.value).length;
-        b.querySelector('.count').textContent = n;
-        b.hidden = n === 0;
-      });
+      buildAllShelves();
     }
     // Books deleted on the server leave the page, which keeps its shelf, search and scroll
     function removeBooks(paths) {

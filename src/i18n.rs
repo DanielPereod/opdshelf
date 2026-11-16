@@ -470,6 +470,7 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("Opened at the point set on {device}", "Abierto en el punto marcado en {device}"),
     ("Continuing from {device} ({pct}%)", "Continuando desde {device} ({pct}%)"),
     ("Cannot open this book: {reason}", "No se puede abrir este libro: {reason}"),
+    ("the file is damaged or is not in this format", "el archivo está dañado o no tiene este formato"),
     ("Reading direction", "Sentido de lectura"),
     ("Page", "Página"),
     ("no images found", "no se han encontrado imágenes"),

@@ -482,16 +482,18 @@
         point = XPointer.resolve(record.progress, section.document);
         if (!point || !XPointer.matches(section.document, point, record.context)) {
           let found = XPointer.find(section.document, record.context, point);
-          // Older versions of the Android app numbered chapters leaving out the
-          // non-linear ones (often the cover), so their positions point a chapter
-          // or more too early: look for the text in the following ones too
-          const skipped = book.spine.spineItems.filter((s) => !s.linear).length;
-          for (let k = 1; !found && record.context && k <= skipped; k++) {
-            const next = book.spine.get(index + k);
-            if (!next) break;
-            await next.load(book.load.bind(book));
-            found = XPointer.find(next.document, record.context);
-            if (found) section = next;
+          // Not in that chapter: the reader that saved it numbered chapters
+          // otherwise (older versions of the Android app left out the non-linear
+          // ones, often the cover). Look for the text in the others, nearest first
+          const total = book.spine.spineItems.length;
+          for (let k = 1; !found && record.context && k < total; k++) {
+            for (const i of [index + k, index - k]) {
+              const other = book.spine.get(i);
+              if (found || i < 0 || i >= total || !other) continue;
+              await other.load(book.load.bind(book));
+              found = XPointer.find(other.document, record.context);
+              if (found) section = other;
+            }
           }
           point = found || point;
         }

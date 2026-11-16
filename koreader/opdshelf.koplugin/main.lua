@@ -382,6 +382,50 @@ function OPDShelf:validXPointer(xp)
     return ok and valid
 end
 
+-- The text of a position without its spaces, to compare it between readers
+local function squash(s) return (type(s) == "string" and s or ""):gsub("%s+", "") end
+
+--- Where a position from another device is in this book. The xpointer when the
+-- saved text follows it; otherwise the place nearest to it where that text is.
+-- Readers build the document a little differently (and older apps numbered
+-- chapters otherwise), so a path alone can lead to other words.
+-- Returns nil when neither the xpointer nor the text can be found.
+function OPDShelf:locate(record)
+    local xp = record.progress
+    local valid = self:validXPointer(xp)
+    local context = type(record.context) == "table" and record.context or {}
+    local after = type(context.after) == "string" and context.after ~= "" and context.after
+        or type(context.selected) == "string" and context.selected or ""
+    local want = squash(after)
+    if #want < 6 then return valid and xp or nil end
+    if valid then
+        local ok, here = pcall(self.contextAt, self, xp)
+        if ok and squash(here.after):sub(1, 8) == want:sub(1, 8) then return xp end
+    end
+    local doc = self.ui.document
+    if not doc.findAllText then return valid and xp or nil end
+    local first = {}
+    for word in after:gmatch("%S+") do
+        first[#first + 1] = word
+        if #first == 6 then break end
+    end
+    local ok, hits = pcall(doc.findAllText, doc, table.concat(first, " "), false, 0, 200, false)
+    if not ok or type(hits) ~= "table" or #hits == 0 then return valid and xp or nil end
+    local height = doc.info and doc.info.doc_height or 0
+    local near = (record.percentage or 0) * height
+    if valid then
+        local got, pos = pcall(doc.getPosFromXPointer, doc, xp)
+        if got and pos then near = pos end
+    end
+    local best, distance
+    for _, hit in ipairs(hits) do
+        local got, pos = pcall(doc.getPosFromXPointer, doc, hit.start)
+        local d = got and pos and math.abs(pos - near) or math.huge
+        if not best or d < distance then best, distance = hit.start, d end
+    end
+    return best
+end
+
 --- Whether a position from the server is on the page shown now.
 function OPDShelf:showing(record)
     if type(record) ~= "table" or type(record.progress) ~= "string" then return false end
@@ -401,6 +445,7 @@ function OPDShelf:goTo(record)
     self.following = record
     self.following_at = nil
     local doc = self.ui.document
+    local xp = not doc.info.has_pages and self:locate(record)
     if doc.info.has_pages then
         local page = tonumber(record.progress)
         if page then
@@ -408,13 +453,13 @@ function OPDShelf:goTo(record)
         else
             self.ui:handleEvent(Event:new("GotoPercent", (record.percentage or 0) * 100))
         end
-    elseif self:validXPointer(record.progress) then
+    elseif xp then
         if record.manual then
-            self:setMark(record.progress)
+            self:setMark(xp)
             local selected = type(record.context) == "table" and record.context.selected or ""
-            self.pending_highlight = { xp = record.progress, selected = selected }
+            self.pending_highlight = { xp = xp, selected = selected }
         end
-        self.ui:handleEvent(Event:new("GotoXPointer", record.progress, record.progress))
+        self.ui:handleEvent(Event:new("GotoXPointer", xp, xp))
     else
         -- The page reached may not contain the exact percentage: its first page change is ours
         self.following_at = os.time()
@@ -566,6 +611,12 @@ function OPDShelf:push(opts)
     local progress, percentage = self:position()
     if not progress then return end
     if not opts.force and progress == self.last_sent then return end
+    -- The text there, so other readers can check they reach the same words
+    local context = opts.context
+    if not context and not self.ui.document.info.has_pages then
+        local ok, around = pcall(self.contextAt, self, progress)
+        if ok then context = around end
+    end
     local pending = self.state:readSetting("pending") or {}
     pending[self.document] = {
         document = self.document,
@@ -574,7 +625,7 @@ function OPDShelf:push(opts)
         device = self:deviceName(),
         device_id = self.device_id,
         manual = opts.manual or nil,
-        context = opts.context,
+        context = context,
         timestamp = (not opts.now and (self.last_move or self:docState().read_at)) or os.time(),
     }
     self.state:saveSetting("pending", pending)

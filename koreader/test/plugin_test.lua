@@ -116,6 +116,15 @@ local doc = {
     getTextFromXPointers = function(_, a, b, draw) if draw then selection_drawn = { a, b } end local t = {} for i = idx(a), idx(b) - 1 do t[#t+1] = words[i] end return table.concat(t, " ") end,
     getPosFromXPointer = function(_, x) return idx(x) * 5 end,
     isXPointerInDocument = function(_, x) return idx(x) ~= nil and idx(x) <= #words end,
+    findAllText = function(_, pattern)
+        local hits = {}
+        for i = 1, #words do
+            local t = {}
+            for j = i, math.min(#words, i + 5) do t[#t+1] = words[j] end
+            if table.concat(t, " "):sub(1, #pattern) == pattern then hits[#hits+1] = { start = xp(i), ["end"] = xp(i + 1) } end
+        end
+        return hits
+    end,
     isXPointerInCurrentPage = function(_, x) local n = idx(x) return n >= page_first and n < page_first + page_size end,
     clearSelection = function() selection_drawn = nil note("clearSelection") end,
 }
@@ -207,6 +216,7 @@ check(#scheduled == 1, "only once while turning pages")
 respond(200, { accepted = true, current = remote("KOBO-ID", 41) })
 runScheduled()
 check(last().body.progress == xp(41) and not last().body.manual, "sends the new page")
+check(last().body.context.after:match("^w41 w42") and last().body.context.before:match("w40$"), "with the text there, so other readers can check it")
 check(not doc_settings:readSetting("opdshelf_sync").moved, "and the server agrees")
 
 -- 4. Offline: kept, sent when back online
@@ -233,6 +243,22 @@ check(events[#events].name == "GotoXPointer" and events[#events].args[1] == xp(1
 check(shown[#shown].kind == "notification" and shown[#shown].text:match("Pixel"), "and says from which device")
 check(#scheduled == 0, "moving there is not sent back as reading")
 p:onCloseDocument()
+
+-- 5b. The xpointer leads to other words than the ones saved with it (another
+-- reader built the chapter otherwise): goes where those words are
+page_first = 100
+p = open()
+respond(200, { current = remote("Pixel", 300, 0, { context = { before = "w148 w149", after = "w150 w151 w152 w153" } }) })
+runScheduled()
+check(events[#events].name == "GotoXPointer" and events[#events].args[1] == xp(150), "finds the saved text when the xpointer leads elsewhere")
+p:onCloseDocument()
+page_first = 100
+p = open()
+respond(200, { current = remote("Pixel", 200, 0, { context = { after = "w200 w201 w202" } }) })
+runScheduled()
+check(events[#events].args[1] == xp(200), "and keeps the xpointer when its text matches")
+p:onCloseDocument()
+page_first = 100
 
 -- 6. Another device behind: asks
 p = open()

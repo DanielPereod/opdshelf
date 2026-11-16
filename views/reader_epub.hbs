@@ -475,12 +475,27 @@
         }
       }
       if (!point) {
-        section = book.spine.get(XPointer.spineIndex(record.progress));
-        if (!section || XPointer.spineIndex(record.progress) < 0) return null;
+        const index = XPointer.spineIndex(record.progress);
+        section = book.spine.get(index);
+        if (!section || index < 0) return null;
         await section.load(book.load.bind(book));
         point = XPointer.resolve(record.progress, section.document);
         if (!point || !XPointer.matches(section.document, point, record.context)) {
-          point = XPointer.find(section.document, record.context, point) || point;
+          let found = XPointer.find(section.document, record.context, point);
+          // Not in that chapter: the reader that saved it numbered chapters
+          // otherwise (older versions of the Android app left out the non-linear
+          // ones, often the cover). Look for the text in the others, nearest first
+          const total = book.spine.spineItems.length;
+          for (let k = 1; !found && record.context && k < total; k++) {
+            for (const i of [index + k, index - k]) {
+              const other = book.spine.get(i);
+              if (found || i < 0 || i >= total || !other) continue;
+              await other.load(book.load.bind(book));
+              found = XPointer.find(other.document, record.context);
+              if (found) section = other;
+            }
+          }
+          point = found || point;
         }
         if (!point) return { cfi: section.href };
       }

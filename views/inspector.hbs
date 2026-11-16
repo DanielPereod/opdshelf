@@ -56,7 +56,7 @@
     <dt>{{t "Language"}}</dt>
     <dd>{{#if meta.language}}<span data-lang-code="{{meta.language}}">{{meta.language}}</span>{{else}}—{{/if}}</dd>
     <dt>{{#if identifierIsIsbn}}ISBN{{else}}{{t "Identifier"}}{{/if}}</dt>
-    <dd class="mono">{{#if meta.identifier}}{{meta.identifier}}{{else}}—{{/if}}</dd>
+    <dd{{#if meta.identifier}} class="mono"{{/if}}>{{#if meta.identifier}}{{meta.identifier}}{{else}}—{{/if}}</dd>
     <dt>{{t "Subjects"}}</dt>
     <dd>{{#if meta.subjects}}{{#each meta.subjects}}{{#if @index}}, {{/if}}{{this}}{{/each}}{{else}}—{{/if}}</dd>
   </dl>

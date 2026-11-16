@@ -105,7 +105,7 @@ pub async fn pages(State(state): State<AppState>, Path(path): Path<String>) -> R
     };
     match page_list(&state, &book).await {
         Some(pages) => Json(json!({ "count": pages.len() })).into_response(),
-        None => (StatusCode::INTERNAL_SERVER_ERROR, "Cannot read the archive").into_response(),
+        None => (StatusCode::UNPROCESSABLE_ENTITY, "Cannot read the archive").into_response(),
     }
 }
 

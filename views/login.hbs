@@ -1,5 +1,6 @@
 <main class="login">
   <form action="/user/login" method="POST" class="login-card" id="loginForm">
+    {{#if next}}<input type="hidden" name="next" value="{{next}}">{{/if}}
     <div class="brand"><img src="/static/icon.png" alt="">OPDShelf</div>
     <div>
       <h1>{{t "Sign in"}}</h1>

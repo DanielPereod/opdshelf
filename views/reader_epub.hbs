@@ -16,7 +16,7 @@
   <div id="bookmarkList" role="tabpanel" aria-labelledby="bookmarkTab" hidden></div>
 </nav>
 
-<main class="stage">
+<main class="stage" id="stage" tabindex="-1">
   <h1 class="visually-hidden">{{book.title}}</h1>
   <div id="viewer" class="epub-viewer"></div>
   <button type="button" id="prev" class="page-turn prev" title="{{t "Previous page"}}" aria-label="{{t "Previous page"}}"><i class="fas fa-chevron-left"></i></button>
@@ -203,6 +203,9 @@
     // Positions are only saved once the reader moves, so opening a book does
     // not replace a point set on another device with the start of its page
     let moved = false;
+    // After going to a chapter, bookmark or highlight from a list, the arrow
+    // keys turn pages again (they do nothing while the list has the focus)
+    const readHere = () => document.getElementById('stage').focus({ preventScroll: true });
     const prev = () => { moved = true; rendition.prev(); };
     const next = () => { moved = true; rendition.next(); };
     document.getElementById('prev').onclick = prev;
@@ -244,6 +247,7 @@
           moved = true;
           rendition.display(item.href);
           if (!wide.matches) showToc(false);
+          readHere();
         };
         tocList.append(button);
         tocButtons.push(button);
@@ -285,10 +289,12 @@
       }
     }
 
+    // Where the page shown is; null before epub.js shows the first one (it throws then)
+    const whereNow = () => { try { return rendition.currentLocation(); } catch { return null; } };
     let locationsReady = false;
     const located = book.ready.then(() => book.locations.generate(1600)).then(() => {
       locationsReady = true;
-      const current = rendition.currentLocation();
+      const current = whereNow();
       if (current && current.start) showProgress(current.start.cfi);
     });
     function percentage(cfi, index) {
@@ -337,7 +343,7 @@
     const highlights = ReaderHighlights.mount({
       book, rendition, notes, chapterOf,
       percentageOf: (cfi, index) => { try { return percentage(cfi, index); } catch { return index / Math.max(1, book.spine.length); } },
-      onJump: () => { moved = true; },
+      onJump: () => { moved = true; readHere(); },
     });
     // Search in the book and bookmarks (static/reader/tools.js)
     let hitCfi = null;
@@ -404,7 +410,7 @@
       },
       clearHit,
       here() {
-        const loc = rendition.currentLocation();
+        const loc = whereNow();
         if (!loc || !loc.start) return null;
         const contents = rendition.getContents().find((c) => c.sectionIndex === loc.start.index);
         const base = { cfi: loc.start.cfi, chapter: chapterOf(loc.start.href) || '', percentage: percentage(loc.start.cfi, loc.start.index) };
@@ -418,8 +424,9 @@
         }
       },
       isHere(b) {
-        const loc = rendition.currentLocation();
-        if (!loc || !loc.start || !loc.end || !b.cfi) return false;
+        if (!b.cfi) return false;
+        const loc = whereNow();
+        if (!loc || !loc.start || !loc.end) return false;
         try {
           const cfi = new ePub.CFI();
           return cfi.compare(b.cfi, loc.start.cfi) >= 0 && cfi.compare(b.cfi, loc.end.cfi) <= 0;
@@ -429,6 +436,7 @@
       },
       goTo(b) {
         moved = true;
+        readHere();
         rendition.display(b.cfi || (locationsReady ? book.locations.cfiFromPercentage(b.percentage || 0) : undefined));
       },
       where: (b) => [b.chapter, Math.round((b.percentage || 0) * 100) + '%'].filter(Boolean).join(' · '),
@@ -529,6 +537,11 @@
         }
       }), { annotations: (list) => notes.applyRemote(list), resync: () => notes.load() });
     }
-    book.ready.then(open).catch((err) => { status.textContent = t('Cannot open this book: {reason}', { reason: err }); });
+    const failed = (err) => {
+      status.textContent = t('Cannot open this book: {reason}', { reason: (err && err.message) || err });
+    };
+    // A file that is not a valid EPUB never gets ready: epub.js only says so with this event
+    book.on('openFailed', () => failed(t('the file is damaged or is not in this format')));
+    book.ready.then(open).catch(failed);
   })();
 </script>

@@ -204,15 +204,23 @@ pub struct LookupQuery {
     isbn: String,
 }
 
-pub async fn lookup(State(state): State<AppState>, Query(query): Query<LookupQuery>) -> Response {
+pub async fn lookup(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<LookupQuery>) -> Response {
+    // The panel shows the error as it comes, so it is in the panel's language
+    let lang = crate::i18n::Lang::from_headers(&headers);
+    let error = |status: StatusCode, text: &str| (status, Json(json!({ "error": lang.text(text) }))).into_response();
+    if normalize_isbn(&query.isbn).is_none() {
+        return error(StatusCode::BAD_REQUEST, "This is not a valid ISBN");
+    }
     match state.lookup.isbn(&query.isbn).await {
         Ok(Some(found)) => Json(found).into_response(),
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "No book found for this ISBN" })),
-        )
-            .into_response(),
-        Err(err) => (StatusCode::BAD_GATEWAY, Json(json!({ "error": err }))).into_response(),
+        Ok(None) => error(StatusCode::NOT_FOUND, "No book found for this ISBN"),
+        Err(err) => {
+            tracing::warn!("ISBN lookup failed: {err}");
+            error(
+                StatusCode::BAD_GATEWAY,
+                "Open Library and Google Books cannot be reached. Try again later.",
+            )
+        }
     }
 }
 

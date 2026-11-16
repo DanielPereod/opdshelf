@@ -304,10 +304,10 @@
     const say = (message, action) => (opts.toast ? opts.toast(message, action) : null);
 
     function filtered() {
-      const q = squeeze(ui.query).toLowerCase();
+      const q = searchable(squeeze(ui.query));
       let items = notes.list().filter((a) => (!ui.color || a.color === ui.color)
         && (!ui.onlyNotes || (a.note && a.note.trim()))
-        && (!q || (a.text + ' ' + (a.note || '') + ' ' + (a.chapter || '')).toLowerCase().includes(q)));
+        && (!q || searchable(a.text + ' ' + (a.note || '') + ' ' + (a.chapter || '')).includes(q)));
       if (ui.sort === 'newest') items = items.slice().sort((a, b) => b.updated - a.updated);
       return items;
     }

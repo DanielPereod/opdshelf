@@ -340,6 +340,20 @@ input[type="checkbox"] {
   font-weight: 600;
 }
 
+/* A read-only books folder: nothing that would change its files */
+.read-only [data-new-folder],
+.read-only .nav-more,
+.read-only #folderMenuBtn,
+.read-only #bulkMove,
+.read-only #bulkDelete,
+.read-only #deleteFolderBtn,
+.read-only [data-delete],
+.read-only [data-move],
+.read-only [data-rename],
+.read-only [data-delete-book] {
+  display: none !important;
+}
+
 .notice.error i {
   color: var(--danger);
 }
@@ -1874,6 +1888,24 @@ dialog::backdrop {
   margin: 0 auto var(--sp-4);
   background: #fff;
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.2);
+}
+
+/* PDF pages are pictures of white paper: the gray and dark page colours tint
+   them too, so the choice does something besides the margins */
+.reader[data-paper="gray"] .pdf-page {
+  background: #e9e9e9;
+}
+
+.reader[data-paper="gray"] .pdf-page canvas {
+  filter: brightness(0.915);
+}
+
+.reader[data-paper="dark"] .pdf-page {
+  background: #141414;
+}
+
+.reader[data-paper="dark"] .pdf-page canvas {
+  filter: invert(0.92) hue-rotate(180deg);
 }
 
 .text-page {
@@ -4410,6 +4442,14 @@ a.top-book:hover {
     color: var(--muted);
   }
 
+  /* The PDF reader has the most buttons: on a phone the zoom is a pinch and the
+     download is in the book's details, so the title and page colour still fit */
+  #controls #zoomOut,
+  #controls #zoomIn,
+  #controls a[href^="/download/"] {
+    display: none;
+  }
+
 
 }
 
@@ -5130,4 +5170,10 @@ a.top-book:hover {
   .shortcuts dd {
     margin-bottom: var(--sp-2);
   }
+}
+
+/* The page of the EPUB reader takes the focus after a jump from a list, so the
+   arrow keys turn pages: it needs no ring of its own */
+#stage:focus {
+  outline: none;
 }

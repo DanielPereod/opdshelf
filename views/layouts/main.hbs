@@ -36,9 +36,13 @@
       document.querySelectorAll('[data-theme-set]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.themeSet === choice));
     }
 
+    // From the system's theme the first click always shows the other one, then
+    // the one the system has, fixed, and then back to following the system
     function toggleTheme() {
       const saved = storeGet('theme');
-      storeSet('theme', saved === 'light' ? 'dark' : saved === 'dark' ? 'system' : 'light');
+      const systemTheme = systemDark.matches ? 'dark' : 'light';
+      const otherTheme = systemDark.matches ? 'light' : 'dark';
+      storeSet('theme', saved === otherTheme ? systemTheme : saved === systemTheme ? 'system' : otherTheme);
       applyTheme();
     }
 

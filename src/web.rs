@@ -175,9 +175,63 @@ pub fn router(config: Config) -> Router {
         .route("/kosync/healthcheck", get(sync::kosync_health))
         .route("/static/{*path}", get(static_file))
         .route("/healthz", get(|| async { "ok" }))
+        .layer(middleware::from_fn_with_state(state.clone(), refuse_when_read_only))
         .layer(middleware::from_fn_with_state(state.clone(), not_found_page))
         .layer(middleware::from_fn_with_state(state.clone(), require_auth))
         .with_state(state)
+}
+
+pub const READ_ONLY: &str = "The books folder is read-only: books cannot be uploaded, moved, renamed or deleted";
+
+/// What changes the files in BOOKS_DIR. Edits, covers and progress go to
+/// DATA_DIR, so they keep working when the books folder is read-only.
+fn changes_books(method: &axum::http::Method, path: &str) -> bool {
+    const PATHS: &[&str] = &[
+        "/admin/upload",
+        "/admin/delete",
+        "/admin/rename",
+        "/admin/bulk",
+        "/admin/folder",
+        "/admin/maintenance/delete",
+        "/api/folders",
+        "/api/folders/rename",
+        "/api/folders/move",
+        "/api/folders/delete",
+        "/api/books/move",
+        "/api/books/rename",
+        "/api/books/delete",
+    ];
+    match *method {
+        axum::http::Method::POST => PATHS.contains(&path),
+        axum::http::Method::PUT => path.starts_with("/api/upload/"),
+        _ => false,
+    }
+}
+
+/// A read-only books folder (a NAS share mounted read-only, a container
+/// volume with `:ro`) refuses every change with one clear message, instead
+/// of the system's error for each file halfway through.
+async fn refuse_when_read_only(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    if !changes_books(request.method(), request.uri().path()) || library_writable(&state).await {
+        return next.run(request).await;
+    }
+    let path = request.uri().path();
+    if path.starts_with("/api/") {
+        return api_error(StatusCode::FORBIDDEN, "read_only", READ_ONLY);
+    }
+    let back = if path.starts_with("/admin/maintenance") {
+        crate::maintenance::TAB
+    } else {
+        "/admin"
+    };
+    Redirect::to(&format!("{back}?error={}", paths::url_encode(READ_ONLY))).into_response()
+}
+
+pub async fn library_writable(state: &AppState) -> bool {
+    let library = state.library.clone();
+    tokio::task::spawn_blocking(move || library.writable())
+        .await
+        .unwrap_or(false)
 }
 
 /// A browser that opens a page that does not exist (a moved book, an old
@@ -226,7 +280,13 @@ async fn require_auth(State(state): State<AppState>, request: Request, next: Nex
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.contains("text/html"));
     if wants_html {
-        return Redirect::to("/user/login").into_response();
+        // After signing in, back to the page asked for
+        let asked = request.uri().path_and_query().map_or("/admin", |p| p.as_str());
+        let login = match safe_next(Some(asked)) {
+            "/admin" => "/user/login".to_string(),
+            next => format!("/user/login?next={}", paths::url_encode(next)),
+        };
+        return Redirect::to(&login).into_response();
     }
     (
         StatusCode::UNAUTHORIZED,
@@ -475,6 +535,7 @@ pub async fn library_data(state: &AppState, query: &AdminQuery) -> serde_json::V
         "formats": extensions.iter().map(|e| e.trim_start_matches('.').to_uppercase()).collect::<Vec<_>>().join(", "),
         "notice": query.notice,
         "error": query.error,
+        "readOnly": !library_writable(state).await,
         "apkLocal": apps::is_local(state, &apps::ANDROID),
         "pluginLocal": apps::is_local(state, &apps::KOREADER),
         "appsBeta": state.config.apps_channel == "beta",
@@ -1531,18 +1592,37 @@ pub fn is_isbn(identifier: &str) -> bool {
 struct LoginQuery {
     error: Option<String>,
     username: Option<String>,
+    next: Option<String>,
+}
+
+/// Where to go after signing in: a page of this server (a path, never another
+/// site such as `//example.com`), or the panel.
+fn safe_next(next: Option<&str>) -> &str {
+    match next {
+        // Kept as the browser sent it, percent-encoded, so it is a valid Location header
+        Some(n)
+            if n.starts_with('/')
+                && !n.starts_with("//")
+                && !n.starts_with("/user/")
+                && n.bytes().all(|b| b.is_ascii_graphic() && b != b'\\') =>
+        {
+            n
+        }
+        _ => "/admin",
+    }
 }
 
 async fn login_page(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<LoginQuery>) -> Response {
+    let next = safe_next(query.next.as_deref());
     if state.auth.is_authorized(&headers) {
-        return Redirect::to("/admin").into_response();
+        return Redirect::to(next).into_response();
     }
     page(
         &state,
         &headers,
         "login",
         "Sign in - OPDShelf",
-        json!({ "error": query.error, "typedUsername": query.username }),
+        json!({ "error": query.error, "typedUsername": query.username, "next": (next != "/admin").then_some(next) }),
     )
 }
 
@@ -1550,21 +1630,26 @@ async fn login_page(State(state): State<AppState>, headers: HeaderMap, Query(que
 struct LoginForm {
     username: String,
     password: String,
+    next: Option<String>,
 }
 
 async fn login(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<LoginForm>) -> Response {
+    let next = safe_next(form.next.as_deref());
     if !state.auth.check_credentials(&form.username, &form.password) {
         // Slow down password guessing
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         // Keep what was typed as the username so only the password has to be typed again
-        return Redirect::to(&format!(
+        let mut again = format!(
             "/user/login?error=Invalid%20username%20or%20password&username={}",
             paths::url_encode(form.username.chars().take(100).collect::<String>().as_str())
-        ))
-        .into_response();
+        );
+        if next != "/admin" {
+            again.push_str(&format!("&next={}", paths::url_encode(next)));
+        }
+        return Redirect::to(&again).into_response();
     }
     let cookie = state.auth.session_cookie(is_https(&state, &headers));
-    ([(header::SET_COOKIE, cookie)], Redirect::to("/admin")).into_response()
+    ([(header::SET_COOKIE, cookie)], Redirect::to(next)).into_response()
 }
 
 #[derive(Deserialize)]

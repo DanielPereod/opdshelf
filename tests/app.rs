@@ -204,6 +204,52 @@ async fn requires_auth_and_rejects_forged_cookies() {
     }
 }
 
+// Signing in goes back to the page that asked for it, and only to a page of
+// this server
+#[tokio::test]
+async fn login_returns_to_the_page_asked_for() {
+    let t = app();
+    let (status, headers, _) = t
+        .send(
+            Request::get("/admin/settings?tab=apps")
+                .header(header::ACCEPT, "text/html")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers["location"], "/user/login?next=/admin/settings%3Ftab%3Dapps");
+    let html = String::from_utf8(
+        t.send(
+            Request::get("/user/login?next=/admin/settings%3Ftab%3Dapps")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .2,
+    )
+    .unwrap();
+    assert!(html.contains(r#"name="next" value="/admin/settings?tab&#x3D;apps""#));
+
+    let login = |next: &str| {
+        Request::post("/user/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(format!("username={USER}&password={PASS}&next={next}")))
+            .unwrap()
+    };
+    let (_, headers, _) = t.send(login("%2Fread%2Fa.epub%3Fx%3D1")).await;
+    assert_eq!(headers["location"], "/read/a.epub?x=1");
+    for evil in [
+        "%2F%2Fevil.com",
+        "https%3A%2F%2Fevil.com",
+        "%2F%5Cevil.com",
+        "%2Fuser%2Flogout",
+    ] {
+        let (_, headers, _) = t.send(login(evil)).await;
+        assert_eq!(headers["location"], "/admin", "{evil}");
+    }
+}
+
 #[tokio::test]
 async fn login_sets_a_working_session_and_logout_needs_csrf() {
     let t = app();
@@ -429,6 +475,34 @@ async fn download_cover_and_info() {
     let info = t.text("/info/q.epub").await;
     assert!(info.contains("Hola"));
     assert!(!info.contains("<img src=x"), "descriptions must be escaped");
+}
+
+// The panel's script runs on an empty library too: an element it listens to
+// without checking must be on the page, or the script stops there and the
+// buttons to upload the first book do nothing.
+#[tokio::test]
+async fn the_panel_script_finds_its_elements_with_no_books() {
+    let t = app();
+    let html = t.text("/admin").await;
+    assert!(html.contains("data-upload"), "the empty library offers to upload");
+    let ids: std::collections::HashSet<&str> = html
+        .split("id=\"")
+        .skip(1)
+        .filter_map(|rest| rest.split('"').next())
+        .collect();
+    // Listeners added when the script starts: a statement of its own, at the
+    // first indent of the script's function
+    let missing: Vec<&str> = html
+        .lines()
+        .filter_map(|line| line.strip_prefix("    $('"))
+        .filter(|rest| rest.contains(".addEventListener("))
+        .filter_map(|rest| rest.split('\'').next())
+        .filter(|id| !ids.contains(id))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "used without a check but not on the page: {missing:?}"
+    );
 }
 
 #[tokio::test]
@@ -680,4 +754,69 @@ async fn the_book_panel_names_its_identifier() {
     );
     assert!(uuid.contains("<dt>Metadata</dt>"));
     assert!(uuid.contains("data-bytes="), "the size is shown like in the list");
+}
+
+/// A books folder mounted read-only (a NAS share, a `:ro` volume) refuses
+/// uploads with one clear answer, and the panel stops offering them, while
+/// edits, which go to DATA_DIR, keep working.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_read_only_books_folder_refuses_changes_clearly() {
+    // Not even root can create files in /proc
+    let data = tempfile::tempdir().unwrap();
+    let env: HashMap<&str, String> = [
+        ("BOOKS_DIR", "/proc/self/fdinfo".to_string()),
+        ("DATA_DIR", data.path().to_string_lossy().into_owned()),
+        ("WATCH", "false".to_string()),
+    ]
+    .into();
+    let app = router(Config::from_lookup(|k| env.get(k).cloned()));
+    let send = |request: Request<Body>| async {
+        let response = app.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let location = response
+            .headers()
+            .get(header::LOCATION)
+            .map(|v| v.to_str().unwrap().to_string());
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        (status, location, String::from_utf8_lossy(&body).into_owned())
+    };
+
+    let (status, _, body) = send(Request::put("/api/upload/a.epub").body(Body::from("x")).unwrap()).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body).unwrap()["code"],
+        "read_only"
+    );
+
+    let (status, _, _) = send(
+        Request::post("/api/folders")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"path":"","name":"New"}"#))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // The forms of the panel go back to it with the reason
+    let (status, location, _) = send(
+        Request::post("/admin/delete")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("csrf=x&path=a.epub"))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(location.unwrap().contains("read-only"));
+
+    let (_, _, html) = send(
+        Request::get("/admin")
+            .header(header::ACCEPT_LANGUAGE, "es")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert!(html.contains("La carpeta de libros es de solo lectura"));
+    assert!(!html.contains(r#"id="uploadBtn""#));
+    assert!(html.contains(r#"data-read-only="true""#));
 }

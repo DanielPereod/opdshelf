@@ -235,17 +235,53 @@ impl Store {
     }
 
     fn save(&self) -> std::io::Result<()> {
-        let json = serde_json::to_vec_pretty(&*self.overrides.lock().unwrap()).map_err(std::io::Error::other)?;
-        std::fs::create_dir_all(&self.dir)?;
-        let tmp = self.dir.join("metadata.json.tmp");
-        std::fs::write(&tmp, json)?;
-        std::fs::rename(tmp, self.dir.join("metadata.json"))
+        // Kept locked until the file is written: two saves at once could
+        // otherwise mix their files, or leave the older one on disk
+        let overrides = self.overrides.lock().unwrap();
+        let json = serde_json::to_vec_pretty(&*overrides).map_err(std::io::Error::other)?;
+        write_atomic(&self.dir.join("metadata.json"), &json)
     }
+}
+
+/// Writes a file of DATA_DIR whole or not at all: to a temporary file first,
+/// then renamed over the old one, so a crash never leaves half a file.
+pub(crate) fn write_atomic(file: &Path, data: &[u8]) -> std::io::Result<()> {
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut tmp = file.as_os_str().to_owned();
+    tmp.push(".tmp");
+    std::fs::write(&tmp, data)?;
+    std::fs::rename(tmp, file)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saves_at_the_same_time_keep_every_edit() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path());
+        let threads: Vec<_> = (0..8)
+            .map(|t| {
+                let store = store.clone();
+                std::thread::spawn(move || {
+                    for i in 0..40 {
+                        let edit = MetaOverride {
+                            title: Some(format!("A long enough title to take a while to write {t} {i}")),
+                            ..Default::default()
+                        };
+                        store.set(&format!("{t}/{i}.epub"), edit).unwrap();
+                    }
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        assert_eq!(Store::open(dir.path()).overrides.lock().unwrap().len(), 320);
+    }
 
     #[test]
     fn apply_overrides() {

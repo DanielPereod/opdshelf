@@ -276,6 +276,22 @@ impl Library {
         &self.root
     }
 
+    /// Whether files can be added to the books folder: false when it is on a
+    /// read-only mount or share, or this process may not write to it. Checked
+    /// by creating and removing a hidden file, which the scans skip.
+    pub fn writable(&self) -> bool {
+        let probe = self.root.join(".opdshelf-write-check");
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&probe) {
+            Ok(_) => {
+                let _ = std::fs::remove_file(&probe);
+                true
+            }
+            // Left behind by a check that was cut short
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => std::fs::remove_file(&probe).is_ok(),
+            Err(_) => false,
+        }
+    }
+
     pub fn is_allowed(&self, rel: &str) -> bool {
         let ext = paths::extension(rel);
         self.allowed_extensions.contains(&ext) || (ext == "fb2.zip" && self.allowed_extensions.contains("zip"))

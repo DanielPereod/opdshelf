@@ -188,6 +188,12 @@ async fn pdf_covers_when_poppler_is_installed() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers["content-type"], "image/jpeg");
     assert!(body.starts_with(&[0xff, 0xd8]));
+
+    // A damaged PDF offers no cover that would fail to load
+    std::fs::write(t.books().join("broken.pdf"), "not a pdf at all").unwrap();
+    let feed = t.text("/opds/books").await;
+    assert!(feed.contains("broken"));
+    assert!(!feed.contains("/cover/broken.pdf"));
 }
 
 #[tokio::test]
@@ -317,8 +323,30 @@ async fn isbn_lookup_and_cover_download() {
     assert_eq!(found["description"], "Macondo.");
     assert_eq!(found["source"], "Open Library");
 
-    let (status, _, _) = t.get("/admin/lookup?isbn=123").await;
+    let (status, _, body) = t.get("/admin/lookup?isbn=123").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(String::from_utf8_lossy(&body).contains("This is not a valid ISBN"));
+
+    // With no catalog to ask, a message to show and not the HTTP client's error,
+    // in the panel's language
+    let offline = app_with(&[
+        ("OPENLIBRARY_URL", "http://127.0.0.1:9"),
+        ("GOOGLE_BOOKS_URL", "http://127.0.0.1:9"),
+    ]);
+    let (status, _, body) = offline
+        .send(
+            Request::get("/admin/lookup?isbn=9788437604947")
+                .header(header::COOKIE, "opdshelf_lang=es")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
+    let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        error["error"],
+        "No se puede conectar con Open Library ni con Google Books. Inténtalo más tarde."
+    );
 
     let csrf = t.csrf().await;
     let cover_url = found["coverUrl"].as_str().unwrap();
@@ -395,6 +423,10 @@ async fn web_reader() {
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, _, _) = t.get("/pages/b.epub").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+    // A damaged comic is a file the reader can name, not a server failure
+    std::fs::write(t.books().join("broken.cbz"), "not a zip").unwrap();
+    let (status, _, _) = t.get("/pages/broken.cbz").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 
     // The reader loads the file inline
     let (_, headers, _) = t.get("/download/b.epub?inline=1").await;

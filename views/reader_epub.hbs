@@ -475,12 +475,25 @@
         }
       }
       if (!point) {
-        section = book.spine.get(XPointer.spineIndex(record.progress));
-        if (!section || XPointer.spineIndex(record.progress) < 0) return null;
+        const index = XPointer.spineIndex(record.progress);
+        section = book.spine.get(index);
+        if (!section || index < 0) return null;
         await section.load(book.load.bind(book));
         point = XPointer.resolve(record.progress, section.document);
         if (!point || !XPointer.matches(section.document, point, record.context)) {
-          point = XPointer.find(section.document, record.context, point) || point;
+          let found = XPointer.find(section.document, record.context, point);
+          // Older versions of the Android app numbered chapters leaving out the
+          // non-linear ones (often the cover), so their positions point a chapter
+          // or more too early: look for the text in the following ones too
+          const skipped = book.spine.spineItems.filter((s) => !s.linear).length;
+          for (let k = 1; !found && record.context && k <= skipped; k++) {
+            const next = book.spine.get(index + k);
+            if (!next) break;
+            await next.load(book.load.bind(book));
+            found = XPointer.find(next.document, record.context);
+            if (found) section = next;
+          }
+          point = found || point;
         }
         if (!point) return { cfi: section.href };
       }

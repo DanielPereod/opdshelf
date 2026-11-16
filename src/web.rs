@@ -175,9 +175,63 @@ pub fn router(config: Config) -> Router {
         .route("/kosync/healthcheck", get(sync::kosync_health))
         .route("/static/{*path}", get(static_file))
         .route("/healthz", get(|| async { "ok" }))
+        .layer(middleware::from_fn_with_state(state.clone(), refuse_when_read_only))
         .layer(middleware::from_fn_with_state(state.clone(), not_found_page))
         .layer(middleware::from_fn_with_state(state.clone(), require_auth))
         .with_state(state)
+}
+
+pub const READ_ONLY: &str = "The books folder is read-only: books cannot be uploaded, moved, renamed or deleted";
+
+/// What changes the files in BOOKS_DIR. Edits, covers and progress go to
+/// DATA_DIR, so they keep working when the books folder is read-only.
+fn changes_books(method: &axum::http::Method, path: &str) -> bool {
+    const PATHS: &[&str] = &[
+        "/admin/upload",
+        "/admin/delete",
+        "/admin/rename",
+        "/admin/bulk",
+        "/admin/folder",
+        "/admin/maintenance/delete",
+        "/api/folders",
+        "/api/folders/rename",
+        "/api/folders/move",
+        "/api/folders/delete",
+        "/api/books/move",
+        "/api/books/rename",
+        "/api/books/delete",
+    ];
+    match *method {
+        axum::http::Method::POST => PATHS.contains(&path),
+        axum::http::Method::PUT => path.starts_with("/api/upload/"),
+        _ => false,
+    }
+}
+
+/// A read-only books folder (a NAS share mounted read-only, a container
+/// volume with `:ro`) refuses every change with one clear message, instead
+/// of the system's error for each file halfway through.
+async fn refuse_when_read_only(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    if !changes_books(request.method(), request.uri().path()) || library_writable(&state).await {
+        return next.run(request).await;
+    }
+    let path = request.uri().path();
+    if path.starts_with("/api/") {
+        return api_error(StatusCode::FORBIDDEN, "read_only", READ_ONLY);
+    }
+    let back = if path.starts_with("/admin/maintenance") {
+        crate::maintenance::TAB
+    } else {
+        "/admin"
+    };
+    Redirect::to(&format!("{back}?error={}", paths::url_encode(READ_ONLY))).into_response()
+}
+
+pub async fn library_writable(state: &AppState) -> bool {
+    let library = state.library.clone();
+    tokio::task::spawn_blocking(move || library.writable())
+        .await
+        .unwrap_or(false)
 }
 
 /// A browser that opens a page that does not exist (a moved book, an old
@@ -481,6 +535,7 @@ pub async fn library_data(state: &AppState, query: &AdminQuery) -> serde_json::V
         "formats": extensions.iter().map(|e| e.trim_start_matches('.').to_uppercase()).collect::<Vec<_>>().join(", "),
         "notice": query.notice,
         "error": query.error,
+        "readOnly": !library_writable(state).await,
         "apkLocal": apps::is_local(state, &apps::ANDROID),
         "pluginLocal": apps::is_local(state, &apps::KOREADER),
         "appsBeta": state.config.apps_channel == "beta",

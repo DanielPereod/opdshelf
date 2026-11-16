@@ -755,3 +755,68 @@ async fn the_book_panel_names_its_identifier() {
     assert!(uuid.contains("<dt>Metadata</dt>"));
     assert!(uuid.contains("data-bytes="), "the size is shown like in the list");
 }
+
+/// A books folder mounted read-only (a NAS share, a `:ro` volume) refuses
+/// uploads with one clear answer, and the panel stops offering them, while
+/// edits, which go to DATA_DIR, keep working.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_read_only_books_folder_refuses_changes_clearly() {
+    // Not even root can create files in /proc
+    let data = tempfile::tempdir().unwrap();
+    let env: HashMap<&str, String> = [
+        ("BOOKS_DIR", "/proc/self/fdinfo".to_string()),
+        ("DATA_DIR", data.path().to_string_lossy().into_owned()),
+        ("WATCH", "false".to_string()),
+    ]
+    .into();
+    let app = router(Config::from_lookup(|k| env.get(k).cloned()));
+    let send = |request: Request<Body>| async {
+        let response = app.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let location = response
+            .headers()
+            .get(header::LOCATION)
+            .map(|v| v.to_str().unwrap().to_string());
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        (status, location, String::from_utf8_lossy(&body).into_owned())
+    };
+
+    let (status, _, body) = send(Request::put("/api/upload/a.epub").body(Body::from("x")).unwrap()).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body).unwrap()["code"],
+        "read_only"
+    );
+
+    let (status, _, _) = send(
+        Request::post("/api/folders")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"path":"","name":"New"}"#))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // The forms of the panel go back to it with the reason
+    let (status, location, _) = send(
+        Request::post("/admin/delete")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("csrf=x&path=a.epub"))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(location.unwrap().contains("read-only"));
+
+    let (_, _, html) = send(
+        Request::get("/admin")
+            .header(header::ACCEPT_LANGUAGE, "es")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert!(html.contains("La carpeta de libros es de solo lectura"));
+    assert!(!html.contains(r#"id="uploadBtn""#));
+    assert!(html.contains(r#"data-read-only="true""#));
+}

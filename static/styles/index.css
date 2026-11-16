@@ -340,6 +340,20 @@ input[type="checkbox"] {
   font-weight: 600;
 }
 
+/* A read-only books folder: nothing that would change its files */
+.read-only [data-new-folder],
+.read-only .nav-more,
+.read-only #folderMenuBtn,
+.read-only #bulkMove,
+.read-only #bulkDelete,
+.read-only #deleteFolderBtn,
+.read-only [data-delete],
+.read-only [data-move],
+.read-only [data-rename],
+.read-only [data-delete-book] {
+  display: none !important;
+}
+
 .notice.error i {
   color: var(--danger);
 }

@@ -135,13 +135,11 @@ impl Stats {
     }
 
     fn save(&self) -> std::io::Result<()> {
-        let json = serde_json::to_vec(&*self.data.lock().unwrap()).map_err(std::io::Error::other)?;
-        if let Some(dir) = self.file.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let tmp = self.file.with_extension("json.tmp");
-        std::fs::write(&tmp, json)?;
-        std::fs::rename(tmp, &self.file)
+        // Kept locked until the file is written: two saves at once could
+        // otherwise mix their files, or leave the older one on disk
+        let data = self.data.lock().unwrap();
+        let json = serde_json::to_vec(&*data).map_err(std::io::Error::other)?;
+        crate::store::write_atomic(&self.file, &json)
     }
 }
 

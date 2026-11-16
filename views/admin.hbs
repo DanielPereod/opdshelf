@@ -1,5 +1,5 @@
 <a class="skip-link" href="#books" id="skipLink">{{t "Skip to the books"}}</a>
-<div class="app" id="app" data-csrf="{{csrf}}">
+<div class="app{{#if readOnly}} read-only{{/if}}" id="app" data-csrf="{{csrf}}">
   <aside class="side" id="side">
     <div class="brand"><img src="/static/icon.png" alt="">OPDShelf</div>
     <nav class="nav" aria-label="{{t "Shelves"}}">
@@ -139,9 +139,11 @@
         <button type="button" class="icon-btn" data-view="grid" title="{{t "Covers"}}" aria-label="{{t "Covers"}}"><i
             class="fas fa-grip"></i></button>
       </div>
+      {{#unless readOnly}}
       <button type="button" class="btn btn-primary" id="uploadBtn" aria-label="{{t "Upload"}}">
         <i class="fas fa-arrow-up-from-bracket"></i><span class="label">{{t "Upload"}}</span>
       </button>
+      {{/unless}}
     </header>
 
     {{#unless shellPage}}
@@ -155,6 +157,11 @@
     <div class="notice error" role="alert">
       <i class="fas fa-circle-exclamation"></i>{{error}}
       <button type="button" class="icon-btn" data-dismiss title="{{t "Dismiss"}}" aria-label="{{t "Dismiss"}}"><i class="fas fa-xmark"></i></button>
+    </div>
+    {{/if}}
+    {{#if readOnly}}
+    <div class="notice" role="status" id="readOnlyNotice">
+      <i class="fas fa-lock"></i>{{t "The books folder is read-only. You can read books and edit their data, but not upload, move, rename or delete files."}}
     </div>
     {{/if}}
     {{/unless}}
@@ -214,7 +221,7 @@
         <span id="noMatchesText">{{t "Try another word or shelf."}}</span>
         <p><button type="button" class="btn" id="clearSearch"><i class="fas fa-xmark"></i>{{t "Clear search"}}</button></p>
         <p class="folder-empty-actions" id="folderEmptyActions" hidden>
-          <button type="button" class="btn btn-primary" data-upload><i class="fas fa-arrow-up-from-bracket"></i>{{t "Upload books here"}}</button>
+          {{#unless readOnly}}<button type="button" class="btn btn-primary" data-upload><i class="fas fa-arrow-up-from-bracket"></i>{{t "Upload books here"}}</button>{{/unless}}
           <button type="button" class="btn" id="deleteFolderBtn"><i class="far fa-trash-can"></i>{{t "Delete folder"}}</button>
         </p>
       </div>
@@ -222,8 +229,12 @@
       <div class="empty">
         <i class="fas fa-book"></i>
         <strong>{{t "No books yet"}}</strong>
+        {{#if readOnly}}
+        {{t "Books added to the books folder show up here."}}
+        {{else}}
         {{t "Drop EPUB, PDF or comic files here, or use Upload."}}
         <p><button type="button" class="btn btn-primary" data-upload><i class="fas fa-arrow-up-from-bracket"></i>{{t "Upload books"}}</button></p>
+        {{/if}}
       </div>
       {{/if}}
     </div>
@@ -443,10 +454,16 @@
 
 <script src="/static/app/notes.js?v={{v}}"></script>
 <script src="/static/app/menu.js?v={{v}}"></script>
-<script data-accept="{{accept}}">
+<script data-accept="{{accept}}" data-read-only="{{#if readOnly}}true{{/if}}">
   (function () {
     const $ = (id) => document.getElementById(id);
     const accepted = document.currentScript.dataset.accept.split(',');
+    // A read-only books folder takes no uploads, moves or deletions
+    const readOnly = document.currentScript.dataset.readOnly === 'true';
+    function refuseReadOnly() {
+      if (readOnly) showToast(t('The books folder is read-only: books cannot be uploaded, moved, renamed or deleted'));
+      return readOnly;
+    }
     const csrf = $('app').dataset.csrf;
     const list = $('bookList');
     // Every book, as data. Only the rows shown are built, a page at a time,
@@ -474,7 +491,7 @@
     const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
     const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
     // Books and folders are dragged with a mouse; touch screens use the menus
-    const canDrag = matchMedia('(hover: hover)').matches;
+    const canDrag = !readOnly && matchMedia('(hover: hover)').matches;
     const state = { shelf: 'all', value: '', sort: 'date', dir: 'desc', query: '' };
     const libraryRoot = t('the library root');
     // Book path → its current position, from /api/progress
@@ -1164,11 +1181,11 @@
         const paths = chosen.map((r) => r.dataset.path);
         const finished = chosen.filter((r) => isFinished(progress.get(r.dataset.path))).length;
         Menu.open([
-          { label: t('Move to folder…'), icon: 'far fa-folder-open', run: () => openMove(paths) },
+          !readOnly && { label: t('Move to folder…'), icon: 'far fa-folder-open', run: () => openMove(paths) },
           finished < chosen.length && { label: t('Mark as read'), icon: 'far fa-circle-check', run: () => markSelection('read') },
           finished > 0 && { label: t('Mark as unread'), icon: 'far fa-circle', run: () => markSelection('unread') },
           '-',
-          { label: t('Delete…'), icon: 'far fa-trash-can', danger: true, run: () => $('bulkDeleteDialog').showModal() },
+          !readOnly && { label: t('Delete…'), icon: 'far fa-trash-can', danger: true, run: () => $('bulkDeleteDialog').showModal() },
         ], at, { trigger, header: t('{n} books selected', { n: chosen.length }) });
         return;
       }
@@ -1181,14 +1198,14 @@
         { label: t('Download'), icon: 'fas fa-download', href: '/download/' + encodePath(path), download: true },
         '-',
         { label: t('Edit details'), icon: 'fas fa-pen', run: () => openPanel('/admin/edit/' + encodePath(path), true) },
-        { label: t('Move to folder…'), icon: 'far fa-folder-open', run: () => openMove([path], d.folder) },
-        { label: t('Rename…'), icon: 'fas fa-i-cursor', run: () => openRename({ rename: path, name: baseName(path), folder: d.folder }) },
+        !readOnly && { label: t('Move to folder…'), icon: 'far fa-folder-open', run: () => openMove([path], d.folder) },
+        !readOnly && { label: t('Rename…'), icon: 'fas fa-i-cursor', run: () => openRename({ rename: path, name: baseName(path), folder: d.folder }) },
         '-',
         done
           ? { label: t('Mark as unread'), icon: 'far fa-circle', run: () => markBooks([path], 'unread') }
           : { label: t('Mark as read'), icon: 'far fa-circle-check', run: () => markBooks([path], 'read') },
         '-',
-        { label: t('Delete…'), icon: 'far fa-trash-can', danger: true, run: () => openDeleteBook(path, d.title) },
+        !readOnly && { label: t('Delete…'), icon: 'far fa-trash-can', danger: true, run: () => openDeleteBook(path, d.title) },
       ], at, { trigger, label: d.title });
     }
     async function markSelection(markState) {
@@ -1279,8 +1296,8 @@
       else if (key === ' ') {
         if (e.target.matches('.pick input')) { anchorRow = row; return; }
         toggleRow(row);
-      } else if (key === 'Delete' || key === 'Backspace') deleteBooks(row);
-      else if (key === 'm') openMove(targets(row).map((r) => r.dataset.path), targets(row).length === 1 ? targets(row)[0].dataset.folder : undefined);
+      } else if (key === 'Delete' || key === 'Backspace') { if (!refuseReadOnly()) deleteBooks(row); }
+      else if (key === 'm') refuseReadOnly() || openMove(targets(row).map((r) => r.dataset.path), targets(row).length === 1 ? targets(row)[0].dataset.folder : undefined);
       else if (key === 'e') openPanel('/admin/edit/' + encodePath(row.dataset.path), true);
       else if (key === 'r') {
         if (!row.dataset.readable) { showToast(t('This book cannot be read in the browser.')); return; }
@@ -1306,8 +1323,8 @@
       }
       if (currentPage() !== 'library' || !picked().length) return;
       if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); setSelecting(false); }
-      else if (e.key === 'm') { e.preventDefault(); openMove(picked().map((r) => r.dataset.path)); }
-      else if (e.key === 'Delete') { e.preventDefault(); $('bulkDeleteDialog').showModal(); }
+      else if (e.key === 'm') { e.preventDefault(); refuseReadOnly() || openMove(picked().map((r) => r.dataset.path)); }
+      else if (e.key === 'Delete') { e.preventDefault(); refuseReadOnly() || $('bulkDeleteDialog').showModal(); }
     });
     function openShortcuts() {
       closeMenu();
@@ -1668,6 +1685,7 @@
         case 'invalid_name': return t('Invalid name');
         case 'not_found': return t('It is no longer there. Reload the page.');
         case 'not_empty': return t('Only empty folders can be deleted');
+        case 'read_only': return t(data.error);
         default:
           if (data.failed && data.failed.length) return data.failed.join('; ');
           return data.error || (response.status + ' ' + response.statusText);
@@ -1902,13 +1920,13 @@
       Menu.open([
         !inToolbar && { label: t('Open'), icon: 'far fa-folder-open', run: () => { const item = folderItem(path); if (item) { selectShelf(item); item.focus(); } } },
         '-',
-        { label: t('Upload here…'), icon: 'fas fa-arrow-up-from-bracket', run: () => openUpload(path) },
-        { label: t('New subfolder…'), icon: 'fas fa-folder-plus', run: () => openNewFolder(path) },
+        !readOnly && { label: t('Upload here…'), icon: 'fas fa-arrow-up-from-bracket', run: () => openUpload(path) },
+        !readOnly && { label: t('New subfolder…'), icon: 'fas fa-folder-plus', run: () => openNewFolder(path) },
         '-',
-        { label: t('Rename…'), icon: 'fas fa-i-cursor', run: () => openRenameFolder(path) },
-        { label: t('Move to…'), icon: 'fas fa-folder-tree', run: () => openMoveFolder(path) },
+        !readOnly && { label: t('Rename…'), icon: 'fas fa-i-cursor', run: () => openRenameFolder(path) },
+        !readOnly && { label: t('Move to…'), icon: 'fas fa-folder-tree', run: () => openMoveFolder(path) },
         '-',
-        count
+        readOnly ? null : count
           ? { label: t('Delete…'), icon: 'far fa-trash-can', danger: true, disabled: true,
             hint: count === 1 ? t('It holds 1 book: move or delete it first') : t('It holds {n} books: move or delete them first', { n: count }) }
           : { label: t('Delete…'), icon: 'far fa-trash-can', danger: true, run: () => deleteFolder(path) },
@@ -2350,6 +2368,7 @@
     const sizeText = (bytes) => formatBytes(bytes);
     // `folder` picks where the books go; without it, the folder shown
     function openUpload(folder) {
+      if (readOnly) return;
       if (typeof folder === 'string') $('uploadFolder').value = folder;
       $('uploadDialog').showModal();
     }
@@ -2362,7 +2381,7 @@
     const uploading = () => uploads.some((u) => u.state === 'waiting' || u.state === 'sending');
     function upload(files) {
       files = Array.from(files || []);
-      if (!files.length) return;
+      if (!files.length || refuseReadOnly()) return;
       if ($('uploadDialog').open) $('uploadDialog').close();
       $('uploadFiles').value = '';
       // A new batch after a finished one starts a new list
@@ -2429,6 +2448,7 @@
       let data = {};
       try { data = JSON.parse(xhr.responseText); } catch { }
       if (xhr.status === 415) return t('Not a supported format');
+      if (data.code === 'read_only') return t(data.error);
       if (xhr.status === 413 || /upload limit/i.test(data.error || '')) return t('Larger than the upload limit');
       return data.error || (xhr.status + ' ' + xhr.statusText);
     }
@@ -2497,7 +2517,7 @@
     });
     $('uploadClose').addEventListener('click', () => { $('uploadTray').hidden = true; });
     window.addEventListener('beforeunload', (e) => { if (uploading()) e.preventDefault(); });
-    $('uploadBtn').addEventListener('click', () => openUpload(currentFolder()));
+    $('uploadBtn')?.addEventListener('click', () => openUpload(currentFolder()));
     function uploadTo(files, folder) {
       if (typeof folder === 'string') $('uploadFolder').value = folder;
       upload(files);
@@ -2514,7 +2534,7 @@
       if (dragged && dragged.kind === 'files') endDrag();
     }
     document.addEventListener('dragenter', (e) => {
-      if (!hasFiles(e)) return;
+      if (!hasFiles(e) || readOnly) return;
       dragDepth++;
       $('dropOverlay').hidden = false;
       if (!dragged) {

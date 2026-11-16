@@ -188,6 +188,12 @@ async fn pdf_covers_when_poppler_is_installed() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers["content-type"], "image/jpeg");
     assert!(body.starts_with(&[0xff, 0xd8]));
+
+    // A damaged PDF offers no cover that would fail to load
+    std::fs::write(t.books().join("broken.pdf"), "not a pdf at all").unwrap();
+    let feed = t.text("/opds/books").await;
+    assert!(feed.contains("broken"));
+    assert!(!feed.contains("/cover/broken.pdf"));
 }
 
 #[tokio::test]

@@ -270,7 +270,7 @@ pub async fn old_page(uri: Uri) -> Response {
     Redirect::to(&format!("{TAB}{query}")).into_response()
 }
 
-const TAB: &str = "/admin/settings/maintenance";
+pub(crate) const TAB: &str = "/admin/settings/maintenance";
 
 fn redirect(notice: Option<&str>, error: Option<&str>) -> Response {
     let mut url = String::from(TAB);

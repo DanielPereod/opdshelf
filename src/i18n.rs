@@ -545,6 +545,15 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("Created folder {folder}", "Carpeta {folder} creada"),
     ("Deleted folder {folder}", "Carpeta {folder} borrada"),
     ("Only empty folders can be deleted", "Solo se pueden borrar carpetas vacías"),
+    (
+        "The books folder is read-only: books cannot be uploaded, moved, renamed or deleted",
+        "La carpeta de libros es de solo lectura: no se pueden subir, mover, renombrar ni borrar libros",
+    ),
+    (
+        "The books folder is read-only. You can read books and edit their data, but not upload, move, rename or delete files.",
+        "La carpeta de libros es de solo lectura. Puedes leer los libros y editar sus datos, pero no subir, mover, renombrar ni borrar archivos.",
+    ),
+    ("Books added to the books folder show up here.", "Los libros que se añadan a la carpeta de libros aparecerán aquí."),
     ("Folder not found", "No se encuentra la carpeta"),
     ("Deleted {name}", "Borrado {name}"),
     ("Renamed to {path}", "Renombrado a {path}"),

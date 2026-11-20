@@ -7,7 +7,7 @@
 - **Book details** with cover, series, publisher, year, language and subjects; two panes on tablets.
 - **Reader** built on [Readium](https://readium.org): light, sepia and dark themes (the bars follow them), fonts, margins, justification, brightness, minutes left in the chapter, contents, bookmarks, search inside the book, previous/next chapter, volume keys to turn pages and the screen kept on while reading.
 - **Sync**: the position is saved on the phone and sent to the server when there is a connection, so it is shared with KOReader and the web reader. When a book was read further on another device, it opens there and says so. Select text and choose **Set as last position** to pin a sentence, as in KOReader. The last page of a book saves 100 %, so it counts as finished everywhere.
-- Mark a book as finished by hand, from the menu or its details.
+- Mark a book as finished by hand, from the menu or its details. The mark is sent to the server (when there is a connection), so the book shows on the web panel's **Finished** shelf; books marked read or unread on the panel change on the phone too.
 - Works with large fonts (up to 200 %), in landscape and on tablets, and follows the system theme or a chosen one.
 - EPUB positions are KOReader xpointers, worked out with the same script as the web reader.
 

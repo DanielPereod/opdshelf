@@ -28,10 +28,38 @@ data class Position(
     val timestamp: Long = 0,
 )
 
+/** A book marked as read or unread by hand, on the web panel or a phone. */
+@Serializable
+data class Mark(
+    /** `read` or `unread`. */
+    val state: String,
+    /** When it was marked, in Unix seconds by the server's clock. */
+    val at: Long,
+)
+
 @Serializable
 data class ProgressResponse(
     val document: String = "",
     val current: Position? = null,
+    val mark: Mark? = null,
+)
+
+/** The server's marks, from the list of every book's progress. */
+@Serializable
+data class ProgressList(
+    val marks: List<DocumentMark> = emptyList(),
+)
+
+@Serializable
+data class DocumentMark(
+    val document: String,
+    val state: String,
+    val at: Long,
+)
+
+@Serializable
+data class MarkAnswer(
+    val at: Long = 0,
 )
 
 /** This device's last position for a book, and whether the server has it yet. */

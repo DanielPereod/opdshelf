@@ -707,3 +707,48 @@ async fn highlights_sync_between_devices() {
     let (status, _) = app.api("GET", "/api/annotations/not-valid!", None).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn books_are_marked_by_document_id_as_the_android_app_does() {
+    let t = app();
+    let (status, body) = t
+        .api(
+            "PUT",
+            "/api/marks",
+            Some(json!({ "documents": [DOC], "state": "read" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["marked"], 1);
+
+    let (_, body) = t.api("GET", &format!("/api/progress/{DOC}"), None).await;
+    assert_eq!(body["mark"]["state"], "read");
+    let (_, body) = t.api("GET", "/api/progress", None).await;
+    assert_eq!(body["marks"][0]["document"], DOC);
+    assert_eq!(body["marks"][0]["path"], "One.epub");
+
+    // null clears it
+    let (status, _) = t
+        .api("PUT", "/api/marks", Some(json!({ "documents": [DOC], "state": null })))
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, body) = t.api("GET", &format!("/api/progress/{DOC}"), None).await;
+    assert!(body["mark"].is_null());
+
+    let (status, _) = t
+        .api(
+            "PUT",
+            "/api/marks",
+            Some(json!({ "documents": ["not/valid"], "state": "read" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = t
+        .api(
+            "PUT",
+            "/api/marks",
+            Some(json!({ "paths": ["Nope.epub"], "state": "read" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

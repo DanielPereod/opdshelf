@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- The start screen shows the mark on the app's background; MainActivity then sets a plain one -->
     <style name="Theme.OPDShelf" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:windowBackground">@drawable/launch_background</item>
         <item name="colorPrimary">@color/fg</item>
         <item name="colorOnPrimary">@color/inverse</item>
     </style>

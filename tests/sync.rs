@@ -499,7 +499,7 @@ async fn the_panel_speaks_the_browsers_language() {
         async move {
             let response = app
                 .oneshot(
-                    Request::get("/admin/sync")
+                    Request::get("/admin/settings/apps")
                         .header(header::AUTHORIZATION, basic())
                         .header(header::ACCEPT_LANGUAGE, lang)
                         .body(Body::empty())
@@ -543,13 +543,15 @@ async fn reading_apps_download_from_the_panel() {
     }
     let releases = "https://github.com/DanielPereod/opdshelf/releases/download";
 
-    // By default both come from the latest GitHub releases
+    // By default both come from the latest GitHub releases; the server keeps a copy of the
+    // plugin, and sends the browser there when it cannot get one
     let app = app();
-    let (status, headers, _) = get(&app, "/apps/opdshelf.koplugin.zip").await;
+    let offline = app_with(&[("APPS_URL", "http://127.0.0.1:9")]);
+    let (status, headers, _) = get(&offline, "/apps/opdshelf.koplugin.zip").await;
     assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
     assert_eq!(
         headers[header::LOCATION],
-        format!("{releases}/koreader-latest/opdshelf.koplugin.zip").as_str()
+        "http://127.0.0.1:9/koreader-latest/opdshelf.koplugin.zip"
     );
     let (status, headers, _) = get(&app, "/apps/opdshelf.apk").await;
     assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
@@ -557,9 +559,9 @@ async fn reading_apps_download_from_the_panel() {
         headers[header::LOCATION],
         format!("{releases}/android-latest/opdshelf.apk").as_str()
     );
-    let sync = String::from_utf8(get(&app, "/admin/sync").await.2.to_vec()).unwrap();
-    assert!(sync.contains(r#"href="/apps/opdshelf.koplugin.zip""#) && sync.contains(r#"href="/apps/opdshelf.apk""#));
-    assert!(!sync.contains("beta channel"));
+    let apps = String::from_utf8(get(&app, "/admin/settings/apps").await.2.to_vec()).unwrap();
+    assert!(apps.contains(r#"href="/apps/opdshelf.koplugin.zip""#) && apps.contains(r#"href="/apps/opdshelf.apk""#));
+    assert!(!apps.contains("beta channel"));
 
     // A copy in DATA_DIR/apps is served instead
     let apps = app.dir.path().join("books/.opdshelf/apps");
@@ -573,23 +575,58 @@ async fn reading_apps_download_from_the_panel() {
         .unwrap()
         .contains("opdshelf.apk"));
     assert_eq!(&body[..], b"PK apk");
-    assert!(String::from_utf8(get(&app, "/admin/sync").await.2.to_vec())
+    assert!(String::from_utf8(get(&app, "/admin/settings/apps").await.2.to_vec())
         .unwrap()
         .contains("downloaded from this server"));
 
+    // The plugin comes with this server's address and login, and says its version
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, text) in [
+        ("opdshelf.koplugin/main.lua", "return {}"),
+        (
+            "opdshelf.koplugin/_meta.lua",
+            "return {\n    version = 202611141233,\n}",
+        ),
+    ] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        std::io::Write::write_all(&mut zip, text.as_bytes()).unwrap();
+    }
+    std::fs::write(apps.join("opdshelf.koplugin.zip"), zip.finish().unwrap().into_inner()).unwrap();
+    let (status, headers, body) = get(&app, "/apps/opdshelf.koplugin.zip").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    let mut plugin = zip::ZipArchive::new(std::io::Cursor::new(body.to_vec())).unwrap();
+    let mut setup = String::new();
+    std::io::Read::read_to_string(
+        &mut plugin.by_name("opdshelf.koplugin/opdshelf_setup.json").unwrap(),
+        &mut setup,
+    )
+    .unwrap();
+    let setup: Value = serde_json::from_str(&setup).unwrap();
+    assert_eq!(
+        setup,
+        json!({ "server": "http://localhost", "username": USER, "password": PASS })
+    );
+    let (_, versions) = app.api("GET", "/apps/versions.json", None).await;
+    assert_eq!(versions, json!({ "koreader": { "version": 202611141233u64 } }));
+    let (status, headers, body) = get(&app, "/apps/connect.svg").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "image/svg+xml");
+    assert!(body.starts_with(b"<?xml"));
+
     // A beta server offers the beta releases, from wherever APPS_URL says
-    let beta = app_with(&[("APPS_CHANNEL", "beta"), ("APPS_URL", "https://example.com/apps/")]);
+    let beta = app_with(&[("APPS_CHANNEL", "beta"), ("APPS_URL", "http://127.0.0.1:9/apps/")]);
     let (_, headers, _) = get(&beta, "/apps/opdshelf.apk").await;
     assert_eq!(
         headers[header::LOCATION],
-        "https://example.com/apps/android-beta/opdshelf.apk"
+        "http://127.0.0.1:9/apps/android-beta/opdshelf.apk"
     );
     let (_, headers, _) = get(&beta, "/apps/opdshelf.koplugin.zip").await;
     assert_eq!(
         headers[header::LOCATION],
-        "https://example.com/apps/koreader-beta/opdshelf.koplugin.zip"
+        "http://127.0.0.1:9/apps/koreader-beta/opdshelf.koplugin.zip"
     );
-    assert!(String::from_utf8(get(&beta, "/admin/sync").await.2.to_vec())
+    assert!(String::from_utf8(get(&beta, "/admin/settings/apps").await.2.to_vec())
         .unwrap()
         .contains("beta channel"));
 }
@@ -709,41 +746,104 @@ async fn highlights_sync_between_devices() {
 }
 
 #[tokio::test]
-async fn books_are_marked_by_document_id_as_the_android_app_does() {
-    let t = app();
-    let (status, body) = t
+async fn apps_mark_books_by_document_and_the_newest_mark_wins() {
+    let app = app();
+    let events = app
+        .app
+        .clone()
+        .oneshot(
+            Request::get(format!("/api/progress/events?documents={DOC}"))
+                .header(header::AUTHORIZATION, basic())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut events = events.into_body();
+    async fn next(body: &mut Body) -> String {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), body.frame())
+            .await
+            .expect("an event")
+            .unwrap()
+            .unwrap();
+        String::from_utf8(frame.into_data().unwrap().to_vec()).unwrap()
+    }
+    assert!(next(&mut events).await.starts_with("event: hello\n"));
+
+    // Marked as finished on a phone whose clock runs 10 minutes behind, an hour ago
+    let now = chrono::Utc::now().timestamp();
+    let (status, body) = app
         .api(
             "PUT",
             "/api/marks",
-            Some(json!({ "documents": [DOC], "state": "read" })),
+            Some(json!({ "documents": [DOC], "state": "read", "at": now - 600 - 3600, "sent_at": now - 600 })),
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["marked"], 1);
+    let at = body["marks"][DOC]["at"].as_i64().unwrap();
+    assert!((at - (now - 3600)).abs() <= 2, "the time is put right: {body}");
+    assert_eq!(body["marks"][DOC]["state"], "read");
+    let event = next(&mut events).await;
+    assert!(event.starts_with("event: marks\n"), "{event}");
+    assert!(event.contains(r#""state":"read""#), "{event}");
 
-    let (_, body) = t.api("GET", &format!("/api/progress/{DOC}"), None).await;
-    assert_eq!(body["mark"]["state"], "read");
-    let (_, body) = t.api("GET", "/api/progress", None).await;
-    assert_eq!(body["marks"][0]["document"], DOC);
+    // The panel sees it, by path and on the book
+    let (_, body) = app.api("GET", "/api/progress", None).await;
     assert_eq!(body["marks"][0]["path"], "One.epub");
+    assert_eq!(body["marks"][0]["state"], "read");
+    let (_, body) = app.api("GET", &format!("/api/progress/{DOC}"), None).await;
+    assert_eq!(body["mark"]["state"], "read");
 
-    // null clears it
-    let (status, _) = t
-        .api("PUT", "/api/marks", Some(json!({ "documents": [DOC], "state": null })))
-        .await;
-    assert_eq!(status, StatusCode::OK);
-    let (_, body) = t.api("GET", &format!("/api/progress/{DOC}"), None).await;
-    assert!(body["mark"].is_null());
-
-    let (status, _) = t
+    // An older mark sent late by another device loses, and says what won
+    let (_, body) = app
         .api(
             "PUT",
             "/api/marks",
-            Some(json!({ "documents": ["not/valid"], "state": "read" })),
+            Some(json!({ "documents": [DOC], "state": "unread", "at": now - 7200, "sent_at": now })),
+        )
+        .await;
+    assert_eq!(body["marks"][DOC]["state"], "read");
+    // A newer one wins
+    let (_, body) = app
+        .api(
+            "PUT",
+            "/api/marks",
+            Some(json!({ "documents": [DOC], "state": "unread", "at": now, "sent_at": now })),
+        )
+        .await;
+    assert_eq!(body["marks"][DOC]["state"], "unread");
+
+    // Marked in the panel, without a time: always the newest
+    let (status, body) = app
+        .api(
+            "PUT",
+            "/api/marks",
+            Some(json!({ "paths": ["One.epub"], "state": "read" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["marks"][DOC]["state"], "read");
+
+    // Books marked as finished count in the statistics
+    let (_, stats) = app.api("GET", "/api/stats", None).await;
+    let finished: i64 = stats["finished"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["count"].as_i64().unwrap())
+        .sum();
+    assert_eq!(finished, 1, "{stats}");
+
+    // Ids that are not documents are refused; unknown paths are not found
+    let (status, _) = app
+        .api(
+            "PUT",
+            "/api/marks",
+            Some(json!({ "documents": ["../x"], "state": "read" })),
         )
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    let (status, _) = t
+    let (status, _) = app
         .api(
             "PUT",
             "/api/marks",
@@ -751,4 +851,116 @@ async fn books_are_marked_by_document_id_as_the_android_app_does() {
         )
         .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn web_reader_bookmarks_are_kept_per_book() {
+    let t = app();
+    let mark = |id: &str, updated: i64, deleted: bool| {
+        json!({ "id": id, "cfi": "epubcfi(/6/4!/4/2/1:0)", "pos0": "/body/DocFragment[2]/body/p[1]/text().0",
+                "text": "It was a dark night", "chapter": "One", "percentage": 0.25,
+                "updated": updated, "deleted": deleted })
+    };
+    let now = chrono::Utc::now().timestamp();
+    let (status, body) = t
+        .api(
+            "PUT",
+            &format!("/api/bookmarks/{DOC}"),
+            Some(json!({ "device": "Web", "device_id": "web1", "sent_at": now, "bookmarks": [mark("b1", now - 10, false)] })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["bookmarks"][0]["text"], "It was a dark night");
+    assert_eq!(body["bookmarks"][0]["device"], "Web");
+    // Deleting it leaves a tombstone, so other browsers delete it too
+    t.api(
+        "PUT",
+        &format!("/api/bookmarks/{DOC}"),
+        Some(json!({ "device": "Web", "device_id": "web1", "sent_at": now, "bookmarks": [mark("b1", now, true)] })),
+    )
+    .await;
+    let (_, body) = t.api("GET", &format!("/api/bookmarks/{DOC}"), None).await;
+    assert_eq!(body["bookmarks"][0]["deleted"], true);
+    // Kept apart from the highlights, in their own file
+    let (_, notes) = t.api("GET", &format!("/api/annotations/{DOC}"), None).await;
+    assert_eq!(notes["annotations"].as_array().unwrap().len(), 0);
+    assert!(t.dir.path().join("books/.opdshelf/bookmarks.json").exists());
+    let (status, _) = t.api("GET", "/api/bookmarks/not-an-id!", None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn the_panel_deletes_and_adds_books_without_reloading() {
+    let t = app();
+    let (_, rows) = t
+        .api("POST", "/api/books/rows", Some(json!({ "paths": ["One.epub"] })))
+        .await;
+    assert_eq!(rows["books"][0]["path"], "One.epub");
+    let (status, body) = t
+        .api(
+            "POST",
+            "/api/books/delete",
+            Some(json!({ "paths": ["One.epub", "Gone.epub"] })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["deleted"], json!(["One.epub"]));
+    assert_eq!(body["failed"].as_array().unwrap().len(), 1);
+    assert!(!t.dir.path().join("books/One.epub").exists());
+    let (status, _) = t
+        .api("POST", "/api/books/delete", Some(json!({ "paths": ["One.epub"] })))
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn statistics_follow_the_range_asked_for() {
+    let t = app();
+    for (range, unit, parts) in [("7d", "day", 7), ("30d", "day", 30), ("12m", "month", 12)] {
+        let (status, body) = t.api("GET", &format!("/api/stats?range={range}"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["range"], range);
+        assert_eq!(body["chart"]["unit"], unit);
+        assert_eq!(body["chart"]["parts"].as_array().unwrap().len(), parts);
+        // What the Android app reads stays the last 30 days
+        assert_eq!(body["days"].as_array().unwrap().len(), 30);
+    }
+    let (_, body) = t.api("GET", "/api/stats", None).await;
+    assert_eq!(body["range"], "30d");
+}
+
+#[tokio::test]
+async fn today_follows_the_day_the_device_asks_for() {
+    let t = app();
+    let now = chrono::Utc::now().timestamp();
+    // The day the reading was counted on
+    let date = opdshelf::stats::day_of(now - 120);
+    for (progress, at) in [("/a", now - 300), ("/b", now - 120)] {
+        let (status, _) = t
+            .api(
+                "PUT",
+                &format!("/api/progress/{DOC}"),
+                Some(json!({ "progress": progress, "percentage": 0.2, "device": "Kobo", "device_id": "K1", "timestamp": at, "sent_at": now })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (_, body) = t.api("GET", &format!("/api/stats/today?date={date}"), None).await;
+    assert_eq!(
+        (body["seconds"].as_i64(), body["streak"].as_i64()),
+        (Some(180), Some(1)),
+        "{body}"
+    );
+    // Another day has nothing; a date that is not one is the server's today
+    let (_, body) = t.api("GET", "/api/stats/today?date=2001-01-01", None).await;
+    assert_eq!(
+        (body["seconds"].as_i64(), body["streak"].as_i64()),
+        (Some(0), Some(0)),
+        "{body}"
+    );
+    let (status, body) = t.api("GET", "/api/stats/today?date=yesterday", None).await;
+    assert_eq!(status, StatusCode::OK);
+    if opdshelf::stats::day_of(chrono::Utc::now().timestamp()) == date {
+        assert_eq!(body["seconds"].as_i64(), Some(180), "{body}");
+    }
 }

@@ -131,15 +131,86 @@ impl Store {
         }
     }
 
+    /// Moves the edits of a book, or with a folder those of every book in it,
+    /// to the new path. Covers are kept by file name, so they follow too.
     pub fn rename(&self, from: &str, to: &str) -> std::io::Result<()> {
         let moved = {
             let mut map = self.overrides.lock().unwrap();
-            map.remove(from).map(|value| map.insert(to.to_string(), value))
+            let keys: Vec<(String, String)> = map
+                .keys()
+                .filter_map(|k| crate::paths::relocate(k, from, to).map(|n| (k.clone(), n)))
+                .collect();
+            let moved: Vec<_> = keys
+                .iter()
+                .filter_map(|(k, n)| Some((n.clone(), map.remove(k)?)))
+                .collect();
+            let any = !moved.is_empty();
+            map.extend(moved);
+            any
         };
-        match moved {
-            Some(_) => self.save(),
-            None => Ok(()),
+        if moved {
+            self.save()
+        } else {
+            Ok(())
         }
+    }
+
+    /// Drops the edits of books `keep` rejects (no longer in the library) and
+    /// their covers, or only counts them with `dry_run`. Returns how many.
+    pub fn retain_books(&self, keep: impl Fn(&str) -> bool, dry_run: bool) -> std::io::Result<usize> {
+        let removed: Vec<MetaOverride> = {
+            let mut map = self.overrides.lock().unwrap();
+            let gone: Vec<String> = map.keys().filter(|p| !keep(p)).cloned().collect();
+            if dry_run {
+                return Ok(gone.len());
+            }
+            gone.iter().filter_map(|p| map.remove(p)).collect()
+        };
+        if removed.is_empty() {
+            return Ok(0);
+        }
+        let count = removed.len();
+        for old in removed {
+            self.remove_cover_file(old.cover);
+        }
+        self.save()?;
+        Ok(count)
+    }
+
+    /// Files in DATA_DIR/covers that no edited book uses, or only counts them
+    /// with `dry_run`. Covers added in the last hour are left alone: one may
+    /// have just been uploaded and not saved with its book yet.
+    pub fn unused_covers(&self, dry_run: bool) -> usize {
+        let used: std::collections::HashSet<String> = self
+            .overrides
+            .lock()
+            .unwrap()
+            .values()
+            .filter_map(|o| o.cover.clone())
+            .collect();
+        let Ok(entries) = std::fs::read_dir(self.covers_dir()) else {
+            return 0;
+        };
+        let recent = |entry: &std::fs::DirEntry| {
+            entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_none_or(|age| age < std::time::Duration::from_secs(3600))
+        };
+        let mut count = 0;
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if used.contains(&name) || !entry.path().is_file() || recent(&entry) {
+                continue;
+            }
+            count += 1;
+            if !dry_run {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+        count
     }
 
     /// Stores an uploaded cover image and returns its file name.
@@ -164,17 +235,53 @@ impl Store {
     }
 
     fn save(&self) -> std::io::Result<()> {
-        let json = serde_json::to_vec_pretty(&*self.overrides.lock().unwrap()).map_err(std::io::Error::other)?;
-        std::fs::create_dir_all(&self.dir)?;
-        let tmp = self.dir.join("metadata.json.tmp");
-        std::fs::write(&tmp, json)?;
-        std::fs::rename(tmp, self.dir.join("metadata.json"))
+        // Kept locked until the file is written: two saves at once could
+        // otherwise mix their files, or leave the older one on disk
+        let overrides = self.overrides.lock().unwrap();
+        let json = serde_json::to_vec_pretty(&*overrides).map_err(std::io::Error::other)?;
+        write_atomic(&self.dir.join("metadata.json"), &json)
     }
+}
+
+/// Writes a file of DATA_DIR whole or not at all: to a temporary file first,
+/// then renamed over the old one, so a crash never leaves half a file.
+pub(crate) fn write_atomic(file: &Path, data: &[u8]) -> std::io::Result<()> {
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut tmp = file.as_os_str().to_owned();
+    tmp.push(".tmp");
+    std::fs::write(&tmp, data)?;
+    std::fs::rename(tmp, file)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saves_at_the_same_time_keep_every_edit() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path());
+        let threads: Vec<_> = (0..8)
+            .map(|t| {
+                let store = store.clone();
+                std::thread::spawn(move || {
+                    for i in 0..40 {
+                        let edit = MetaOverride {
+                            title: Some(format!("A long enough title to take a while to write {t} {i}")),
+                            ..Default::default()
+                        };
+                        store.set(&format!("{t}/{i}.epub"), edit).unwrap();
+                    }
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        assert_eq!(Store::open(dir.path()).overrides.lock().unwrap().len(), 320);
+    }
 
     #[test]
     fn apply_overrides() {
@@ -219,8 +326,23 @@ mod tests {
 
         let reopened = Store::open(dir.path());
         assert_eq!(reopened.get("a.epub"), None);
-        assert_eq!(reopened.get("b/a.epub"), Some(value));
+        assert_eq!(reopened.get("b/a.epub"), Some(value.clone()));
 
+        // A folder takes the edits of every book inside it along
+        let plain = MetaOverride {
+            title: Some("U".into()),
+            ..Default::default()
+        };
+        reopened.set("b/c/d.epub", plain.clone()).unwrap();
+        reopened.set("bb/e.epub", plain.clone()).unwrap();
+        reopened.rename("b", "x/b").unwrap();
+        let reopened = Store::open(dir.path());
+        assert_eq!(reopened.get("x/b/a.epub"), Some(value.clone()));
+        assert_eq!(reopened.get("x/b/c/d.epub"), Some(plain.clone()));
+        assert_eq!(reopened.get("bb/e.epub"), Some(plain));
+        assert_eq!(reopened.get("b/a.epub"), None);
+        assert!(dir.path().join("covers").join(&cover).exists());
+        reopened.rename("x/b", "b").unwrap();
         reopened.remove("b/a.epub").unwrap();
         assert!(!dir.path().join("covers").join(cover).exists());
     }

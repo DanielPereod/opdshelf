@@ -146,8 +146,13 @@ impl TestApp {
 }
 
 fn write_epub(path: &Path, title: &str, author: &str) {
+    write_epub_with(path, title, author, "");
+}
+
+/// An EPUB with `extra` added to its metadata.
+fn write_epub_with(path: &Path, title: &str, author: &str, extra: &str) {
     let opf = format!(
-        r#"<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata><dc:title>{title}</dc:title><dc:creator>{author}</dc:creator><dc:description>&lt;img src=x onerror=alert(1)&gt;Hola</dc:description><meta name="cover" content="c"/></metadata><manifest><item id="c" href="cover.jpg" media-type="image/jpeg"/></manifest></package>"#
+        r#"<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata><dc:title>{title}</dc:title><dc:creator>{author}</dc:creator><dc:description>&lt;img src=x onerror=alert(1)&gt;Hola</dc:description>{extra}<meta name="cover" content="c"/></metadata><manifest><item id="c" href="cover.jpg" media-type="image/jpeg"/></manifest></package>"#
     );
     let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
     let options = zip::write::SimpleFileOptions::default();
@@ -196,6 +201,52 @@ async fn requires_auth_and_rejects_forged_cookies() {
     for uri in ["/user/login", "/healthz", "/static/icon.png"] {
         let (status, _, _) = t.send(Request::get(uri).body(Body::empty()).unwrap()).await;
         assert_eq!(status, StatusCode::OK, "{uri}");
+    }
+}
+
+// Signing in goes back to the page that asked for it, and only to a page of
+// this server
+#[tokio::test]
+async fn login_returns_to_the_page_asked_for() {
+    let t = app();
+    let (status, headers, _) = t
+        .send(
+            Request::get("/admin/settings?tab=apps")
+                .header(header::ACCEPT, "text/html")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers["location"], "/user/login?next=/admin/settings%3Ftab%3Dapps");
+    let html = String::from_utf8(
+        t.send(
+            Request::get("/user/login?next=/admin/settings%3Ftab%3Dapps")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .2,
+    )
+    .unwrap();
+    assert!(html.contains(r#"name="next" value="/admin/settings?tab&#x3D;apps""#));
+
+    let login = |next: &str| {
+        Request::post("/user/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(format!("username={USER}&password={PASS}&next={next}")))
+            .unwrap()
+    };
+    let (_, headers, _) = t.send(login("%2Fread%2Fa.epub%3Fx%3D1")).await;
+    assert_eq!(headers["location"], "/read/a.epub?x=1");
+    for evil in [
+        "%2F%2Fevil.com",
+        "https%3A%2F%2Fevil.com",
+        "%2F%5Cevil.com",
+        "%2Fuser%2Flogout",
+    ] {
+        let (_, headers, _) = t.send(login(evil)).await;
+        assert_eq!(headers["location"], "/admin", "{evil}");
     }
 }
 
@@ -426,13 +477,42 @@ async fn download_cover_and_info() {
     assert!(!info.contains("<img src=x"), "descriptions must be escaped");
 }
 
+// The panel's script runs on an empty library too: an element it listens to
+// without checking must be on the page, or the script stops there and the
+// buttons to upload the first book do nothing.
+#[tokio::test]
+async fn the_panel_script_finds_its_elements_with_no_books() {
+    let t = app();
+    let html = t.text("/admin").await;
+    assert!(html.contains("data-upload"), "the empty library offers to upload");
+    let ids: std::collections::HashSet<&str> = html
+        .split("id=\"")
+        .skip(1)
+        .filter_map(|rest| rest.split('"').next())
+        .collect();
+    // Listeners added when the script starts: a statement of its own, at the
+    // first indent of the script's function
+    let missing: Vec<&str> = html
+        .lines()
+        .filter_map(|line| line.strip_prefix("    $('"))
+        .filter(|rest| rest.contains(".addEventListener("))
+        .filter_map(|rest| rest.split('\'').next())
+        .filter(|id| !ids.contains(id))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "used without a check but not on the page: {missing:?}"
+    );
+}
+
 #[tokio::test]
 async fn admin_escapes_filenames() {
     let t = app_with(&[]);
     t.write("it's <b>#1.txt", b"x");
     let html = t.text("/admin").await;
     assert!(!html.contains("<b>#1"));
-    assert!(html.contains("/info/it%27s%20%3Cb%3E%231.txt"));
+    // The rows are built in the page from JSON, where `<` is escaped
+    assert!(html.contains(r#""path":"it's \u003cb>#1.txt""#));
     // Without credentials the admin is open but forms still need the CSRF token
     let (status, _, _) = t
         .post_form("/admin/delete", &[("csrf", "x"), ("path", "it's <b>#1.txt")])
@@ -463,4 +543,280 @@ async fn base_url_from_proxy_headers_or_config() {
     assert!(String::from_utf8(body)
         .unwrap()
         .contains("https://lib.example.org/opds/books"));
+}
+
+#[tokio::test]
+async fn opds_facets_reading_random_and_page_streaming() {
+    let t = app();
+    write_epub(&t.books().join("a.epub"), "Started", "Ana");
+    write_epub(&t.books().join("b.epub"), "Done", "Ana");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(t.books().join("comic.cbz")).unwrap());
+    for page in ["1.png", "2.png", "3.png"] {
+        zip.start_file(page, zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(b"PNG").unwrap();
+    }
+    zip.finish().unwrap();
+
+    for (file, percentage) in [("a.epub", 0.4), ("b.epub", 1.0)] {
+        let document = opdshelf::progress::partial_md5(&t.books().join(file)).unwrap();
+        let body = format!(r#"{{"progress":"5","percentage":{percentage},"device":"test","device_id":"t1"}}"#);
+        let (status, _, _) = t
+            .send(
+                Request::put(format!("/api/progress/{document}"))
+                    .header(header::AUTHORIZATION, basic())
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    let titles = |xml: &str| -> Vec<String> {
+        let doc = roxmltree::Document::parse(xml).expect("valid XML");
+        doc.descendants()
+            .filter(|n| n.has_tag_name("entry"))
+            .filter_map(|e| e.children().find(|c| c.has_tag_name("title")).and_then(|c| c.text()))
+            .map(str::to_string)
+            .collect()
+    };
+
+    assert!(t.text("/").await.contains("/opds/reading"));
+    assert_eq!(titles(&t.text("/opds/reading").await), ["Started"]);
+    assert_eq!(titles(&t.text("/opds/books?status=reading").await), ["Started"]);
+    assert_eq!(titles(&t.text("/opds/books?status=finished").await), ["Done"]);
+    assert_eq!(titles(&t.text("/opds/books?status=unread").await), ["comic"]);
+    assert_eq!(titles(&t.text("/opds/books?format=cbz").await), ["comic"]);
+    assert_eq!(titles(&t.text("/opds/random?status=unread").await), ["comic"]);
+    assert_eq!(titles(&t.text("/opds/random").await).len(), 3);
+
+    let books = t.text("/opds/books?sort=name-asc&status=reading").await;
+    assert!(books.contains(r#"rel="http://opds-spec.org/facet""#));
+    assert!(books.contains(
+        r#"href="http://localhost/opds/books?sort=name-asc&amp;status=reading" type="application/atom+xml;profile=opds-catalog;kind=acquisition" title="Reading" opds:facetGroup="Reading status" opds:activeFacet="true""#
+    ));
+    assert!(books.contains(r#"title="CBZ" opds:facetGroup="Format" thr:count="1""#));
+
+    // OPDS-PSE: comics stream their pages through /page, counted from 0
+    let all = t.text("/opds/books").await;
+    assert!(all.contains(
+        r#"<link rel="http://vaemendis.net/opds-pse/stream" href="http://localhost/page/comic.cbz?n={pageNumber}" type="image/jpeg" pse:count="3"/>"#
+    ));
+    assert_eq!(all.matches("opds-pse/stream").count(), 1, "only comics stream pages");
+    let (status, _, body) = t.get("/page/comic.cbz?n=0").await;
+    assert_eq!((status, body.as_slice()), (StatusCode::OK, b"PNG".as_slice()));
+
+    // In Spanish for readers that ask for it
+    let (_, _, root) = t
+        .send(
+            Request::get("/")
+                .header(header::AUTHORIZATION, basic())
+                .header(header::ACCEPT_LANGUAGE, "es")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    let root = String::from_utf8(root).unwrap();
+    assert!(root.contains("Seguir leyendo") && root.contains("Libros al azar"));
+}
+
+#[tokio::test]
+async fn api_upload_saves_books_for_apps() {
+    let t = app();
+    let put = |uri: &str, data: &'static [u8], auth: bool| {
+        let mut request = Request::put(uri);
+        if auth {
+            request = request.header(header::AUTHORIZATION, basic());
+        }
+        request.body(Body::from(data)).unwrap()
+    };
+
+    let (status, _, _) = t.send(put("/api/upload/a.epub", b"x", false)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(!t.books().join("a.epub").exists());
+
+    let (status, _, body) = t.send(put("/api/upload/Saga/Libro%20uno.epub", b"one", true)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["path"],
+        "Saga/Libro uno.epub"
+    );
+    // Never overwrites
+    let (_, _, body) = t.send(put("/api/upload/Saga/Libro%20uno.epub", b"two", true)).await;
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["path"],
+        "Saga/Libro uno (1).epub"
+    );
+    assert_eq!(std::fs::read(t.books().join("Saga/Libro uno.epub")).unwrap(), b"one");
+
+    let (status, _, _) = t.send(put("/api/upload/song.mp3", b"x", true)).await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    let (status, _, _) = t.send(put("/api/upload/..%2Fout.epub", b"x", true)).await;
+    assert_ne!(status, StatusCode::CREATED);
+    assert!(!t.dir.path().join("out.epub").exists());
+
+    // The new book is in the catalog right away
+    assert!(t.text("/opds/folders/Saga").await.contains("Libro uno"));
+}
+
+#[tokio::test]
+async fn settings_tabs_have_their_own_addresses() {
+    let t = app();
+    t.write("a.txt", b"x");
+    for (uri, tab) in [
+        ("/admin/settings", "general"),
+        ("/admin/settings/apps", "apps"),
+        ("/admin/settings/maintenance", "maintenance"),
+        ("/admin/settings/about", "about"),
+    ] {
+        let html = t.text(uri).await;
+        assert!(html.contains("<title>Settings - OPDShelf</title>"), "{uri}");
+        assert!(
+            html.contains(&format!(r#"data-settings-tab="{tab}" aria-current="page""#)),
+            "{uri} marks its tab"
+        );
+        assert!(
+            html.contains(&format!(r#"data-settings-panel="{tab}" >"#)),
+            "{uri} shows its tab"
+        );
+        assert!(
+            html.contains(r#"id="libraryView" tabindex="-1" hidden"#),
+            "{uri} hides the library"
+        );
+        let nav = &html[html.find("settings-tabs").unwrap()..];
+        let nav = &nav[..nav.find("</nav>").unwrap()];
+        assert_eq!(nav.matches(r#"aria-current="page""#).count(), 1, "{uri} marks one tab");
+    }
+    let (status, _, _) = t.get("/admin/settings/nope").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = t.get("/admin/settings/general").await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "General is /admin/settings");
+
+    // General: theme, language and who is signed in
+    let general = t.text("/admin/settings").await;
+    assert!(general.contains(r#"data-theme-set="system""#) && general.contains(r#"data-lang-set="es""#));
+    assert!(general.contains(&format!("<strong>{USER}</strong>")));
+    let open = app_with(&[]);
+    let general = open.text("/admin/settings").await;
+    assert!(general.contains("<code>ADMIN_USERNAME</code>") && general.contains("<code>ADMIN_PASSWORD</code>"));
+
+    // Apps: downloads and the QR code moved here from the Devices page
+    let apps = t.text("/admin/settings/apps").await;
+    assert!(apps.contains(r#"id="connectQr""#) && apps.contains(r#"href="/apps/opdshelf.apk""#));
+    let devices = t.text("/admin/sync").await;
+    assert!(devices.contains("<title>Devices - OPDShelf</title>"));
+    assert!(devices.contains(r#"href="/admin/settings/apps" data-settings-tab="apps""#));
+
+    // About: the version and the folders
+    let about = t.text("/admin/settings/about").await;
+    assert!(about.contains(env!("CARGO_PKG_VERSION")));
+    let books = std::fs::canonicalize(t.books()).unwrap();
+    assert!(about.contains(&books.display().to_string()));
+    assert!(about.contains("Stable"));
+
+    // In Spanish
+    let (_, _, body) = t
+        .send(
+            Request::get("/admin/settings/apps")
+                .header(header::AUTHORIZATION, basic())
+                .header(header::COOKIE, "opdshelf_lang=es")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    let spanish = String::from_utf8(body).unwrap();
+    assert!(spanish.contains("<title>Ajustes - OPDShelf</title>"));
+    assert!(spanish.contains("Apps y conexiones") && spanish.contains("Acerca de"));
+}
+
+#[tokio::test]
+async fn the_book_panel_names_its_identifier() {
+    let t = app();
+    write_epub_with(
+        &t.books().join("isbn.epub"),
+        "With ISBN",
+        "A",
+        "<dc:identifier>978-0-316-76948-8</dc:identifier>",
+    );
+    write_epub_with(
+        &t.books().join("uuid.epub"),
+        "With uuid",
+        "A",
+        "<dc:identifier>urn:uuid:8f1d4b3c-0e3a-4a6f-9c1e-2b7d5a9e6f10</dc:identifier><dc:language>en</dc:language>",
+    );
+    let isbn = t.text("/info/isbn.epub?panel=1").await;
+    assert!(isbn.contains("<dt>ISBN</dt>"));
+    let uuid = t.text("/info/uuid.epub?panel=1").await;
+    assert!(uuid.contains("<dt>Identifier</dt>") && !uuid.contains("<dt>ISBN</dt>"));
+    assert!(
+        uuid.contains(r#"data-lang-code="en""#),
+        "the language is named in the browser"
+    );
+    assert!(uuid.contains("<dt>Metadata</dt>"));
+    assert!(uuid.contains("data-bytes="), "the size is shown like in the list");
+}
+
+/// A books folder mounted read-only (a NAS share, a `:ro` volume) refuses
+/// uploads with one clear answer, and the panel stops offering them, while
+/// edits, which go to DATA_DIR, keep working.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_read_only_books_folder_refuses_changes_clearly() {
+    // Not even root can create files in /proc
+    let data = tempfile::tempdir().unwrap();
+    let env: HashMap<&str, String> = [
+        ("BOOKS_DIR", "/proc/self/fdinfo".to_string()),
+        ("DATA_DIR", data.path().to_string_lossy().into_owned()),
+        ("WATCH", "false".to_string()),
+    ]
+    .into();
+    let app = router(Config::from_lookup(|k| env.get(k).cloned()));
+    let send = |request: Request<Body>| async {
+        let response = app.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let location = response
+            .headers()
+            .get(header::LOCATION)
+            .map(|v| v.to_str().unwrap().to_string());
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        (status, location, String::from_utf8_lossy(&body).into_owned())
+    };
+
+    let (status, _, body) = send(Request::put("/api/upload/a.epub").body(Body::from("x")).unwrap()).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body).unwrap()["code"],
+        "read_only"
+    );
+
+    let (status, _, _) = send(
+        Request::post("/api/folders")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"path":"","name":"New"}"#))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // The forms of the panel go back to it with the reason
+    let (status, location, _) = send(
+        Request::post("/admin/delete")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("csrf=x&path=a.epub"))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(location.unwrap().contains("read-only"));
+
+    let (_, _, html) = send(
+        Request::get("/admin")
+            .header(header::ACCEPT_LANGUAGE, "es")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert!(html.contains("La carpeta de libros es de solo lectura"));
+    assert!(!html.contains(r#"id="uploadBtn""#));
+    assert!(html.contains(r#"data-read-only="true""#));
 }

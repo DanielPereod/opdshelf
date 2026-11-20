@@ -52,6 +52,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.indication
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -67,6 +69,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -137,6 +140,31 @@ val Mono = FontFamily.Monospace
 /** The appearance chosen in Settings (0 system, 1 light, 2 dark), read by every [AppTheme]. */
 object AppearanceState {
     var mode by androidx.compose.runtime.mutableIntStateOf(0)
+
+    /** Whether the app shows dark now, outside composition (the window behind it). */
+    fun isDark(context: android.content.Context): Boolean = when (mode) {
+        1 -> false
+        2 -> true
+        else -> context.resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
+    }
+
+    /** The background of the screens, to paint the window with before Compose draws. */
+    fun background(context: android.content.Context): Int = (if (isDark(context)) Dark else Light).bg.toArgb()
+
+    /**
+     * Tells Android 12+ the appearance chosen here, so that its start screen,
+     * drawn before the app runs, is light or dark as the app is.
+     */
+    fun tellSystem(context: android.content.Context) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) return
+        val night = when (mode) {
+            1 -> android.app.UiModeManager.MODE_NIGHT_NO
+            2 -> android.app.UiModeManager.MODE_NIGHT_YES
+            else -> android.app.UiModeManager.MODE_NIGHT_AUTO
+        }
+        runCatching { context.getSystemService(android.app.UiModeManager::class.java)?.setApplicationNightMode(night) }
+    }
 }
 
 /**
@@ -172,14 +200,31 @@ val isWide: Boolean
 
 /** The narrowest a book of a grid gets: wider with large fonts, so titles still fit. */
 val gridCellWidth: Dp
-    @Composable get() {
-        val scale = androidx.compose.ui.platform.LocalDensity.current.fontScale
-        val base = if (isWide) 128.dp else 96.dp
-        return base * maxOf(1f, scale * 0.75f)
-    }
+    @Composable get() = gridMinCellDp(
+        androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp,
+        androidx.compose.ui.platform.LocalDensity.current.fontScale,
+    ).dp
+
+/**
+ * The narrowest tile of a book grid on a screen [screenWidthDp] wide: 96 dp on
+ * phones, 140 dp from 600 dp (tablets, foldables, phones on their side), so a
+ * tablet shows real covers rather than a stretched phone's many small ones.
+ * Larger fonts make it wider, so titles still fit.
+ */
+fun gridMinCellDp(screenWidthDp: Int, fontScale: Float): Float {
+    val base = if (screenWidthDp >= 600) 140f else 96f
+    return base * maxOf(1f, fontScale * 0.75f)
+}
+
+/** How many columns a grid of tiles at least [minCellDp] wide gets in [availableDp], [spacingDp] apart (as GridCells.Adaptive). */
+fun gridColumns(availableDp: Float, minCellDp: Float, spacingDp: Float): Int =
+    maxOf(1, ((availableDp + spacingDp) / (minCellDp + spacingDp)).toInt())
 
 /** Text and forms stay readable on wide screens: about 75 characters per line at most. */
 val ReadableWidth = 640.dp
+
+/** The widest a screen's content gets (settings, statistics, details), centred on wide screens. */
+val MaxContentWidth = 840.dp
 
 /** Side margin of a screen: 16 dp on phones, 24 dp on tablets. */
 val edgePadding: Dp
@@ -416,14 +461,17 @@ fun LabeledField(
                 if (autofill != null) Modifier.semantics { contentType = autofill } else Modifier,
             ),
         )
-        if (help != null) Text(help, color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
+        if (help != null) Text(help, color = if (isError) shelf.danger else shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
     }
 }
+
+/** How tall a [ReadBar] is, for a place that keeps its room without one. */
+val ReadBarHeight = 4.dp
 
 /** A thin black bar on a soft track: how far a book was read. */
 @Composable
 fun ReadBar(fraction: Float, modifier: Modifier = Modifier) {
-    Box(modifier.height(4.dp).clip(RoundedCornerShape(2.dp)).background(shelf.lineStrong.copy(alpha = 0.6f))) {
+    Box(modifier.height(ReadBarHeight).clip(RoundedCornerShape(2.dp)).background(shelf.lineStrong.copy(alpha = 0.6f))) {
         Box(Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0f, 1f)).background(shelf.fg))
     }
 }
@@ -495,21 +543,14 @@ fun EmptyState(
     }
 }
 
-/** The logo, on a light tile in dark mode, where its navy would vanish. */
+/** The logo, straight on the background: in dark mode its navy turns a lighter blue that stays visible. */
 @Composable
 fun Logo(size: Dp, modifier: Modifier = Modifier) {
-    val dark = shelf.isDark
-    Box(
-        modifier.size(size).then(
-            if (dark) Modifier.clip(RoundedCornerShape(size / 4)).background(Color(0xFFDCE3EE)).padding(size / 8) else Modifier,
-        ),
-        contentAlignment = Alignment.Center,
-    ) {
-        androidx.compose.foundation.Image(
-            androidx.compose.ui.res.painterResource(R.drawable.logo), stringResource(R.string.logo),
-            Modifier.fillMaxSize(),
-        )
-    }
+    androidx.compose.foundation.Image(
+        androidx.compose.ui.res.painterResource(if (shelf.isDark) R.drawable.logo_dark else R.drawable.logo),
+        stringResource(R.string.logo),
+        modifier.size(size),
+    )
 }
 
 /** One entry of a book's ⋮ menu. */
@@ -520,6 +561,12 @@ data class MenuAction(
     val onClick: () -> Unit,
 )
 
+/** How far from a cover's corner its marks sit (⋮, selection, downloaded), on every tile. */
+val CoverBadgeInset = 8.dp
+
+/** The size of the ⋮ disc on a cover: small, so it hides little. */
+val CoverBadgeSize = 24.dp
+
 /** The ⋮ button of a book and the menu it opens. */
 @Composable
 fun MoreMenu(
@@ -527,15 +574,36 @@ fun MoreMenu(
     actions: List<MenuAction>,
     modifier: Modifier = Modifier,
     onImage: Boolean = false,
+    /** Lets the caller open the menu too, e.g. on a long press of its row. */
+    state: androidx.compose.runtime.MutableState<Boolean>? = null,
 ) {
-    var open by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val own = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var open by (state ?: own)
     Box(modifier) {
-        IconButton(onClick = { open = true }) {
-            if (onImage) {
-                Box(Modifier.size(28.dp).clip(RoundedCornerShape(14.dp)).background(Color(0x99000000)), contentAlignment = Alignment.Center) {
-                    Icon(androidx.compose.material.icons.Icons.Default.MoreVert, description, tint = Color.White, modifier = Modifier.size(18.dp))
+        if (onImage) {
+            // A light disc with a dark icon and a soft shadow, as Material's filled tonal icon
+            // button, the same in light and dark: covers are pictures, not the theme's colours.
+            // Small and in the corner, [CoverBadgeInset] in as the tile's other marks, so it
+            // hides little of the cover; the finger still gets 48 dp around it.
+            val press = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+            Box(
+                Modifier.size(48.dp)
+                    .clickable(interactionSource = press, indication = null, role = androidx.compose.ui.semantics.Role.Button) { open = true },
+                contentAlignment = Alignment.TopEnd,
+            ) {
+                val disc = androidx.compose.foundation.shape.CircleShape
+                Box(
+                    Modifier.padding(top = CoverBadgeInset, end = CoverBadgeInset).size(CoverBadgeSize)
+                        .shadow(2.dp, disc).clip(disc).background(Light.pane)
+                        .border(0.5.dp, Color(0x1F000000), disc)
+                        .indication(press, androidx.compose.material3.ripple()),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(androidx.compose.material.icons.Icons.Default.MoreVert, description, tint = Light.fg, modifier = Modifier.size(16.dp))
                 }
-            } else {
+            }
+        } else {
+            IconButton(onClick = { open = true }) {
                 Icon(androidx.compose.material.icons.Icons.Default.MoreVert, description, tint = shelf.muted)
             }
         }

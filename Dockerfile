@@ -12,17 +12,25 @@ FROM rust:1-alpine AS builder
 RUN apk add --no-cache musl-dev
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
+# Dependencies first, against empty sources, so this layer stays cached
+# until Cargo.toml or Cargo.lock change
+RUN mkdir src \
+ && echo 'fn main() {}' > src/main.rs \
+ && touch src/lib.rs \
+ && cargo build --release --locked \
+ && rm -rf src target/release/opdshelf* target/release/deps/opdshelf* target/release/deps/libopdshelf*
 COPY src ./src
 COPY views ./views
 COPY --from=assets /app/static ./static
-RUN cargo build --release --locked
+# touch: the copied sources can be older than the placeholder build above
+RUN touch src/main.rs src/lib.rs && cargo build --release --locked
 
 FROM alpine:3.22
 # latest for images built from main, beta for the beta branch: picks which
 # releases of the Android app and KOReader plugin the web panel offers
 ARG CHANNEL=latest
-# pdfinfo/pdftoppm for PDF covers, bsdtar for CBR/CB7/CBT comics
-RUN apk add --no-cache poppler-utils libarchive-tools
+# pdfinfo/pdftoppm for PDF covers, bsdtar for CBR/CB7/CBT comics, tzdata for TZ (days in reading statistics)
+RUN apk add --no-cache poppler-utils libarchive-tools tzdata
 COPY --from=builder /app/target/release/opdshelf /usr/local/bin/opdshelf
 WORKDIR /app
 RUN mkdir -p /app/books

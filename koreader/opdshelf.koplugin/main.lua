@@ -15,7 +15,10 @@ OPDShelf for KOReader.
 - A library browser for the server's OPDS catalog, with covers as a list or
   a grid, search, book details and downloads.
 - A home screen that can replace KOReader's start screen: the book to
-  continue, the newest books on the server and the last ones read here.
+  continue, the books started on any device, the newest books on the server
+  and KOReader's own screens one tap away.
+- Comes set up when downloaded from the server's panel, updates itself from
+  the server, and has a status screen with what is waiting to be sent.
 
 @module koplugin.opdshelf
 --]]
@@ -42,6 +45,7 @@ local Client = require("opdshelf_client")
 local Stream = require("opdshelf_stream")
 local Notes = require("opdshelf_notes")
 local Sync = require("opdshelf_sync")
+local Update = require("opdshelf_update")
 local T = require("ffi/util").template
 local _ = require("opdshelf_i18n")
 
@@ -77,6 +81,10 @@ end
 
 -- Set when the home screen is asked for from a book, to show it in the file browser that follows
 local home_requested = false
+-- Updates are looked for once each time KOReader starts
+local update_checked = false
+-- Seconds after starting before looking for an update
+local UPDATE_DELAY = 10
 
 local function urlEncode(s)
     return (tostring(s):gsub("[^%w%-%._~]", function(c) return string.format("%%%02X", c:byte()) end))
@@ -90,6 +98,7 @@ function OPDShelf:init()
     OPDShelf.instance = self
     self.state = LuaSettings:open(DataStorage:getSettingsDir() .. "/opdshelf.lua")
     self.device_id = G_reader_settings:readSetting("device_id")
+    self:applySetup()
     self:migrateAccount()
     self:makeClient()
     self:onDispatcherRegisterActions()
@@ -107,6 +116,16 @@ function OPDShelf:init()
                 self:showHome()
             end
         end)
+        if not update_checked then
+            update_checked = true
+            UIManager:scheduleIn(UPDATE_DELAY, function()
+                -- A background check must never take KOReader down
+                if NetworkMgr:isOnline() then
+                    local ok, err = pcall(self.checkForUpdate, self, false)
+                    if not ok then logger.warn("OPDShelf: update check failed:", err) end
+                end
+            end)
+        end
     end
     if self.ui.highlight and self.ui.document then
         self.ui.highlight:addToHighlightDialog("12_opdshelf_last_position", function(highlight)
@@ -139,6 +158,39 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Account
+
+-- The plugin's folder
+function OPDShelf:pluginDir()
+    if self.path then return self.path end
+    return (debug.getinfo(1, "S").source or ""):match("^@(.*)/[^/]*$")
+end
+
+-- A plugin downloaded from the server's panel comes with its address and login
+function OPDShelf:applySetup()
+    local dir = self:pluginDir()
+    local path = dir and dir .. "/opdshelf_setup.json"
+    local file = path and io.open(path, "r")
+    if not file then return end
+    local text = file:read("*a")
+    file:close()
+    -- It holds the password: read once
+    os.remove(path)
+    local ok, setup = pcall(JSON.decode, text)
+    if not ok or type(setup) ~= "table" or type(setup.server) ~= "string" then return end
+    -- An account that is already set up stays
+    if (self.state:readSetting("server") or "") ~= "" and (self.state:readSetting("password") or "") ~= "" then return end
+    local function text_or_nil(v) return type(v) == "string" and v or nil end
+    self.state:saveSetting("server", setup.server)
+    self.state:saveSetting("username", text_or_nil(setup.username))
+    self.state:saveSetting("password", text_or_nil(setup.password))
+    self.state:flush()
+end
+
+-- Kept for the status screen
+function OPDShelf:noteError(text)
+    self.state:saveSetting("last_error", { text = text, time = os.time() })
+    self.state:flush()
+end
 
 -- The first time, take the server and user from Progress sync if it pointed to OPDShelf
 function OPDShelf:migrateAccount()
@@ -230,6 +282,7 @@ function OPDShelf:checkAccount(done)
     else
         text = T(_("Cannot reach the server: %1"), tostring(body))
     end
+    if code ~= 200 and code ~= 400 then self:noteError(text) end
     UIManager:show(InfoMessage:new{ text = text, timeout = 4 })
 end
 
@@ -329,6 +382,50 @@ function OPDShelf:validXPointer(xp)
     return ok and valid
 end
 
+-- The text of a position without its spaces, to compare it between readers
+local function squash(s) return (type(s) == "string" and s or ""):gsub("%s+", "") end
+
+--- Where a position from another device is in this book. The xpointer when the
+-- saved text follows it; otherwise the place nearest to it where that text is.
+-- Readers build the document a little differently (and older apps numbered
+-- chapters otherwise), so a path alone can lead to other words.
+-- Returns nil when neither the xpointer nor the text can be found.
+function OPDShelf:locate(record)
+    local xp = record.progress
+    local valid = self:validXPointer(xp)
+    local context = type(record.context) == "table" and record.context or {}
+    local after = type(context.after) == "string" and context.after ~= "" and context.after
+        or type(context.selected) == "string" and context.selected or ""
+    local want = squash(after)
+    if #want < 6 then return valid and xp or nil end
+    if valid then
+        local ok, here = pcall(self.contextAt, self, xp)
+        if ok and squash(here.after):sub(1, 8) == want:sub(1, 8) then return xp end
+    end
+    local doc = self.ui.document
+    if not doc.findAllText then return valid and xp or nil end
+    local first = {}
+    for word in after:gmatch("%S+") do
+        first[#first + 1] = word
+        if #first == 6 then break end
+    end
+    local ok, hits = pcall(doc.findAllText, doc, table.concat(first, " "), false, 0, 200, false)
+    if not ok or type(hits) ~= "table" or #hits == 0 then return valid and xp or nil end
+    local height = doc.info and doc.info.doc_height or 0
+    local near = (record.percentage or 0) * height
+    if valid then
+        local got, pos = pcall(doc.getPosFromXPointer, doc, xp)
+        if got and pos then near = pos end
+    end
+    local best, distance
+    for _, hit in ipairs(hits) do
+        local got, pos = pcall(doc.getPosFromXPointer, doc, hit.start)
+        local d = got and pos and math.abs(pos - near) or math.huge
+        if not best or d < distance then best, distance = hit.start, d end
+    end
+    return best
+end
+
 --- Whether a position from the server is on the page shown now.
 function OPDShelf:showing(record)
     if type(record) ~= "table" or type(record.progress) ~= "string" then return false end
@@ -348,6 +445,7 @@ function OPDShelf:goTo(record)
     self.following = record
     self.following_at = nil
     local doc = self.ui.document
+    local xp = not doc.info.has_pages and self:locate(record)
     if doc.info.has_pages then
         local page = tonumber(record.progress)
         if page then
@@ -355,13 +453,13 @@ function OPDShelf:goTo(record)
         else
             self.ui:handleEvent(Event:new("GotoPercent", (record.percentage or 0) * 100))
         end
-    elseif self:validXPointer(record.progress) then
+    elseif xp then
         if record.manual then
-            self:setMark(record.progress)
+            self:setMark(xp)
             local selected = type(record.context) == "table" and record.context.selected or ""
-            self.pending_highlight = { xp = record.progress, selected = selected }
+            self.pending_highlight = { xp = xp, selected = selected }
         end
-        self.ui:handleEvent(Event:new("GotoXPointer", record.progress, record.progress))
+        self.ui:handleEvent(Event:new("GotoXPointer", xp, xp))
     else
         -- The page reached may not contain the exact percentage: its first page change is ours
         self.following_at = os.time()
@@ -513,6 +611,12 @@ function OPDShelf:push(opts)
     local progress, percentage = self:position()
     if not progress then return end
     if not opts.force and progress == self.last_sent then return end
+    -- The text there, so other readers can check they reach the same words
+    local context = opts.context
+    if not context and not self.ui.document.info.has_pages then
+        local ok, around = pcall(self.contextAt, self, progress)
+        if ok then context = around end
+    end
     local pending = self.state:readSetting("pending") or {}
     pending[self.document] = {
         document = self.document,
@@ -521,7 +625,7 @@ function OPDShelf:push(opts)
         device = self:deviceName(),
         device_id = self.device_id,
         manual = opts.manual or nil,
-        context = opts.context,
+        context = context,
         timestamp = (not opts.now and (self.last_move or self:docState().read_at)) or os.time(),
     }
     self.state:saveSetting("pending", pending)
@@ -543,7 +647,7 @@ function OPDShelf:flush(interactive)
     local pending = self.state:readSetting("pending") or {}
     if next(pending) == nil then return false end
     self.flushing = true
-    local sent, failed, rejected, answer = 0, false, false, nil
+    local sent, failed, rejected, answer, why = 0, false, false, nil, nil
     for document, item in pairs(pending) do
         item.sent_at = os.time()
         local code, body = self.client:putProgress(document, item)
@@ -561,6 +665,7 @@ function OPDShelf:flush(interactive)
             pending[document] = nil
         else
             failed = true
+            why = code and ("HTTP " .. code) or tostring(body)
             break
         end
     end
@@ -581,6 +686,11 @@ function OPDShelf:flush(interactive)
         end
     end
     if rejected then
+        self:noteError(_("The server did not accept the username or password."))
+    elseif failed then
+        self:noteError(T(_("Cannot reach the server: %1"), why))
+    end
+    if rejected then
         UIManager:show(InfoMessage:new{
             text = _("The OPDShelf server did not accept the username or password. Check them in OPDShelf → Server and account."),
         })
@@ -596,6 +706,10 @@ end
 function OPDShelf:pull(reason)
     if not self:hasBook() or not self:ready() or not NetworkMgr:isOnline() then return end
     local code, body = self.client:getProgress(self.document)
+    if code ~= 200 then
+        self:noteError(code == 401 and _("The server did not accept the username or password.")
+            or T(_("Cannot reach the server: %1"), code and ("HTTP " .. code) or tostring(body)))
+    end
     if code == 401 then
         if reason == "manual" then
             UIManager:show(InfoMessage:new{ text = _("The server did not accept the username or password.") })
@@ -802,6 +916,8 @@ function OPDShelf:onReaderReady()
     if not self.document then return end
     self.mark = self.ui.doc_settings:readSetting("opdshelf_mark")
     self.last_sent = self:position()
+    -- Where the book opened: reading starts when the position leaves it
+    self.seen_position = self.last_sent
     self:patchProgressSync()
     self.push_task = function() self:push() end
     self.started = true
@@ -829,12 +945,19 @@ function OPDShelf:onMoved()
             self:setMark(nil)
         end
     end
+    local progress = self:position()
     -- Moving to a position from another device is not reading
     if self.following and (self:showing(self.following) or (self.following_at and os.time() - self.following_at < 2)) then
         self.following_at = nil
+        self.seen_position = progress
         return
     end
     self.following = nil
+    -- KOReader also says the page changed when nothing moved: on opening the
+    -- book, laying it out again or drawing a dialog over it. Only a new
+    -- position is reading; otherwise "read just now" would be shown, and sent.
+    if progress == self.seen_position then return end
+    self.seen_position = progress
     self.last_move = os.time()
     local state = self:docState()
     if not state.moved then
@@ -975,6 +1098,7 @@ function OPDShelf:pushNotes()
     })
     if code ~= 200 or type(body) ~= "table" then
         logger.dbg("OPDShelf: highlights not sent:", code)
+        self:noteError(T(_("Highlights not sent: %1"), code and ("HTTP " .. code) or tostring(body)))
         return
     end
     self:noteServerTime(body)
@@ -1308,6 +1432,110 @@ local function choiceMenu(self, key, default, choices)
     return items
 end
 
+-- ---------------------------------------------------------------------------
+-- Updates and status
+
+-- Not called version(): KOReader's plugin loader copies every _meta.lua field
+-- onto the plugin, and a release's _meta.lua has a version number.
+function OPDShelf:installedVersion()
+    return Update.localVersion(self:pluginDir())
+end
+
+--- Asks the server for a newer plugin and offers it. `interactive` says when there is none.
+function OPDShelf:checkForUpdate(interactive)
+    local function say(text)
+        if interactive then UIManager:show(InfoMessage:new{ text = text, timeout = 4 }) end
+    end
+    local current = self:installedVersion()
+    if not current then
+        return say(_("This copy of the plugin does not update itself: it is not a release."))
+    end
+    if not self:ready() then
+        return say(_("Set up the server first."))
+    end
+    local latest, err = Update.latest(self.client)
+    if not latest then
+        if interactive then self:noteError(T(_("Cannot look for updates: %1"), err)) end
+        return say(T(_("Cannot look for updates: %1"), err))
+    end
+    if latest <= current then
+        return say(_("OPDShelf is up to date."))
+    end
+    UIManager:show(ConfirmBox:new{
+        text = T(_("A new version of OPDShelf is available (%1). Update now?"), Update.describe(latest)),
+        ok_text = _("Update"),
+        cancel_text = _("Later"),
+        ok_callback = function() self:installUpdate() end,
+    })
+end
+
+function OPDShelf:installUpdate()
+    local message = InfoMessage:new{ text = _("Downloading the update…") }
+    UIManager:show(message)
+    if UIManager.forceRePaint then UIManager:forceRePaint() end
+    local ok, err = Update.install(self.client, self:pluginDir(), Update.koreaderFs())
+    UIManager:close(message)
+    if not ok then
+        local text = T(_("The update failed: %1"), tostring(err))
+        self:noteError(text)
+        UIManager:show(InfoMessage:new{ text = text })
+        return
+    end
+    local text = _("OPDShelf has been updated. Restart KOReader to use the new version.")
+    if UIManager.askForRestart then
+        UIManager:askForRestart(text)
+    else
+        UIManager:show(InfoMessage:new{ text = text })
+    end
+end
+
+-- What the connection check says, in a few words
+function OPDShelf:connectionState()
+    if not self:ready() then return _("not set up") end
+    if not NetworkMgr:isOnline() then return _("offline") end
+    local code, body = self.client:json_request("GET", "/api/progress/0")
+    if code == 200 or code == 400 then return _("connected") end
+    if code == 401 then return _("wrong username or password") end
+    if code then return T(_("the server answered %1"), code) end
+    return T(_("cannot reach the server (%1)"), tostring(body))
+end
+
+function OPDShelf:showStatus()
+    local version = self:installedVersion()
+    local lines = {
+        T(_("Version: %1"), version and Update.describe(version) or _("development copy")),
+        T(_("Server: %1"), self.state:readSetting("server") or _("not set up")),
+        T(_("Connection: %1"), self:connectionState()),
+    }
+    local positions = 0
+    for _k in pairs(self.state:readSetting("pending") or {}) do positions = positions + 1 end
+    lines[#lines+1] = T(_("Positions waiting to be sent: %1"), positions)
+    if self:hasBook() and self:notesEnabled() then
+        self:trackNotes()
+        local out = Notes.outgoing(self.ui.annotation.annotations, self:notesSnapshot(), function() return {} end)
+        lines[#lines+1] = T(_("Highlights of this book waiting to be sent: %1"), #out)
+    end
+    local err = self.state:readSetting("last_error")
+    if type(err) == "table" and err.text then
+        lines[#lines+1] = T(_("Last error: %1 (%2)"), err.text, os.date("%Y-%m-%d %H:%M", err.time or 0))
+    else
+        lines[#lines+1] = _("Last error: none")
+    end
+    local dialog
+    dialog = ButtonDialog:new{
+        title = table.concat(lines, "\n"),
+        title_align = "left",
+        buttons = { {
+            { text = _("Check for updates"), callback = function()
+                UIManager:close(dialog)
+                NetworkMgr:runWhenOnline(function() self:checkForUpdate(true) end)
+            end },
+            { text = _("Close"), callback = function() UIManager:close(dialog) end },
+        } },
+    }
+    UIManager:show(dialog)
+end
+
 function OPDShelf:addToMainMenu(menu_items)
     self:addStartWith(menu_items)
     menu_items.opdshelf = {
@@ -1317,11 +1545,14 @@ function OPDShelf:addToMainMenu(menu_items)
     }
 end
 
+-- Tools › OPDShelf: where to go, what to do with the book open, the
+-- settings in one submenu, and the status. The home screen's menu shows
+-- the same settings, from settingsItems().
 function OPDShelf:menuItems()
     local in_book = self:hasBook()
     return {
         {
-            text = _("Home"),
+            text = _("OPDShelf home"),
             callback = function() self:showHome() end,
         },
         {
@@ -1331,29 +1562,102 @@ function OPDShelf:menuItems()
         {
             text = _("Search the library"),
             callback = function() self:showLibrary(true) end,
+            separator = true,
+        },
+        {
+            text = _("This book"),
+            enabled_func = function() return in_book end,
+            sub_item_table = self:bookItems(),
+        },
+        {
+            text = _("Settings"),
+            sub_item_table_func = function() return self:settingsItems() end,
+            separator = true,
+        },
+        {
+            text = _("Status and updates"),
+            help_text = _("The plugin's version, the connection to the server, what is waiting to be sent and the last error."),
+            callback = function() self:showStatus() end,
+        },
+    }
+end
+
+-- What can be done with the book open
+function OPDShelf:bookItems()
+    return {
+        {
+            text = _("Sync this book now"),
+            callback = function() self:onOPDShelfSync() end,
+        },
+        {
+            text = _("Go to where another device left it"),
+            enabled_func = function() return self:ready() end,
+            callback = function() self:showPositions() end,
+        },
+        {
+            text = _("Highlights and notes"),
+            help_text = _("The highlights and notes of this book, from every device. They sync with the web reader and the Android app."),
+            callback = function() self.ui:handleEvent(Event:new("ShowBookmark")) end,
+        },
+    }
+end
+
+-- The settings, for Tools › OPDShelf › Settings and the home screen's menu.
+-- `changed(what)` runs after the account ("account") or the download folder
+-- ("folder") changed, for the home screen to load again.
+function OPDShelf:settingsItems(changed)
+    local function after(what, touchmenu_instance)
+        return function()
+            if touchmenu_instance then touchmenu_instance:updateItems() end
+            if changed then changed(what) end
+        end
+    end
+    return {
+        {
+            text_func = function()
+                local server = self.state:readSetting("server")
+                return server and T(_("Server: %1"), server) or _("Server and account")
+            end,
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                self:editAccount(after("account", touchmenu_instance))
+            end,
+        },
+        {
+            text_func = function() return T(_("Device name: %1"), self:deviceName()) end,
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                local dialog
+                dialog = InputDialog:new{
+                    title = _("Name of this device on other devices"),
+                    input = self:deviceName(),
+                    buttons = { {
+                        { text = _("Cancel"), id = "close", callback = function() UIManager:close(dialog) end },
+                        { text = _("Save"), is_enter_default = true, callback = function()
+                            local name = util.trim(dialog:getInputText() or "")
+                            self.state:saveSetting("device_name", name ~= "" and name or nil)
+                            self.state:flush()
+                            UIManager:close(dialog)
+                            if touchmenu_instance then touchmenu_instance:updateItems() end
+                        end },
+                    } },
+                }
+                UIManager:show(dialog)
+                dialog:onShowKeyboard()
+            end,
+        },
+        {
+            text_func = function() return T(_("Download folder: %1"), self:downloadDir()) end,
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                self:chooseDownloadDir(after("folder", touchmenu_instance))
+            end,
         },
         {
             text = _("Show the home screen at start"),
             help_text = _("Opens OPDShelf's home screen instead of the file browser when KOReader starts and after closing a book, and the file browser's home button goes there."),
             checked_func = function() return self:launcherEnabled() end,
             callback = function() self:setLauncher(not self:launcherEnabled()) end,
-            separator = true,
-        },
-        {
-            text = _("Sync this book now"),
-            enabled_func = function() return in_book end,
-            callback = function() self:onOPDShelfSync() end,
-        },
-        {
-            text = _("Highlights and notes"),
-            help_text = _("The highlights and notes of this book, from every device. They sync with the web reader and the Android app."),
-            enabled_func = function() return in_book end,
-            callback = function() self.ui:handleEvent(Event:new("ShowBookmark")) end,
-        },
-        {
-            text = _("Go to where another device left it"),
-            enabled_func = function() return in_book and self:ready() end,
-            callback = function() self:showPositions() end,
             separator = true,
         },
         {
@@ -1390,51 +1694,6 @@ function OPDShelf:menuItems()
                 { "jump", _("Go there") },
                 { "ignore", _("Stay here") },
             }),
-            separator = true,
-        },
-        {
-            text_func = function()
-                local server = self.state:readSetting("server")
-                return server and T(_("Server: %1"), server) or _("Server and account")
-            end,
-            keep_menu_open = true,
-            callback = function(touchmenu_instance)
-                self:editAccount(function()
-                    if touchmenu_instance then touchmenu_instance:updateItems() end
-                end)
-            end,
-        },
-        {
-            text_func = function() return T(_("Device name: %1"), self:deviceName()) end,
-            keep_menu_open = true,
-            callback = function(touchmenu_instance)
-                local dialog
-                dialog = InputDialog:new{
-                    title = _("Name of this device on other devices"),
-                    input = self:deviceName(),
-                    buttons = { {
-                        { text = _("Cancel"), id = "close", callback = function() UIManager:close(dialog) end },
-                        { text = _("Save"), is_enter_default = true, callback = function()
-                            local name = util.trim(dialog:getInputText() or "")
-                            self.state:saveSetting("device_name", name ~= "" and name or nil)
-                            self.state:flush()
-                            UIManager:close(dialog)
-                            if touchmenu_instance then touchmenu_instance:updateItems() end
-                        end },
-                    } },
-                }
-                UIManager:show(dialog)
-                dialog:onShowKeyboard()
-            end,
-        },
-        {
-            text_func = function() return T(_("Download folder: %1"), self:downloadDir()) end,
-            keep_menu_open = true,
-            callback = function(touchmenu_instance)
-                self:chooseDownloadDir(function()
-                    if touchmenu_instance then touchmenu_instance:updateItems() end
-                end)
-            end,
         },
     }
 end

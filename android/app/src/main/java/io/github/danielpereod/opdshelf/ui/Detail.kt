@@ -1,5 +1,9 @@
 package io.github.danielpereod.opdshelf.ui
 
+import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
+import androidx.compose.material.icons.outlined.Folder
+import io.github.danielpereod.opdshelf.data.serverPath
+import io.github.danielpereod.opdshelf.data.publishedYear
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.aspectRatio
@@ -72,6 +76,15 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
     var confirmRemove by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
     var cut by remember { mutableStateOf(false) }
+    var moving by remember { mutableStateOf(false) }
+    val folders by library.folders.collectAsState()
+    val serverPath = entry?.serverPath
+    if (moving && entry != null && serverPath != null) {
+        FolderPickerDialog(
+            title = entry.title, folders = folders, current = serverPath.substringBeforeLast('/', ""),
+            onPick = { moving = false; library.moveToFolder(entry, it) }, onDismiss = { moving = false },
+        )
+    }
 
     val title = entry?.title ?: local?.title.orEmpty()
     val authors = entry?.authors ?: local?.authors.orEmpty()
@@ -143,6 +156,23 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
                 Text(stringResource(R.string.download_help), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
             }
         }
+        // Where the book lives on the server
+        if (serverPath != null) {
+            Spacer(Modifier.height(Space.m))
+            SecondaryButton(
+                stringResource(R.string.move_to_folder),
+                { library.loadFolders(); moving = true }, Modifier.fillMaxWidth(),
+                icon = Icons.AutoMirrored.Outlined.DriveFileMove,
+            )
+            serverPath.substringBeforeLast('/', "").takeIf { it.isNotEmpty() }?.let {
+                Spacer(Modifier.height(Space.xs))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Folder, null, tint = shelf.muted, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(Space.xs))
+                    Text(it, color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
     }
     val more: @Composable () -> Unit = {
         // Where it was left, as the server knows it
@@ -200,7 +230,8 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
                 MetaRow(stringResource(R.string.meta_series), m.seriesIndex?.let { stringResource(R.string.meta_series_number, s, it) } ?: s)
             }
             m.publisher?.let { MetaRow(stringResource(R.string.meta_publisher), it) }
-            m.issued?.let { MetaRow(stringResource(R.string.meta_issued), it.take(4).takeIf { y -> y.all(Char::isDigit) } ?: it) }
+            // Only a real year: Calibre writes 0101-01-01 when it does not know
+            publishedYear(m.issued)?.let { MetaRow(stringResource(R.string.meta_issued), it) }
             m.language?.let { code ->
                 val name = java.util.Locale.forLanguageTag(code).getDisplayLanguage(java.util.Locale.getDefault())
                     .replaceFirstChar { it.titlecase(java.util.Locale.getDefault()) }.ifEmpty { code }
@@ -300,7 +331,7 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
                     }
                 }
             } else {
-                Column(Modifier.widthIn(max = ReadableWidth).fillMaxWidth().padding(horizontal = edgePadding, vertical = Space.l)) {
+                Column(Modifier.widthIn(max = MaxContentWidth).fillMaxWidth().padding(horizontal = edgePadding, vertical = Space.l)) {
                     // With very large fonts the title goes under the cover instead of beside it
                     val stacked = androidx.compose.ui.platform.LocalDensity.current.fontScale >= 1.5f && !isWide
                     if (stacked) {

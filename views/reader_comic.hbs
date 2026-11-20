@@ -75,7 +75,11 @@
 
     img.onload = () => { status.hidden = true; };
     Promise.all([
-      fetch(`/pages/${path}`).then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); }),
+      fetch(`/pages/${path}`).then((r) => {
+        if (r.status === 422) throw new Error(t('the file is damaged or is not in this format'));
+        if (!r.ok) throw new Error(r.statusText);
+        return r.json();
+      }),
       sync.load(),
     ])
       .then(([data, { record, from }]) => {

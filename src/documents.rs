@@ -61,6 +61,16 @@ impl DocumentIds {
         );
     }
 
+    /// Book path → document id, for the books whose id is known (see [`Self::index`]).
+    pub fn ids_by_path(&self) -> HashMap<String, String> {
+        self.known
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(path, entry)| (path.clone(), entry.id.clone()))
+            .collect()
+    }
+
     /// The id of one book, reading the file if it is not known yet.
     pub async fn id(&self, library: &Library, book: &Book) -> Option<String> {
         if let Some(id) = self.cached(book) {
@@ -110,13 +120,34 @@ impl DocumentIds {
         index
     }
 
-    fn save(&self) -> std::io::Result<()> {
-        let json = serde_json::to_vec(&*self.known.lock().unwrap()).map_err(std::io::Error::other)?;
-        if let Some(dir) = self.file.parent() {
-            std::fs::create_dir_all(dir)?;
+    /// Keeps the ids of a book, or of every book in a folder, that moved to
+    /// a new path, so they are not read from the files again (slow on a NAS).
+    pub fn rename(&self, from: &str, to: &str) {
+        let changed = {
+            let mut known = self.known.lock().unwrap();
+            let moved: Vec<(String, Entry)> = known
+                .keys()
+                .filter_map(|k| crate::paths::relocate(k, from, to).map(|n| (k.clone(), n)))
+                .collect::<Vec<_>>()
+                .into_iter()
+                .filter_map(|(k, n)| Some((n, known.remove(&k)?)))
+                .collect();
+            let any = !moved.is_empty();
+            known.extend(moved);
+            any
+        };
+        if changed {
+            if let Err(err) = self.save() {
+                tracing::warn!("cannot save {}: {err}", self.file.display());
+            }
         }
-        let tmp = self.file.with_extension("json.tmp");
-        std::fs::write(&tmp, json)?;
-        std::fs::rename(tmp, &self.file)
+    }
+
+    fn save(&self) -> std::io::Result<()> {
+        // Kept locked until the file is written: two saves at once could
+        // otherwise mix their files, or leave the older one on disk
+        let known = self.known.lock().unwrap();
+        let json = serde_json::to_vec(&*known).map_err(std::io::Error::other)?;
+        crate::store::write_atomic(&self.file, &json)
     }
 }

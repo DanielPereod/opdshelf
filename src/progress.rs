@@ -105,23 +105,46 @@ pub struct Progress {
     file: PathBuf,
     books: Arc<Mutex<HashMap<String, Vec<Record>>>>,
     changes: broadcast::Sender<Change>,
+    stats: crate::stats::Stats,
 }
 
 impl Progress {
     pub fn open(dir: &Path) -> Self {
         let file = dir.join("progress.json");
-        let books = match std::fs::read(&file) {
+        let books: HashMap<String, Vec<Record>> = match std::fs::read(&file) {
             Ok(json) => serde_json::from_slice(&json).unwrap_or_else(|err| {
                 tracing::error!("ignoring unreadable {}: {err}", file.display());
                 HashMap::new()
             }),
             Err(_) => HashMap::new(),
         };
+        let stats = crate::stats::Stats::open(dir, || {
+            books
+                .iter()
+                .flat_map(|(doc, history)| {
+                    history.iter().map(move |r| {
+                        (
+                            r.device_id.clone(),
+                            doc.clone(),
+                            r.progress.clone(),
+                            r.percentage,
+                            r.timestamp,
+                        )
+                    })
+                })
+                .collect()
+        });
         Self {
             file,
             books: Arc::new(Mutex::new(books)),
             changes: broadcast::channel(256).0,
+            stats,
         }
+    }
+
+    /// Reading statistics, kept up to date with every position saved.
+    pub fn stats(&self) -> &crate::stats::Stats {
+        &self.stats
     }
 
     /// Changes of current positions, as they happen.
@@ -160,6 +183,8 @@ impl Progress {
             timestamp: update.timestamp.map_or(now, |t| t.saturating_add(skew).min(now)),
         };
         let (device_id, progress) = (record.device_id.clone(), record.progress.clone());
+        self.stats
+            .record(&device_id, document, &progress, record.percentage, record.timestamp);
         let (before, current) = {
             let mut books = self.books.lock().unwrap();
             let history = books.entry(document.to_string()).or_default();
@@ -238,14 +263,31 @@ impl Progress {
         Ok(removed)
     }
 
-    fn save(&self) -> std::io::Result<()> {
-        let json = serde_json::to_vec(&*self.books.lock().unwrap()).map_err(std::io::Error::other)?;
-        if let Some(dir) = self.file.parent() {
-            std::fs::create_dir_all(dir)?;
+    /// Drops the positions of documents `keep` rejects (books no longer in the
+    /// library), or only counts them with `dry_run`. Returns how many.
+    pub fn retain_documents(&self, keep: impl Fn(&str) -> bool, dry_run: bool) -> std::io::Result<usize> {
+        let removed = {
+            let mut all = self.books.lock().unwrap();
+            let gone: Vec<String> = all.keys().filter(|d| !keep(d)).cloned().collect();
+            if !dry_run {
+                for document in &gone {
+                    all.remove(document);
+                }
+            }
+            gone.len()
+        };
+        if removed > 0 && !dry_run {
+            self.save()?;
         }
-        let tmp = self.file.with_extension("json.tmp");
-        std::fs::write(&tmp, json)?;
-        std::fs::rename(tmp, &self.file)
+        Ok(removed)
+    }
+
+    fn save(&self) -> std::io::Result<()> {
+        // Kept locked until the file is written: two saves at once could
+        // otherwise mix their files, or leave the older one on disk
+        let books = self.books.lock().unwrap();
+        let json = serde_json::to_vec(&*books).map_err(std::io::Error::other)?;
+        crate::store::write_atomic(&self.file, &json)
     }
 }
 

@@ -32,6 +32,7 @@ import android.view.KeyEvent
 import org.readium.r2.shared.publication.services.search.isSearchable
 import org.readium.r2.shared.publication.services.search.search
 import io.github.danielpereod.opdshelf.ui.readerPalette
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
@@ -40,6 +41,7 @@ import kotlinx.coroutines.flow.map
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -107,6 +109,8 @@ class ReaderActivity : AppCompatActivity() {
     private var publication: Publication? = null
     private var positionCount = 0
     private var kind = Kind.EPUB
+    /** Readium's chapters against the spine numbers xpointers use. */
+    private var spine = Spine.SAME
     private var navigator: VisualNavigator? = null
     private var scripts: String? = null
 
@@ -178,6 +182,10 @@ class ReaderActivity : AppCompatActivity() {
             pub.conformsTo(Publication.Profile.EPUB) -> Kind.EPUB
             pub.conformsTo(Publication.Profile.PDF) -> Kind.PDF
             else -> Kind.IMAGES
+        }
+        if (kind == Kind.EPUB) {
+            val hrefs = pub.readingOrder.map { it.url().toString() }
+            spine = withContext(Dispatchers.IO) { Spine.of(app.store.file(book), hrefs) }
         }
         val start = app.sync.start(book.document)
         val exact = start.locator?.let { runCatching { Locator.fromJSON(JSONObject(it)) }.getOrNull() }
@@ -295,7 +303,7 @@ class ReaderActivity : AppCompatActivity() {
             val page = a.page ?: a.pos0.toIntOrNull() ?: return null
             return positionsCache?.getOrNull(page - 1)
         }
-        val link = pub.readingOrder.getOrNull(spineIndex(a.pos0)) ?: return null
+        val link = linkOf(pub, a.pos0) ?: return null
         return Locator(
             href = link.url(),
             mediaType = link.mediaType ?: MediaType.XHTML,
@@ -328,7 +336,7 @@ class ReaderActivity : AppCompatActivity() {
         val selection = epub.currentSelection() ?: return
         val locator = selection.locator
         val index = publication?.readingOrder?.indexOfFirstWithHref(locator.href) ?: return
-        val range = js("OPDShelf.selectionRange($index)")
+        val range = js("OPDShelf.selectionRange(${spine.spineIndex(index)})")
             ?.let { runCatching { json.decodeFromString<SelectedRange>(it) }.getOrNull() } ?: return
         epub.clearSelection()
         val annotation = io.github.danielpereod.opdshelf.data.Annotation(
@@ -362,7 +370,7 @@ class ReaderActivity : AppCompatActivity() {
         position ?: return null
         if (kind == Kind.EPUB) {
             // Opened at the chapter; the exact point is found once it is shown
-            val link = pub.readingOrder.getOrNull(spineIndex(position.progress))
+            val link = linkOf(pub, position.progress)
             if (link != null) {
                 return Locator(
                     href = link.url(),
@@ -377,9 +385,13 @@ class ReaderActivity : AppCompatActivity() {
         return pub.locateProgression(position.percentage)
     }
 
+    /** The chapter an xpointer points into. */
+    private fun linkOf(pub: Publication, xpointer: String) =
+        pub.readingOrder.getOrNull(spine.readingOrderIndex(spineIndex(xpointer)))
+
     private suspend fun goToXPointer(pub: Publication, position: Position, highlight: Boolean) {
         val epub = navigator as? EpubNavigatorFragment ?: return
-        val link = pub.readingOrder.getOrNull(spineIndex(position.progress)) ?: return
+        val link = linkOf(pub, position.progress) ?: return
         withTimeoutOrNull(5000) { epub.currentLocator.first { it.href == link.url() } } ?: return
         delay(300)
         val call = "OPDShelf.progression(${quote(position.progress)}, ${contextJson(position.context)}, $scroll)"
@@ -437,7 +449,7 @@ class ReaderActivity : AppCompatActivity() {
         val position = when (kind) {
             Kind.EPUB -> {
                 val index = publication?.readingOrder?.indexOfFirstWithHref(locator.href) ?: return
-                val point = js("OPDShelf.firstVisible($index)")?.let { decodePoint(it) } ?: return
+                val point = js("OPDShelf.firstVisible(${spine.spineIndex(index)})")?.let { decodePoint(it) } ?: return
                 Position(progress = point.progress, percentage = percentage, context = point.context)
             }
             else -> Position(progress = (locator.locations.position ?: return).toString(), percentage = percentage)
@@ -485,7 +497,7 @@ class ReaderActivity : AppCompatActivity() {
         val epub = navigator as? EpubNavigatorFragment ?: return
         val locator = epub.currentLocator.value
         val index = publication?.readingOrder?.indexOfFirstWithHref(locator.href) ?: return
-        val point = js("OPDShelf.selection($index)")?.let { decodePoint(it) } ?: return
+        val point = js("OPDShelf.selection(${spine.spineIndex(index)})")?.let { decodePoint(it) } ?: return
         epub.clearSelection()
         val position = Position(
             progress = point.progress,

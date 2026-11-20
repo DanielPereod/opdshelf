@@ -8,11 +8,21 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material.icons.outlined.DownloadDone
 import androidx.compose.material.icons.outlined.FolderOff
+import androidx.compose.material.icons.outlined.CreateNewFolder
+import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.PersonOff
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DoneAll
+import androidx.compose.material.icons.outlined.DriveFileRenameOutline
+import androidx.compose.ui.semantics.selected
+import io.github.danielpereod.opdshelf.data.folderBookCount
+import io.github.danielpereod.opdshelf.data.folderPath
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.horizontalScroll
@@ -41,8 +51,12 @@ import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.RemoveDone
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material.icons.outlined.Deselect
+import androidx.compose.material.icons.outlined.SelectAll
+import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -81,6 +95,7 @@ import coil.ImageLoader
 import io.github.danielpereod.opdshelf.R
 import io.github.danielpereod.opdshelf.data.Entry
 import io.github.danielpereod.opdshelf.data.LocalBook
+import io.github.danielpereod.opdshelf.data.serverPath
 
 /** The web's list/grid switch: two icons in a hairline box. */
 @Composable
@@ -102,17 +117,107 @@ private fun SwitchOption(icon: ImageVector, label: String, selected: Boolean, on
 }
 
 /** The server's catalog: sections, search, and books to open or download. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modifier: Modifier) {
     val stack by library.stack.collectAsState()
     val section by library.section.collectAsState()
     val downloads by library.downloads.collectAsState()
     val books by library.books.collectAsState()
+    val remote by library.remoteReading.collectAsState()
     val loader = rememberImageLoader()
     val state = stack.lastOrNull()
     var query by rememberSaveable { mutableStateOf("") }
-    var grid by rememberSaveable { mutableStateOf(true) }
+    // Remembered in the settings: a theme change recreates the screen, and so does a restart
+    val settings = LocalContext.current.app.settings
+    var grid by remember { mutableStateOf(settings.exploreGrid) }
+    fun setGrid(value: Boolean) { grid = value; settings.exploreGrid = value }
+    // In Folders, folders can be made and books moved between them
+    val folder = library.currentFolder(stack)
+    var newFolder by rememberSaveable { mutableStateOf(false) }
+    var moving by remember { mutableStateOf<Entry?>(null) }
+    var removing by remember { mutableStateOf<LocalBook?>(null) }
+    val folders by library.folders.collectAsState()
+    // Folders of the list being renamed, moved or deleted
+    var renamingFolder by remember { mutableStateOf<String?>(null) }
+    var movingFolder by remember { mutableStateOf<String?>(null) }
+    var deletingFolder by remember { mutableStateOf<String?>(null) }
+    // Books picked by a long press, in the feed they were picked in; empty means not selecting
+    var picked by rememberSaveable { mutableStateOf(listOf<String>()) }
+    var pickedIn by rememberSaveable { mutableStateOf<String?>(null) }
+    var movingPicked by remember { mutableStateOf(false) }
+    val selection = if (pickedIn != null && pickedIn == state?.url) picked else emptyList()
+    val selecting = selection.isNotEmpty()
+    fun clearSelection() { picked = emptyList(); pickedIn = null }
+    fun toggle(entry: Entry) {
+        if (pickedIn != state?.url) { picked = emptyList(); pickedIn = state?.url }
+        picked = if (entry.id in picked) picked - entry.id else picked + entry.id
+    }
+    androidx.activity.compose.BackHandler(selecting) { clearSelection() }
+
+    if (newFolder) {
+        NewFolderDialog(onCreate = { newFolder = false; library.createFolder(it) }, onDismiss = { newFolder = false })
+    }
+    moving?.let { entry ->
+        FolderPickerDialog(
+            title = entry.title, folders = folders, current = entry.serverPath?.substringBeforeLast('/', ""),
+            onPick = { moving = null; library.moveToFolder(entry, it) }, onDismiss = { moving = null },
+        )
+    }
+    removing?.let { book ->
+        ConfirmDialog(
+            title = stringResource(R.string.remove_title),
+            text = stringResource(R.string.remove_text, book.title),
+            confirm = stringResource(R.string.remove),
+            onConfirm = { removing = null; library.delete(book) },
+            onDismiss = { removing = null },
+        )
+    }
+    val entries = state?.feed?.entries.orEmpty()
+    // Books moved away or gone after a refresh drop out of the selection
+    LaunchedEffect(entries) {
+        if (picked.isNotEmpty() && entries.isNotEmpty()) picked = picked.filter { id -> entries.any { it.id == id } }
+    }
+    val pickedEntries = entries.filter { it.id in selection && it.acquisition != null }
+    if (movingPicked) {
+        val parents = pickedEntries.mapNotNull { it.serverPath?.substringBeforeLast('/', "") }.distinct()
+        FolderPickerDialog(
+            title = pluralStringResource(R.plurals.book_count, pickedEntries.size, pickedEntries.size),
+            folders = folders, current = parents.singleOrNull(),
+            onPick = { movingPicked = false; library.moveToFolder(pickedEntries, it); clearSelection() },
+            onDismiss = { movingPicked = false },
+        )
+    }
+    renamingFolder?.let { path ->
+        FolderNameDialog(
+            title = stringResource(R.string.rename_folder), initial = path.substringAfterLast('/'),
+            confirm = stringResource(R.string.rename),
+            onDone = { renamingFolder = null; if (it != path.substringAfterLast('/')) library.renameFolder(path, it) },
+            onDismiss = { renamingFolder = null },
+        )
+    }
+    movingFolder?.let { path ->
+        // A folder cannot go inside itself
+        val choices = folders?.filterNot { it.path == path || it.path.startsWith("$path/") }
+        FolderPickerDialog(
+            title = path.substringAfterLast('/'), folders = choices, current = path.substringBeforeLast('/', ""),
+            onPick = { movingFolder = null; library.moveFolder(path, it) }, onDismiss = { movingFolder = null },
+            heading = stringResource(R.string.move_folder_to),
+        )
+    }
+    deletingFolder?.let { path ->
+        ConfirmDialog(
+            title = stringResource(R.string.delete_folder_title, path.substringAfterLast('/')),
+            text = stringResource(R.string.delete_folder_text),
+            confirm = stringResource(R.string.delete),
+            onConfirm = { deletingFolder = null; library.deleteFolder(path) },
+            onDismiss = { deletingFolder = null },
+        )
+    }
     val focus = LocalFocusManager.current
+    val pickBooks = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
+    ) { library.prepareUpload(it) }
     // Search and sections slide away while scrolling down and come back on the way up,
     // so short screens (phones on their side) keep room for the books
     var filtersShown by remember { mutableStateOf(true) }
@@ -127,14 +232,52 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
     }
 
     Column(modifier.fillMaxSize().background(shelf.bg)) {
-        val entries = state?.feed?.entries.orEmpty()
         val hasBooks = entries.any { it.acquisition != null }
         val atRoot = stack.size <= 1
-        Header(
+        if (selecting) {
+            val toDownload = pickedEntries.filter { e -> books.none { it.id == e.id } && !downloads.containsKey(e.id) }
+            Header(
+                pluralStringResource(R.plurals.selected_count, selection.size, selection.size),
+                onBack = { clearSelection() },
+                backIcon = Icons.Outlined.Close, backLabel = stringResource(R.string.clear_selection), titleMaxLines = 1,
+                actions = {
+                    val selectable = entries.filter { it.acquisition != null }
+                    if (selectable.isNotEmpty()) {
+                        val all = allPicked(selection, selectable.map { it.id })
+                        IconButton(onClick = { picked = toggleAll(selection, selectable.map { it.id }); pickedIn = state?.url }) {
+                            Icon(
+                                if (all) Icons.Outlined.Deselect else Icons.Outlined.SelectAll,
+                                stringResource(if (all) R.string.deselect_all else R.string.select_all), tint = shelf.fg,
+                            )
+                        }
+                    }
+                    if (toDownload.isNotEmpty()) {
+                        IconButton(onClick = { toDownload.forEach { library.download(it) }; clearSelection() }) {
+                            Icon(Icons.Outlined.Download, stringResource(R.string.download_selected), tint = shelf.fg)
+                        }
+                    }
+                    if (pickedEntries.isNotEmpty() && pickedEntries.all { it.serverPath != null }) {
+                        IconButton(onClick = { library.loadFolders(); movingPicked = true }) {
+                            Icon(Icons.AutoMirrored.Outlined.DriveFileMove, stringResource(R.string.move_to_folder), tint = shelf.fg)
+                        }
+                    }
+                },
+            )
+        } else Header(
             title = state?.label ?: if (atRoot) stringResource(R.string.tab_explore) else state?.feed?.title.orEmpty(),
             count = entries.size.takeIf { hasBooks && state?.feed?.nextUrl == null },
             onBack = if (!atRoot) ({ library.back() }) else null,
-            actions = { if (hasBooks) ViewSwitch(grid) { grid = it } },
+            actions = {
+                if (folder != null && state?.error == null) {
+                    IconButton(onClick = { newFolder = true }) {
+                        Icon(Icons.Outlined.CreateNewFolder, stringResource(R.string.new_folder), tint = shelf.fg)
+                    }
+                }
+                if (hasBooks) ViewSwitch(grid) { setGrid(it) }
+                IconButton(onClick = { pickBooks.launch(bookMimeTypes) }) {
+                    Icon(Icons.Outlined.UploadFile, stringResource(R.string.add_books), tint = shelf.fg)
+                }
+            },
         )
         androidx.compose.animation.AnimatedVisibility(filtersShown || query.isNotEmpty()) {
         Column(Modifier.background(shelf.pane)) {
@@ -161,6 +304,21 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
             HorizontalDivider(color = shelf.line)
         }
         }
+        // Pulling down reads the feed again; the books stay on screen meanwhile
+        val pull = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
+        val refreshing = state?.refreshing == true
+        androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = { library.refresh() },
+            state = pull,
+            modifier = Modifier.fillMaxSize(),
+            indicator = {
+                androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator(
+                    state = pull, isRefreshing = refreshing, modifier = Modifier.align(Alignment.TopCenter),
+                    containerColor = shelf.pane, color = shelf.fg,
+                )
+            },
+        ) {
         when {
             state == null -> {}
             state.loading -> LoadingSkeleton(
@@ -198,13 +356,22 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
                 // Each section says why it is empty
                 val (icon, title, text) = when {
                     state.label != null -> Triple(Icons.Outlined.SearchOff, R.string.no_results, R.string.no_results_text)
+                    folder != null && !atRoot -> Triple(Icons.Outlined.FolderOff, R.string.empty_folder, R.string.empty_folder_text)
                     !atRoot -> Triple(Icons.Outlined.FolderOff, R.string.empty_feed, R.string.empty_feed_text)
                     section == Section.Authors -> Triple(Icons.Outlined.PersonOff, R.string.empty_authors, R.string.empty_authors_text)
                     section == Section.Series -> Triple(Icons.Outlined.CollectionsBookmark, R.string.empty_series, R.string.empty_series_text)
                     section == Section.Folders -> Triple(Icons.Outlined.FolderOff, R.string.empty_folders, R.string.empty_folders_text)
                     else -> Triple(Icons.AutoMirrored.Outlined.LibraryBooks, R.string.empty_library, R.string.empty_library_text)
                 }
-                EmptyState(icon = icon, title = stringResource(title), text = stringResource(text))
+                if (folder != null) {
+                    EmptyState(
+                        icon = icon, title = stringResource(title),
+                        text = stringResource(if (atRoot) R.string.empty_folders_add else text),
+                        action = stringResource(R.string.new_folder), onAction = { newFolder = true },
+                    )
+                } else {
+                    EmptyState(icon = icon, title = stringResource(title), text = stringResource(text))
+                }
             }
             else -> {
                 val list = rememberLazyGridState()
@@ -213,6 +380,7 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
                 }
                 LaunchedEffect(nearEnd, entries.size) { if (nearEnd) library.loadMore() }
                 val useGrid = grid && hasBooks
+                val selectLabel = stringResource(R.string.select)
                 LazyVerticalGrid(
                     state = list,
                     columns = if (useGrid) GridCells.Adaptive(gridCellWidth) else GridCells.Fixed(1),
@@ -228,29 +396,74 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
                         val local = books.firstOrNull { it.id == entry.id }
                         val progress = downloads[entry.id]
                         val feed = entry.feedUrl
+                        // How far it was read: on this device, or on any device for books not downloaded
+                        val reading = entry.serverPath?.let { remote[it] }
+                        val readFraction = local?.percentage?.takeIf { it > 0 } ?: reading?.percentage?.takeIf { it > 0 }
+                        val finished = local?.finished ?: (reading?.finished == true)
+                        val menu = listOfNotNull(
+                            when {
+                                local != null -> MenuAction(stringResource(R.string.read), Icons.AutoMirrored.Outlined.MenuBook) { openBook(local) }
+                                progress != null -> MenuAction(stringResource(R.string.cancel_download), Icons.Outlined.Close) { library.cancelDownload(entry.id) }
+                                entry.acquisition != null -> MenuAction(stringResource(R.string.download), Icons.Outlined.Download) { library.download(entry) }
+                                else -> null
+                            },
+                            MenuAction(stringResource(R.string.details), Icons.Outlined.Info) { library.showDetail(entry, entry.id) },
+                            // On this device: the same as its tile in My books and its details
+                            local?.let { book ->
+                                if (book.finished) MenuAction(stringResource(R.string.mark_unfinished), Icons.Outlined.RemoveDone) { library.setFinished(book, false) }
+                                else MenuAction(stringResource(R.string.mark_finished), Icons.Outlined.DoneAll) { library.setFinished(book, true) }
+                            },
+                            entry.serverPath?.let {
+                                MenuAction(stringResource(R.string.move_to_folder), Icons.AutoMirrored.Outlined.DriveFileMove) {
+                                    library.loadFolders()
+                                    moving = entry
+                                }
+                            },
+                            local?.let { book ->
+                                MenuAction(stringResource(R.string.remove_from_device), Icons.Outlined.Delete, destructive = true) { removing = book }
+                            },
+                        )
+                        val pickable = entry.acquisition != null
                         when {
-                            feed != null -> FolderRow(entry, section) { library.open(feed) }
+                            feed != null -> {
+                                val path = entry.folderPath
+                                FolderRow(
+                                    entry, section,
+                                    onClick = { library.open(feed) },
+                                    menu = if (path == null || selecting) emptyList() else listOfNotNull(
+                                        MenuAction(stringResource(R.string.rename), Icons.Outlined.DriveFileRenameOutline) { renamingFolder = path },
+                                        MenuAction(stringResource(R.string.move_to), Icons.AutoMirrored.Outlined.DriveFileMove) {
+                                            library.loadFolders()
+                                            movingFolder = path
+                                        },
+                                        // The server only deletes empty folders
+                                        if (entry.folderBookCount == 0) {
+                                            MenuAction(stringResource(R.string.delete_folder), Icons.Outlined.Delete, destructive = true) { deletingFolder = path }
+                                        } else null,
+                                    ),
+                                )
+                            }
                             useGrid -> BookTile(
                                 title = entry.title, authors = entry.authors,
                                 cover = entry.coverUrl ?: entry.thumbnailUrl, format = entry.acquisition?.format,
-                                loader = loader, onClick = { library.showDetail(entry, entry.id) },
-                                progress = local?.percentage?.takeIf { it > 0 },
+                                loader = loader,
+                                onClick = { if (selecting && pickable) toggle(entry) else if (!selecting) library.showDetail(entry, entry.id) },
+                                onLongClick = if (pickable) ({ toggle(entry) }) else null,
+                                longClickLabel = selectLabel,
+                                selected = if (selecting) entry.id in selection else null,
+                                progress = readFraction, finished = finished,
                                 downloaded = local != null, downloading = progress,
-                                menu = listOfNotNull(
-                                    when {
-                                        local != null -> MenuAction(stringResource(R.string.read), Icons.AutoMirrored.Outlined.MenuBook) { openBook(local) }
-                                        progress != null -> MenuAction(stringResource(R.string.cancel_download), Icons.Outlined.Close) { library.cancelDownload(entry.id) }
-                                        entry.acquisition != null -> MenuAction(stringResource(R.string.download), Icons.Outlined.Download) { library.download(entry) }
-                                        else -> null
-                                    },
-                                    MenuAction(stringResource(R.string.details), Icons.Outlined.Info) { library.showDetail(entry, entry.id) },
-                                ),
+                                menu = menu,
                             )
                             else -> BookRow(
                                 entry, local, progress, loader,
-                                onClick = { library.showDetail(entry, entry.id) },
+                                onClick = { if (selecting && pickable) toggle(entry) else if (!selecting) library.showDetail(entry, entry.id) },
                                 onDownload = { library.download(entry) }, onRead = openBook,
                                 onCancel = { library.cancelDownload(entry.id) },
+                                onLongClick = if (pickable) ({ toggle(entry) }) else null,
+                                selected = if (selecting) entry.id in selection else null,
+                                readFraction = readFraction, finished = finished,
+                                menu = menu,
                             )
                         }
                     }
@@ -261,6 +474,7 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
                     }
                 }
             }
+        }
         }
     }
 }
@@ -347,11 +561,19 @@ internal fun LoadingSkeleton(folders: Boolean, grid: Boolean) {
 }
 
 @Composable
-private fun FolderRow(entry: Entry, section: Section, onClick: () -> Unit) {
+private fun FolderRow(entry: Entry, section: Section, onClick: () -> Unit, menu: List<MenuAction> = emptyList()) {
     val icon = if (section == Section.Authors) Icons.Outlined.Person else Icons.Outlined.Folder
+    // A long press opens the same menu as ⋮
+    val menuOpen = remember { mutableStateOf(false) }
     Column(Modifier.background(shelf.pane)) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 72.dp).clickable(onClick = onClick).padding(horizontal = edgePadding, vertical = Space.m),
+            Modifier.fillMaxWidth().heightIn(min = 72.dp)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = if (menu.isNotEmpty()) ({ menuOpen.value = true }) else null,
+                    onLongClickLabel = if (menu.isNotEmpty()) stringResource(R.string.more_options, entry.title) else null,
+                )
+                .padding(start = edgePadding, end = if (menu.isNotEmpty()) Space.xs else edgePadding, top = Space.m, bottom = Space.m),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.size(40.dp).clip(RoundedCornerShape(20.dp)).background(shelf.soft), contentAlignment = Alignment.Center) {
@@ -364,7 +586,11 @@ private fun FolderRow(entry: Entry, section: Section, onClick: () -> Unit) {
                 val subtitle = count?.let { pluralStringResource(R.plurals.book_count, it, it) } ?: entry.summary
                 subtitle?.let { Text(it, color = shelf.muted, fontSize = TextSize.label, lineHeight = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
-            Icon(Icons.Default.ChevronRight, null, tint = shelf.muted)
+            if (menu.isNotEmpty()) {
+                MoreMenu(stringResource(R.string.more_options, entry.title), menu, state = menuOpen)
+            } else {
+                Icon(Icons.Default.ChevronRight, null, tint = shelf.muted)
+            }
         }
         HorizontalDivider(color = shelf.line, modifier = Modifier.padding(start = edgePadding + 56.dp))
     }
@@ -381,12 +607,26 @@ private fun BookRow(
     onDownload: () -> Unit,
     onRead: (LocalBook) -> Unit,
     onCancel: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+    /** Null outside selection mode; otherwise whether this row is picked. */
+    selected: Boolean? = null,
+    readFraction: Double? = null,
+    finished: Boolean = false,
+    menu: List<MenuAction> = emptyList(),
 ) {
     val format = entry.acquisition?.format
-    Column(Modifier.background(shelf.pane)) {
+    Column(Modifier.background(if (selected == true) shelf.soft else shelf.pane)) {
         Row(
-            Modifier.fillMaxWidth().clickable(onClickLabel = stringResource(R.string.details), onClick = onClick)
-                .padding(start = edgePadding, end = Space.s, top = Space.m, bottom = Space.m),
+            Modifier.fillMaxWidth()
+                .combinedClickable(
+                    role = if (selected != null) Role.Checkbox else Role.Button,
+                    onClickLabel = if (selected == null) stringResource(R.string.details) else null,
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                    onLongClickLabel = onLongClick?.let { stringResource(R.string.select) },
+                )
+                .semantics { if (selected != null) this.selected = selected }
+                .padding(start = edgePadding, end = Space.xs, top = Space.m, bottom = Space.m),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Cover(entry.thumbnailUrl ?: entry.coverUrl, entry.title, format, loader, Modifier.size(width = 48.dp, height = 72.dp))
@@ -414,24 +654,52 @@ private fun BookRow(
                             Text(stringResource(R.string.downloaded_short), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
                         }
                     }
-                }
-                if (progress != null) ReadBar(progress, Modifier.fillMaxWidth().padding(top = Space.s))
-            }
-            Spacer(Modifier.width(Space.s))
-            // One kind of button for every state, so rows weigh the same
-            when {
-                local != null -> IconButton(onClick = { onRead(local) }) {
-                    Icon(Icons.AutoMirrored.Outlined.MenuBook, stringResource(R.string.read_title, entry.title), tint = shelf.fg)
-                }
-                progress != null -> IconButton(onClick = onCancel) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Spinner(size = 28.dp)
-                        Icon(Icons.Outlined.Close, stringResource(R.string.cancel_download), tint = shelf.fg, modifier = Modifier.size(14.dp))
+                    if (finished) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.DoneAll, null, tint = shelf.muted, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(Space.xs))
+                            Text(stringResource(R.string.finished), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
+                        }
+                    } else if (readFraction != null) {
+                        Text(percent(readFraction), color = shelf.muted, fontSize = TextSize.caption, lineHeight = 16.sp)
                     }
                 }
-                else -> IconButton(onClick = onDownload) {
-                    Icon(Icons.Outlined.Download, stringResource(R.string.download_title, entry.title), tint = shelf.fg)
+                when {
+                    progress != null -> ReadBar(progress, Modifier.fillMaxWidth().padding(top = Space.s))
+                    finished -> ReadBar(1f, Modifier.fillMaxWidth().padding(top = Space.s))
+                    readFraction != null -> ReadBar(readFraction.toFloat(), Modifier.fillMaxWidth().padding(top = Space.s))
                 }
+            }
+            Spacer(Modifier.width(Space.s))
+            if (selected != null) {
+                // Selecting: a check in place of the buttons, as on the covers
+                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier.size(28.dp).clip(RoundedCornerShape(14.dp))
+                            .background(if (selected) shelf.fg else shelf.pane)
+                            .border(2.dp, shelf.fg, RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (selected) Icon(Icons.Outlined.Check, null, tint = shelf.inverse, modifier = Modifier.size(18.dp))
+                    }
+                }
+            } else {
+                // One kind of button for every state, so rows weigh the same
+                when {
+                    local != null -> IconButton(onClick = { onRead(local) }) {
+                        Icon(Icons.AutoMirrored.Outlined.MenuBook, stringResource(R.string.read_title, entry.title), tint = shelf.fg)
+                    }
+                    progress != null -> IconButton(onClick = onCancel) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Spinner(size = 28.dp)
+                            Icon(Icons.Outlined.Close, stringResource(R.string.cancel_download), tint = shelf.fg, modifier = Modifier.size(14.dp))
+                        }
+                    }
+                    else -> IconButton(onClick = onDownload) {
+                        Icon(Icons.Outlined.Download, stringResource(R.string.download_title, entry.title), tint = shelf.fg)
+                    }
+                }
+                if (menu.isNotEmpty()) MoreMenu(stringResource(R.string.more_options, entry.title), menu)
             }
         }
         HorizontalDivider(color = shelf.line, modifier = Modifier.padding(start = edgePadding + 64.dp))

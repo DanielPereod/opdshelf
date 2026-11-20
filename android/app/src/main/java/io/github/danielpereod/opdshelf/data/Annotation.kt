@@ -109,3 +109,25 @@ fun annotationsMarkdown(title: String, authors: String, list: List<Annotation>, 
         if (a.hasNote) append('\n').append(a.note.trim()).append('\n')
     }
 }
+
+/** A highlight of any book, as the server lists them all, with its book's title. */
+@Serializable
+data class LibraryHighlight(
+    val id: String,
+    val text: String = "",
+    val note: String = "",
+    val color: String = "yellow",
+    val style: String = "lighten",
+    val chapter: String = "",
+    val percentage: Double = 0.0,
+    val created: Long = 0,
+    val document: String = "",
+    val path: String? = null,
+    val title: String? = null,
+    val authors: String? = null,
+) {
+    val hasNote: Boolean get() = note.isNotBlank()
+}
+
+@Serializable
+data class HighlightsResponse(val highlights: List<LibraryHighlight> = emptyList())

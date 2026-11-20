@@ -116,6 +116,15 @@ local doc = {
     getTextFromXPointers = function(_, a, b, draw) if draw then selection_drawn = { a, b } end local t = {} for i = idx(a), idx(b) - 1 do t[#t+1] = words[i] end return table.concat(t, " ") end,
     getPosFromXPointer = function(_, x) return idx(x) * 5 end,
     isXPointerInDocument = function(_, x) return idx(x) ~= nil and idx(x) <= #words end,
+    findAllText = function(_, pattern)
+        local hits = {}
+        for i = 1, #words do
+            local t = {}
+            for j = i, math.min(#words, i + 5) do t[#t+1] = words[j] end
+            if table.concat(t, " "):sub(1, #pattern) == pattern then hits[#hits+1] = { start = xp(i), ["end"] = xp(i + 1) } end
+        end
+        return hits
+    end,
     isXPointerInCurrentPage = function(_, x) local n = idx(x) return n >= page_first and n < page_first + page_size end,
     clearSelection = function() selection_drawn = nil note("clearSelection") end,
 }
@@ -207,6 +216,7 @@ check(#scheduled == 1, "only once while turning pages")
 respond(200, { accepted = true, current = remote("KOBO-ID", 41) })
 runScheduled()
 check(last().body.progress == xp(41) and not last().body.manual, "sends the new page")
+check(last().body.context.after:match("^w41 w42") and last().body.context.before:match("w40$"), "with the text there, so other readers can check it")
 check(not doc_settings:readSetting("opdshelf_sync").moved, "and the server agrees")
 
 -- 4. Offline: kept, sent when back online
@@ -233,6 +243,22 @@ check(events[#events].name == "GotoXPointer" and events[#events].args[1] == xp(1
 check(shown[#shown].kind == "notification" and shown[#shown].text:match("Pixel"), "and says from which device")
 check(#scheduled == 0, "moving there is not sent back as reading")
 p:onCloseDocument()
+
+-- 5b. The xpointer leads to other words than the ones saved with it (another
+-- reader built the chapter otherwise): goes where those words are
+page_first = 100
+p = open()
+respond(200, { current = remote("Pixel", 300, 0, { context = { before = "w148 w149", after = "w150 w151 w152 w153" } }) })
+runScheduled()
+check(events[#events].name == "GotoXPointer" and events[#events].args[1] == xp(150), "finds the saved text when the xpointer leads elsewhere")
+p:onCloseDocument()
+page_first = 100
+p = open()
+respond(200, { current = remote("Pixel", 200, 0, { context = { after = "w200 w201 w202" } }) })
+runScheduled()
+check(events[#events].args[1] == xp(200), "and keeps the xpointer when its text matches")
+p:onCloseDocument()
+page_first = 100
 
 -- 6. Another device behind: asks
 p = open()
@@ -314,6 +340,33 @@ check(p.stream.headers.Authorization == "Basic B64(admin:secret)", "with the log
 p:onSuspend()
 check(p.stream == nil, "closes it when the device sleeps")
 p:onCloseDocument()
+
+-- 10b. Opening a book is not reading
+state():saveSetting("live", false)
+page_first = 100
+p = open()
+respond(200, { current = remote("KOBO-ID", 100) })
+runScheduled()
+local sync_state = p:docState()
+local three_days_ago = os.time() - 3 * 86400
+sync_state.read_at, sync_state.moved = three_days_ago, false
+-- KOReader says the page changed on opening, laying out and drawing dialogs
+p:onPageUpdate(); p:onPosUpdate(); p:onPageUpdate()
+check(#scheduled == 0 and not sync_state.moved and sync_state.read_at == three_days_ago and p.last_move == nil,
+    "opening a book, or drawing its page again, is not reading")
+-- Read here earlier while offline, and on a phone meanwhile
+sync_state.moved = true
+local n4 = #requests
+p:handleRemote(remote("Phone", 90), "open")
+check(shown[#shown].kind == "choose" and shown[#shown].text:find("Here: 25 %, 3 days ago", 1, true),
+    "the conflict says when it was really read here, not \"just now\"")
+p:onPageUpdate()
+shown[#shown].cancel_callback()
+check(#requests == n4 and #scheduled == 0 and sync_state.read_at == three_days_ago, "seeing it and cancelling sends nothing and changes no time")
+page_first = 101; p:onPageUpdate()
+check(#scheduled == 1 and p.last_move and sync_state.read_at >= os.time() - 1, "turning a page is reading")
+p:onCloseDocument()
+scheduled = {}
 
 
 -- 11. Highlights and notes
@@ -408,7 +461,7 @@ check(start_with.text_func() == "Start with: file browser", "keeps KOReader's te
 start_with.sub_item_table[2].callback()
 check(global_settings:readSetting("start_with") == "opdshelf" and start_with.sub_item_table[2].checked_func(), "can be chosen")
 check(start_with.text_func() == "Start with: OPDShelf home", "and says so")
-check(menu_items.opdshelf.sub_item_table_func()[1].text == "Home", "the plugin's menu opens it")
+check(menu_items.opdshelf.sub_item_table_func()[1].text == "OPDShelf home", "the plugin's menu opens it")
 start_with.sub_item_table[1].callback = function() global_settings:saveSetting("start_with", "filemanager") end
 start_with.opdshelf = nil
 p:addStartWith(menu_items)
@@ -439,4 +492,122 @@ local _es = dofile(plugin_dir .. "/opdshelf_i18n.lua")
 check(_es("Home") == "Inicio" and _es("Not in the catalog") == "Not in the catalog", "speaks Spanish, and English for the rest")
 global_settings:saveSetting("language", "en")
 check(_es("Home") == "Home", "and English otherwise")
+-- Setup from the panel, updates and status
+local Update = dofile(plugin_dir .. "/opdshelf_update.lua")
+local tmp = os.tmpname()
+os.remove(tmp)
+local dir = tmp .. "/plugins/opdshelf.koplugin"
+os.execute("mkdir -p '" .. dir .. "'")
+local function write(path, text) local f = assert(io.open(path, "w")) f:write(text) f:close() end
+local function exists(path) local f = io.open(path) if f then f:close() return true end return false end
+local function read(path) local f = io.open(path) if not f then return nil end local t = f:read("*a") f:close() return t end
+write(dir .. "/_meta.lua", 'return {\n    name = "opdshelf",\n    version = 202601010000,\n}')
+local setup = cjson.encode({ server = "http://new.example", username = "dani", password = "pw" })
+write(dir .. "/opdshelf_setup.json", setup)
+local q = OPDShelf:new{ ui = ui, dialog = {}, view = {}, path = dir }
+check(state():readSetting("server") == "https://books.example", "an account already set up stays")
+check(not exists(dir .. "/opdshelf_setup.json"), "and the setup file is removed, as it holds the password")
+state():saveSetting("server", nil)
+write(dir .. "/opdshelf_setup.json", setup)
+q = OPDShelf:new{ ui = ui, dialog = {}, view = {}, path = dir }
+check(state():readSetting("server") == "http://new.example" and state():readSetting("username") == "dani"
+    and state():readSetting("password") == "pw" and q:ready(), "a plugin from the panel comes set up")
+check(q:installedVersion() == 202601010000 and Update.describe(q:installedVersion()) == "2026-01-01 00:00", "knows its version")
+-- KOReader's plugin loader copies the _meta.lua fields but name onto the plugin: none may hide a method
+for _, key in ipairs({ "version", "fullname", "description" }) do
+    check(OPDShelf[key] == nil, "no method is called like the _meta.lua field " .. key)
+end
+
+shown = {}
+respond(200, { koreader = { version = 202601010000 } })
+q:checkForUpdate(true)
+check(last().url == "http://new.example/apps/versions.json" and shown[#shown].text == "OPDShelf is up to date.", "says when it is up to date")
+respond(200, { koreader = { version = 202602020000 } })
+q:checkForUpdate(false)
+check(shown[#shown].kind == "confirm" and shown[#shown].text:find("2026-02-02 00:00", 1, true), "offers a newer version")
+
+local fs = {
+    exists = exists,
+    mkdir = function(path) os.execute("mkdir -p '" .. path .. "'") end,
+    purge = function(path) os.execute("rm -rf '" .. path .. "'") end,
+    unpack = function(zip, to)
+        if read(zip) ~= "ZIP" then return false, "not a zip" end
+        os.execute("mkdir -p '" .. to .. "/opdshelf.koplugin'")
+        write(to .. "/opdshelf.koplugin/main.lua", "return {}")
+        write(to .. "/opdshelf.koplugin/_meta.lua", "return { version = 202602020000 }")
+        write(to .. "/opdshelf.koplugin/opdshelf_setup.json", "{}")
+        return true
+    end,
+}
+local fake = { download = function(_, url, path) write(path, url == Update.URL and "ZIP" or "") return true end }
+check(Update.install(fake, dir, fs) == true and Update.localVersion(dir) == 202602020000, "installs the update in place")
+check(not exists(dir .. "/opdshelf_setup.json") and not exists(dir .. ".old/main.lua")
+    and not exists(tmp .. "/plugins/opdshelf-update.zip") and not exists(tmp .. "/plugins/opdshelf-update/main.lua"), "and leaves nothing behind")
+local broken = { download = function(_, _url, path) write(path, "HTML") return true end }
+local ok, why = Update.install(broken, dir, fs)
+check(not ok and why == "not a zip" and Update.localVersion(dir) == 202602020000, "a bad download leaves the plugin as it was")
+
+shown = {}
+state():saveSetting("pending", { A = {}, B = {} })
+respond(401, "")
+q:noteError("Something broke")
+q:showStatus()
+local status = shown[#shown].title
+check(status:find("Version: 2026-02-02 00:00", 1, true) and status:find("Connection: wrong username or password", 1, true)
+    and status:find("Positions waiting to be sent: 2", 1, true) and status:find("Last error: Something broke", 1, true), "the status screen says how things are")
+state():saveSetting("pending", nil)
+os.execute("rm -rf '" .. tmp .. "'")
+
+-- The menu: where to go, this book, the settings in one submenu, the status
+local menu = q:menuItems()
+local labels = {}
+for i, item in ipairs(menu) do labels[i] = item.text or item.text_func() end
+check(table.concat(labels, "|") == "OPDShelf home|Library|Search the library|This book|Settings|Status and updates",
+    "the menu has three groups and the status")
+check(#menu[4].sub_item_table == 3 and menu[4].sub_item_table[1].text == "Sync this book now", "what to do with the book open")
+local settings = menu[5].sub_item_table_func()
+local names = {}
+for _i, item in ipairs(settings) do names[#names + 1] = item.text or item.text_func() end
+names = table.concat(names, "|")
+check(names:find("Server: ", 1, true) and names:find("Download folder: ", 1, true) and names:find("Show the home screen at start", 1, true)
+    and names:find("Live sync while reading", 1, true), "and every setting in one place")
+local heard
+settings = q:settingsItems(function(what) heard = what end)
+local chooser = q.chooseDownloadDir
+q.chooseDownloadDir = function(_self, done) done() end
+settings[3].callback()
+q.chooseDownloadDir = chooser
+check(heard == "folder", "the home screen hears when a setting it shows changed")
+
+-- Every text of the plugin speaks Spanish
+local missing = {}
+local I18n = dofile(plugin_dir .. "/opdshelf_i18n.lua")
+for _i, name in ipairs({ "main", "opdshelf_browser", "opdshelf_home", "opdshelf_menu", "opdshelf_notes", "opdshelf_update", "opdshelf_sync", "opdshelf_client", "opdshelf_stream" }) do
+    local f = io.open(plugin_dir .. "/" .. name .. ".lua")
+    if f then
+        local source = f:read("*a")
+        f:close()
+        -- Each _("...") with a whole literal inside, escapes read as Lua reads them
+        local at = 1
+        while true do
+            local s, e = source:find('[^%w_]_%("', at)
+            if not s then break end
+            local i, closed = e + 1, nil
+            while i <= #source do
+                local c = source:sub(i, i)
+                if c == "\\" then i = i + 2
+                elseif c == '"' then closed = i break
+                else i = i + 1 end
+            end
+            if closed and source:sub(closed + 1, closed + 1) == ")" then
+                local literal = source:sub(e + 1, closed - 1)
+                local text = loadstring('return "' .. literal .. '"')()
+                if not I18n.es[text] then missing[#missing + 1] = name .. ": " .. literal end
+            end
+            at = (closed or e) + 1
+        end
+    end
+end
+check(#missing == 0, "every text has its Spanish version" .. (#missing > 0 and (":\n  " .. table.concat(missing, "\n  ")) or ""))
+
 print("all good")

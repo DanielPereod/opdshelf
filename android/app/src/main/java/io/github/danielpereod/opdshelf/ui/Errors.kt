@@ -14,6 +14,18 @@ fun Context.describe(e: Throwable): String = when (e) {
     is UnknownHostException -> getString(R.string.error_host)
     is ConnectException -> getString(R.string.error_refused)
     is SocketTimeoutException -> getString(R.string.error_timeout)
-    is HttpError -> if (e.code == 401) getString(R.string.error_login) else e.message ?: e.code.toString()
+    is HttpError -> when {
+        e.code == 401 -> getString(R.string.error_login)
+        // What the server refused, by its code, in the app's words
+        e.reason == "not_empty" -> getString(R.string.error_folder_not_empty)
+        e.reason == "exists" -> getString(R.string.error_exists)
+        e.reason == "invalid_name" -> getString(R.string.error_invalid_name)
+        e.reason == "into_itself" -> getString(R.string.error_into_itself)
+        e.reason == "not_found" -> getString(R.string.error_not_found)
+        else -> e.message ?: e.code.toString()
+    }
+    // OkHttp refuses an address it cannot read with an English message
+    is IllegalArgumentException -> getString(R.string.error_address)
+    is java.net.MalformedURLException -> getString(R.string.error_address)
     else -> e.message ?: e.toString()
 }

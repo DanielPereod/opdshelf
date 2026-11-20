@@ -6,6 +6,11 @@
 //! the device's clock corrected, as for positions). A deleted highlight stays
 //! as a tombstone for a while so the deletion reaches devices that were
 //! offline. Highlights are kept in DATA_DIR/annotations.json, by document id.
+//!
+//! Bookmarks of the web readers are kept the same way, in
+//! DATA_DIR/bookmarks.json: a bookmark is an entry with where it is (`cfi`,
+//! `pos0` or `page`), a few words of the page as `text`, its chapter and
+//! percentage, and is merged, deleted and forgotten like a highlight.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -88,7 +93,7 @@ fn default_style() -> String {
 /// Highlights sent by a device.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Batch {
-    #[serde(default)]
+    #[serde(default, alias = "bookmarks")]
     pub annotations: Vec<Annotation>,
     /// The sending device, used for highlights that do not name one.
     #[serde(default)]
@@ -186,7 +191,15 @@ impl Annotation {
 
 impl Annotations {
     pub fn open(dir: &Path) -> Self {
-        let file = dir.join("annotations.json");
+        Self::open_file(dir.join("annotations.json"))
+    }
+
+    /// The bookmarks of the web readers, kept like highlights.
+    pub fn open_bookmarks(dir: &Path) -> Self {
+        Self::open_file(dir.join("bookmarks.json"))
+    }
+
+    fn open_file(file: PathBuf) -> Self {
         let books = match std::fs::read(&file) {
             Ok(json) => serde_json::from_slice(&json).unwrap_or_else(|err| {
                 tracing::error!("ignoring unreadable {}: {err}", file.display());
@@ -273,14 +286,31 @@ impl Annotations {
         Ok(changed)
     }
 
-    fn save(&self) -> std::io::Result<()> {
-        let json = serde_json::to_vec(&*self.books.lock().unwrap()).map_err(std::io::Error::other)?;
-        if let Some(dir) = self.file.parent() {
-            std::fs::create_dir_all(dir)?;
+    /// Drops the highlights of documents `keep` rejects (books no longer in the
+    /// library), or only counts them with `dry_run`. Returns how many.
+    pub fn retain_documents(&self, keep: impl Fn(&str) -> bool, dry_run: bool) -> std::io::Result<usize> {
+        let removed = {
+            let mut all = self.books.lock().unwrap();
+            let gone: Vec<String> = all.keys().filter(|d| !keep(d)).cloned().collect();
+            if !dry_run {
+                for document in &gone {
+                    all.remove(document);
+                }
+            }
+            gone.len()
+        };
+        if removed > 0 && !dry_run {
+            self.save()?;
         }
-        let tmp = self.file.with_extension("json.tmp");
-        std::fs::write(&tmp, json)?;
-        std::fs::rename(tmp, &self.file)
+        Ok(removed)
+    }
+
+    fn save(&self) -> std::io::Result<()> {
+        // Kept locked until the file is written: two saves at once could
+        // otherwise mix their files, or leave the older one on disk
+        let books = self.books.lock().unwrap();
+        let json = serde_json::to_vec(&*books).map_err(std::io::Error::other)?;
+        crate::store::write_atomic(&self.file, &json)
     }
 }
 

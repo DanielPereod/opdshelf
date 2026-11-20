@@ -96,6 +96,16 @@ impl TestApp {
         .await
     }
 
+    async fn post_json(&self, uri: &str, body: &str) -> Res {
+        self.send(
+            Request::post(uri)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+    }
+
     async fn post_form(&self, uri: &str, form: &str) -> Res {
         self.send(
             Request::post(uri)
@@ -178,6 +188,12 @@ async fn pdf_covers_when_poppler_is_installed() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers["content-type"], "image/jpeg");
     assert!(body.starts_with(&[0xff, 0xd8]));
+
+    // A damaged PDF offers no cover that would fail to load
+    std::fs::write(t.books().join("broken.pdf"), "not a pdf at all").unwrap();
+    let feed = t.text("/opds/books").await;
+    assert!(feed.contains("broken"));
+    assert!(!feed.contains("/cover/broken.pdf"));
 }
 
 #[tokio::test]
@@ -307,8 +323,30 @@ async fn isbn_lookup_and_cover_download() {
     assert_eq!(found["description"], "Macondo.");
     assert_eq!(found["source"], "Open Library");
 
-    let (status, _, _) = t.get("/admin/lookup?isbn=123").await;
+    let (status, _, body) = t.get("/admin/lookup?isbn=123").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(String::from_utf8_lossy(&body).contains("This is not a valid ISBN"));
+
+    // With no catalog to ask, a message to show and not the HTTP client's error,
+    // in the panel's language
+    let offline = app_with(&[
+        ("OPENLIBRARY_URL", "http://127.0.0.1:9"),
+        ("GOOGLE_BOOKS_URL", "http://127.0.0.1:9"),
+    ]);
+    let (status, _, body) = offline
+        .send(
+            Request::get("/admin/lookup?isbn=9788437604947")
+                .header(header::COOKIE, "opdshelf_lang=es")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
+    let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        error["error"],
+        "No se puede conectar con Open Library ni con Google Books. Inténtalo más tarde."
+    );
 
     let csrf = t.csrf().await;
     let cover_url = found["coverUrl"].as_str().unwrap();
@@ -385,12 +423,17 @@ async fn web_reader() {
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, _, _) = t.get("/pages/b.epub").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+    // A damaged comic is a file the reader can name, not a server failure
+    std::fs::write(t.books().join("broken.cbz"), "not a zip").unwrap();
+    let (status, _, _) = t.get("/pages/broken.cbz").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 
     // The reader loads the file inline
     let (_, headers, _) = t.get("/download/b.epub?inline=1").await;
     assert!(headers["content-disposition"].starts_with("inline"));
     let admin = t.text("/admin").await;
-    assert!(admin.contains("/read/b.epub") && !admin.contains("/read/m.mobi"));
+    assert!(admin.contains(r#""path":"b.epub","readable":"1""#));
+    assert!(admin.contains(r#""path":"m.mobi","readable":"""#));
 }
 
 #[tokio::test]
@@ -434,6 +477,108 @@ async fn bulk_move_and_delete() {
         .await;
     assert!(headers["location"].contains("error"));
     assert!(t.books().join("c.txt").exists());
+}
+
+#[tokio::test]
+async fn create_and_delete_folders() {
+    let t = app_with(&[]);
+    let csrf = t.csrf().await;
+
+    let (status, _, _) = t.post_form("/admin/folder", "csrf=bad&action=create&name=Sport").await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(!t.books().join("Sport").exists());
+
+    let (_, headers, _) = t
+        .post_form("/admin/folder", &format!("csrf={csrf}&action=create&name=Sport"))
+        .await;
+    assert!(headers["location"].starts_with("/admin?folder=Sport&notice="));
+    assert!(t.books().join("Sport").is_dir());
+    // An empty folder shows up in the sidebar right away
+    assert!(t.text("/admin").await.contains(r#"data-value="Sport""#));
+
+    // Inside another folder
+    t.post_form(
+        "/admin/folder",
+        &format!("csrf={csrf}&action=create&path=Sport&name=Running"),
+    )
+    .await;
+    assert!(t.books().join("Sport/Running").is_dir());
+
+    for bad in ["..", ".hidden", "a%2Fb", "%20"] {
+        let (_, headers, _) = t
+            .post_form("/admin/folder", &format!("csrf={csrf}&action=create&name={bad}"))
+            .await;
+        assert!(headers["location"].contains("error"), "{bad}");
+    }
+    let (_, headers, _) = t
+        .post_form("/admin/folder", &format!("csrf={csrf}&action=create&path=..&name=x"))
+        .await;
+    assert!(headers["location"].contains("error"));
+
+    // A folder with something in it stays
+    std::fs::write(t.books().join("Sport/Running/a.txt"), "x").unwrap();
+    let (_, headers, _) = t
+        .post_form(
+            "/admin/folder",
+            &format!("csrf={csrf}&action=delete&path=Sport%2FRunning"),
+        )
+        .await;
+    assert!(headers["location"].contains("error"));
+    assert!(t.books().join("Sport/Running/a.txt").exists());
+    std::fs::remove_file(t.books().join("Sport/Running/a.txt")).unwrap();
+    let (_, headers, _) = t
+        .post_form(
+            "/admin/folder",
+            &format!("csrf={csrf}&action=delete&path=Sport%2FRunning"),
+        )
+        .await;
+    assert!(headers["location"].starts_with("/admin?folder=Sport&notice="));
+    assert!(!t.books().join("Sport/Running").exists());
+    // The root is never deleted
+    let (_, headers, _) = t
+        .post_form("/admin/folder", &format!("csrf={csrf}&action=delete&path="))
+        .await;
+    assert!(headers["location"].contains("error"));
+    assert!(t.books().exists());
+}
+
+#[tokio::test]
+async fn folders_api_for_the_apps() {
+    let t = app_with(&[]);
+    for name in ["a.txt", "b.txt"] {
+        std::fs::write(t.books().join(name), "x").unwrap();
+    }
+    let (status, _, body) = t.post_json("/api/folders", r#"{"name":"Sport"}"#).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["path"],
+        "Sport"
+    );
+    let (status, _, _) = t.post_json("/api/folders", r#"{"parent":"Sport","name":"../x"}"#).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, _, body) = t
+        .post_json("/api/books/move", r#"{"paths":["a.txt","b.txt"],"folder":"Sport"}"#)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(serde_json::from_slice::<serde_json::Value>(&body).unwrap()["moved"], 2);
+    assert!(t.books().join("Sport/a.txt").exists());
+
+    let (_, _, body) = t.get("/api/folders").await;
+    let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(list["folders"][0]["path"], "Sport");
+    assert_eq!(list["folders"][0]["count"], 2);
+
+    // Back to the root
+    let (status, _, _) = t
+        .post_json("/api/books/move", r#"{"paths":["Sport/a.txt"],"folder":""}"#)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(t.books().join("a.txt").exists());
+    let (status, _, _) = t
+        .post_json("/api/books/move", r#"{"paths":["b.txt"],"folder":"../out"}"#)
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -488,7 +633,7 @@ async fn series_from_edits_in_volume_order() {
     assert_eq!(t.get("/opds/series/Nada").await.0, StatusCode::NOT_FOUND);
 
     let info = t.text("/info/Ultimo.txt").await;
-    assert!(info.contains("La saga #10"));
+    assert!(info.contains("La saga</button> #10"));
     let edit = t.text("/admin/edit/Ultimo.txt").await;
     assert!(edit.contains(r#"name="series_index" id="f-series-index" value="10""#));
 }

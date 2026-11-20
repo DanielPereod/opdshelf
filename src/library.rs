@@ -89,8 +89,10 @@ impl SortMode {
         }
     }
 
-    pub fn sort(self, books: &mut [Book]) {
+    /// Sorts books, or references to books.
+    pub fn sort<B: std::borrow::Borrow<Book>>(self, books: &mut [B]) {
         books.sort_by(|a, b| {
+            let (a, b) = (a.borrow(), b.borrow());
             let by_name = || by_title(a, b);
             match self {
                 Self::NameAsc => by_name(),
@@ -105,9 +107,11 @@ impl SortMode {
 /// Title order, with the books of a series kept together in volume order:
 /// a series sorts under its name, and its books by their position in it.
 pub fn by_title(a: &Book, b: &Book) -> std::cmp::Ordering {
-    let key = |book: &'_ Book| book.meta.series.clone().unwrap_or_else(|| book.title.clone());
+    fn key(book: &Book) -> &str {
+        book.meta.series.as_deref().unwrap_or(&book.title)
+    }
     let position = |book: &Book| book.meta.series.as_ref().and(book.meta.series_position());
-    natural_cmp(&key(a), &key(b))
+    natural_cmp(key(a), key(b))
         .then_with(|| match (position(a), position(b)) {
             (Some(x), Some(y)) => x.total_cmp(&y),
             (Some(_), None) => std::cmp::Ordering::Less,
@@ -126,14 +130,14 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    pub fn search(&self, query: &str) -> Vec<Book> {
+    pub fn search(&self, query: &str) -> Vec<&Book> {
         let terms: Vec<String> = query.to_lowercase().split_whitespace().map(str::to_string).collect();
-        self.books.iter().filter(|b| b.matches(&terms)).cloned().collect()
+        self.books.iter().filter(|b| b.matches(&terms)).collect()
     }
 
     /// Books directly inside `folder` (`""` for the root).
-    pub fn in_folder(&self, folder: &str) -> Vec<Book> {
-        self.books.iter().filter(|b| b.folder == folder).cloned().collect()
+    pub fn in_folder(&self, folder: &str) -> Vec<&Book> {
+        self.books.iter().filter(|b| b.folder == folder).collect()
     }
 
     /// Direct subfolders of `folder`.
@@ -175,19 +179,17 @@ impl Snapshot {
         series
     }
 
-    pub fn in_series(&self, series: &str) -> Vec<Book> {
+    pub fn in_series(&self, series: &str) -> Vec<&Book> {
         self.books
             .iter()
             .filter(|b| b.meta.series.as_deref() == Some(series))
-            .cloned()
             .collect()
     }
 
-    pub fn by_author(&self, author: &str) -> Vec<Book> {
+    pub fn by_author(&self, author: &str) -> Vec<&Book> {
         self.books
             .iter()
             .filter(|b| b.authors.iter().any(|a| a == author))
-            .cloned()
             .collect()
     }
 }
@@ -274,6 +276,22 @@ impl Library {
         &self.root
     }
 
+    /// Whether files can be added to the books folder: false when it is on a
+    /// read-only mount or share, or this process may not write to it. Checked
+    /// by creating and removing a hidden file, which the scans skip.
+    pub fn writable(&self) -> bool {
+        let probe = self.root.join(".opdshelf-write-check");
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&probe) {
+            Ok(_) => {
+                let _ = std::fs::remove_file(&probe);
+                true
+            }
+            // Left behind by a check that was cut short
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => std::fs::remove_file(&probe).is_ok(),
+            Err(_) => false,
+        }
+    }
+
     pub fn is_allowed(&self, rel: &str) -> bool {
         let ext = paths::extension(rel);
         self.allowed_extensions.contains(&ext) || (ext == "fb2.zip" && self.allowed_extensions.contains("zip"))
@@ -310,6 +328,21 @@ impl Library {
         .await
         .ok()
         .flatten()
+    }
+
+    /// Keeps the metadata read from the files of a book, or of every book in
+    /// a folder, that moved to a new path: the files are the same.
+    pub fn rename_cached(&self, from: &str, to: &str) {
+        let mut cache = self.cache.lock().unwrap();
+        let moved: Vec<(String, String)> = cache
+            .keys()
+            .filter_map(|k| paths::relocate(k, from, to).map(|n| (k.clone(), n)))
+            .collect();
+        for (old, new) in moved {
+            if let Some(entry) = cache.remove(&old) {
+                cache.insert(new, entry);
+            }
+        }
     }
 
     pub fn forget(&self, rel: &str) {
@@ -480,7 +513,9 @@ pub fn format_size(bytes: u64) -> String {
         size /= 1024.0;
         unit += 1;
     }
-    format!("{size:.1} {}", units[unit])
+    // Like formatBytes in static/app/common.js: no decimals for bytes or from 100 up
+    let digits = if unit == 0 || size >= 100.0 { 0 } else { 1 };
+    format!("{size:.digits$} {}", units[unit])
 }
 
 #[cfg(test)]
@@ -581,7 +616,9 @@ mod tests {
 
     #[test]
     fn sizes() {
-        assert_eq!(format_size(512), "512.0 B");
+        assert_eq!(format_size(512), "512 B");
         assert_eq!(format_size(1536), "1.5 KB");
+        assert_eq!(format_size(124_928), "122 KB");
+        assert_eq!(format_size(4_928_307), "4.7 MB");
     }
 }

@@ -9,6 +9,33 @@ shows the English text.
 local gettext = require("gettext")
 
 local es = {
+    ["Status and updates"] = "Estado y actualizaciones",
+    ["The plugin's version, the connection to the server, what is waiting to be sent and the last error."] = "La versión del plugin, la conexión con el servidor, lo que falta por enviar y el último error.",
+    ["Version: %1"] = "Versión: %1",
+    ["development copy"] = "copia de desarrollo",
+    ["not set up"] = "sin configurar",
+    ["Connection: %1"] = "Conexión: %1",
+    ["offline"] = "sin conexión",
+    ["connected"] = "conectado",
+    ["wrong username or password"] = "usuario o contraseña incorrectos",
+    ["the server answered %1"] = "el servidor respondió %1",
+    ["cannot reach the server (%1)"] = "no se puede contactar con el servidor (%1)",
+    ["Positions waiting to be sent: %1"] = "Posiciones pendientes de enviar: %1",
+    ["Highlights of this book waiting to be sent: %1"] = "Subrayados de este libro pendientes de enviar: %1",
+    ["Last error: %1 (%2)"] = "Último error: %1 (%2)",
+    ["Last error: none"] = "Último error: ninguno",
+    ["Highlights not sent: %1"] = "Subrayados sin enviar: %1",
+    ["Check for updates"] = "Buscar actualizaciones",
+    ["Close"] = "Cerrar",
+    ["This copy of the plugin does not update itself: it is not a release."] = "Esta copia del plugin no se actualiza sola: no es una versión publicada.",
+    ["Set up the server first."] = "Configura antes el servidor.",
+    ["Cannot look for updates: %1"] = "No se pueden buscar actualizaciones: %1",
+    ["OPDShelf is up to date."] = "OPDShelf está al día.",
+    ["A new version of OPDShelf is available (%1). Update now?"] = "Hay una versión nueva de OPDShelf (%1). ¿Actualizar ahora?",
+    ["Update"] = "Actualizar",
+    ["Downloading the update…"] = "Descargando la actualización…",
+    ["The update failed: %1"] = "La actualización ha fallado: %1",
+    ["OPDShelf has been updated. Restart KOReader to use the new version."] = "OPDShelf se ha actualizado. Reinicia KOReader para usar la versión nueva.",
     ["Highlights and notes"] = "Subrayados y notas",
     ["The highlights and notes of this book, from every device. They sync with the web reader and the Android app."] = "Los subrayados y notas de este libro, de todos los dispositivos. Se sincronizan con el lector web y la app de Android.",
     ["Sync highlights and notes"] = "Sincronizar subrayados y notas",
@@ -28,6 +55,9 @@ local es = {
     ["%1 books"] = "%1 libros",
     ["%1 · %2 %3"] = "%1 · %2 de %3",
     ["Settings"] = "Ajustes",
+    ["OPDShelf settings"] = "Ajustes de OPDShelf",
+    ["This book"] = "Este libro",
+    ["Book details"] = "Ficha del libro",
     ["Open at start and after a book"] = "Abrir al empezar y al cerrar un libro",
     ["Stop opening at start and after a book"] = "No abrir al empezar ni al cerrar un libro",
     ["Opens OPDShelf's home screen instead of the file browser when KOReader starts and after closing a book, and the file browser's home button goes there."] = "Abre la pantalla de inicio de OPDShelf en lugar del explorador de archivos al arrancar KOReader y al cerrar un libro, y el botón de la casa del explorador lleva a ella.",
@@ -39,6 +69,7 @@ local es = {
     ["%1 %"] = "%1 %",
     ["%1 (this device)"] = "%1 (este dispositivo)",
     ["%1 books in your library"] = "%1 libros en tu biblioteca",
+    ["1 day ago"] = "hace 1 día",
     ["%1 days ago"] = "hace %1 días",
     ["%1 downloaded."] = "%1 descargado.",
     ["%1 h ago"] = "hace %1 h",
@@ -90,6 +121,7 @@ local es = {
     ["Loading…"] = "Cargando…",
     ["Name of this device on other devices"] = "Nombre de este dispositivo en los demás",
     ["No device has synced this book yet."] = "Ningún dispositivo ha sincronizado aún este libro.",
+    ["%1 books in your library · Today: %2 min"] = "%1 libros en tu biblioteca · Hoy: %2 min",
     ["Not connected: set up the server in the menu"] = "Sin conectar: configura el servidor en el menú",
     ["Nothing here."] = "No hay nada aquí.",
     ["Nothing read yet"] = "Aún no has leído nada",
@@ -154,8 +186,46 @@ local es = {
     ["When another device is further ahead"] = "Cuando otro dispositivo va más adelante",
     ["another device"] = "otro dispositivo",
     ["just now"] = "ahora mismo",
-    ["✓ downloaded"] = "✓ descargado",
+    ["Downloaded"] = "Descargado",
     ["✓ read %1 %"] = "✓ leído %1 %",
+    ["✓ Finished"] = "✓ Terminado",
+    -- Home screen
+    ["%1 min"] = "%1 min",
+    ["%1 h"] = "%1 h",
+    ["%1 h %2 min"] = "%1 h %2 min",
+    ["%1 d"] = "%1 d",
+    ["now"] = "ahora",
+    ["1 day"] = "1 día",
+    ["%1 days"] = "%1 días",
+    ["Today"] = "Hoy",
+    ["Streak"] = "Racha",
+    ["More"] = "Más",
+    ["Not set up: tap here to connect to your OPDShelf server."] = "Sin configurar: toca aquí para conectar con tu servidor de OPDShelf.",
+    ["Cannot reach the server: showing what is on this device"] = "No se puede contactar con el servidor: se muestra lo que hay en el dispositivo",
+    ["The server did not accept the username or password. Tap here to check them."] = "El servidor no aceptó el usuario o la contraseña. Toca aquí para revisarlos.",
+    ["1 page left"] = "Queda 1 página",
+    ["%1 pages left"] = "Quedan %1 páginas",
+    ["Continue"] = "Seguir",
+    ["Started"] = "Empezados",
+    ["Books you start, here or on your other devices, will show here."] = "Aquí aparecerán los libros que empieces, aquí o en tus otros dispositivos.",
+    ["on this device"] = "en este dispositivo",
+    ["in the library"] = "en la biblioteca",
+    ["1 book"] = "1 libro",
+    ["This book is no longer in the library."] = "Este libro ya no está en la biblioteca.",
+    ["KOReader"] = "KOReader",
+    ["File browser"] = "Explorador de archivos",
+    ["Favorites"] = "Favoritos",
+    ["Collections"] = "Colecciones",
+    ["File search"] = "Buscar archivos",
+    ["KOReader menu"] = "Menú de KOReader",
+    ["Not read today"] = "Sin leer hoy",
+    ["Start today"] = "Empieza hoy",
+    -- Languages of books
+    ["Spanish"] = "Español", ["English"] = "Inglés", ["French"] = "Francés", ["German"] = "Alemán",
+    ["Italian"] = "Italiano", ["Portuguese"] = "Portugués", ["Catalan"] = "Catalán", ["Galician"] = "Gallego",
+    ["Basque"] = "Euskera", ["Dutch"] = "Neerlandés", ["Russian"] = "Ruso", ["Japanese"] = "Japonés",
+    ["Chinese"] = "Chino", ["Latin"] = "Latín", ["Greek"] = "Griego", ["Polish"] = "Polaco",
+    ["Swedish"] = "Sueco", ["Arabic"] = "Árabe",
 }
 
 local function language()
@@ -175,4 +245,9 @@ end
 
 -- For the tests: which texts have a translation
 local M = setmetatable({ es = es }, { __call = function(_self, text) return translate(text) end })
+
+--- Whether texts are shown in Spanish (numbers then take a decimal comma).
+function M.spanish()
+    return language():match("^es") ~= nil
+end
 return M

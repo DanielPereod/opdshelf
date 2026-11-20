@@ -2,12 +2,15 @@
 
 [`android/`](../android) is an app for reading the library on Android, also offline. Download it from the web panel's devices page, or from the [`android-latest`](https://github.com/DanielPereod/opdshelf/releases/tag/android-latest) release.
 
-- **My books**: the books on the phone, with a **Continue reading** card, filters (All, Reading, Not started, Finished, with counts), search, sorting and a ⋮ menu on every book. Long press to select several and mark them finished or remove them.
-- **Explore**: browse and search the catalog by recent books, A–Z, authors, series and folders, as a grid or a list, and download books (EPUB, PDF, CBZ). Downloads can be cancelled. Without a connection a band says so and the downloaded books are still at hand.
+- **My books**: the books on the phone, with a **Continue reading** card, filters (All, Reading, Not started, Finished, with counts), search, sorting and a ⋮ menu on every book. Long press to select several and mark them finished or remove them. A line above the books shows today's reading and the streak, and opens the **statistics**.
+- **Explore**: browse and search the catalog by recent books, A–Z, authors, series and folders, as a grid or a list, and download books (EPUB, PDF, CBZ). Every book has a ⋮ menu, and books read or finished on any device say so. Long press to select several and download them or move them to a folder. Pull down to refresh. Downloads can be cancelled. Without a connection a band says so and the downloaded books are still at hand.
+- **Folders**: in Explore → Folders, the folder button creates a folder where you are, and a book's details (or its ⋮ menu) has **Move to folder**: tap a folder to move it there, or type a new name to create it and move it in. Folders have a ⋮ menu (or long press) to rename them, move them into another folder, or delete them when they are empty.
 - **Book details** with cover, series, publisher, year, language and subjects; two panes on tablets.
 - **Reader** built on [Readium](https://readium.org): light, sepia and dark themes (the bars follow them), fonts, margins, justification, brightness, minutes left in the chapter, contents, bookmarks, search inside the book, previous/next chapter, volume keys to turn pages and the screen kept on while reading.
 - **Sync**: the position is saved on the phone and sent to the server when there is a connection, so it is shared with KOReader and the web reader. When a book was read further on another device, it opens there and says so. Select text and choose **Set as last position** to pin a sentence, as in KOReader. The last page of a book saves 100 %, so it counts as finished everywhere.
-- Mark a book as finished by hand, from the menu or its details. The mark is sent to the server (when there is a connection), so the book shows on the web panel's **Finished** shelf; books marked read or unread on the panel change on the phone too.
+- Mark a book as finished by hand, from the menu or its details. The mark is sent to the server (later, if offline), so the book is finished in the web panel too; books marked as read or unread in the panel follow on the phone. The newest mark wins.
+- **Statistics**: time read today, the streak of days, the last 30 days day by day, books finished per month and the most read books, from the reading on every device. The last numbers fetched are shown offline.
+- **KOReader**: the app's Settings point to the OPDShelf plugin for KOReader, downloaded from the web panel (Settings › Apps and connections).
 - Works with large fonts (up to 200 %), in landscape and on tablets, and follows the system theme or a chosen one.
 - EPUB positions are KOReader xpointers, worked out with the same script as the web reader.
 

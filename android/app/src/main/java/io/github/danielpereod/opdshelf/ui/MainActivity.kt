@@ -30,6 +30,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.FormatQuote
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -71,7 +72,29 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { AppTheme { Main(library, ::openBook) } }
+        // The start screen's mark goes: behind the app there is just its background, in its appearance
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(AppearanceState.background(this)))
+        val link = io.github.danielpereod.opdshelf.data.ConnectLink.parse(intent?.dataString)
+        setContent { AppTheme { Main(library, link, ::openBook) } }
+        if (savedInstanceState == null) receiveShared(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        receiveShared(intent)
+    }
+
+    /** Books shared from another app (Files, a browser's downloads, mail) go to the upload sheet. */
+    private fun receiveShared(intent: Intent?) {
+        val uris = when (intent?.action) {
+            Intent.ACTION_SEND -> listOfNotNull(
+                androidx.core.content.IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, android.net.Uri::class.java),
+            )
+            Intent.ACTION_SEND_MULTIPLE -> androidx.core.content.IntentCompat
+                .getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, android.net.Uri::class.java).orEmpty()
+            else -> emptyList()
+        }
+        library.prepareUpload(uris)
     }
 
     private fun openBook(book: LocalBook) {
@@ -79,12 +102,12 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-enum class Tab { Home, Explore, Settings }
+enum class Tab { Home, Explore, Highlights, Settings }
 
 private enum class Setup { Welcome, Connect }
 
 @Composable
-fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
+fun Main(library: LibraryViewModel, link: io.github.danielpereod.opdshelf.data.ConnectLink? = null, openBook: (LocalBook) -> Unit) {
     val context = LocalContext.current
     // Status and navigation bar icons follow the app's appearance, which can differ from the system's
     val view = androidx.compose.ui.platform.LocalView.current
@@ -98,7 +121,8 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
         }
     }
     var configured by remember { mutableStateOf(context.app.settings.isConfigured) }
-    var setup by rememberSaveable { mutableStateOf(Setup.Welcome) }
+    // Opened from the panel's QR code: straight to the filled-in connect form
+    var setup by rememberSaveable { mutableStateOf(if (link != null) Setup.Connect else Setup.Welcome) }
 
     if (!configured) {
         AnimatedContent(setup, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "setup") { step ->
@@ -110,6 +134,7 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
                         ConnectScreen(
                             onConnected = { configured = true },
                             onBack = { setup = Setup.Welcome },
+                            link = link,
                             modifier = Modifier.padding(it),
                         )
                     }
@@ -123,6 +148,7 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     val message by library.messages.collectAsState()
     val detail by library.detail.collectAsState()
+    val statsOpen by library.statsOpen.collectAsState()
     val stack by library.stack.collectAsState()
     val actionLabel = message?.action?.let { stringResource(it) }
     LaunchedEffect(message) {
@@ -136,28 +162,34 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
         }
     }
     LaunchedEffect(Unit) { library.openRoot() }
+    val upload by library.upload.collectAsState()
+    upload?.let { UploadDialog(it, library) }
 
-    // Predictive back on details: the page shrinks and slides with the finger before it closes
+    // Predictive back on details and statistics: the page shrinks and slides with the finger before it closes
     var backProgress by remember { mutableStateOf(0f) }
-    androidx.activity.compose.PredictiveBackHandler(enabled = detail != null) { events ->
+    // Details can open over the statistics; back closes them first
+    val overlay = detail != null || statsOpen
+    androidx.activity.compose.PredictiveBackHandler(enabled = overlay) { events ->
         try {
             events.collect { backProgress = it.progress }
-            library.closeDetail()
+            if (detail != null) library.closeDetail() else library.closeStats()
         } finally {
             backProgress = 0f
         }
     }
-    BackHandler(enabled = detail == null && tab == Tab.Explore && stack.size > 1) { library.back() }
-    BackHandler(enabled = detail == null && tab != Tab.Home && !(tab == Tab.Explore && stack.size > 1)) { tab = Tab.Home }
+    BackHandler(enabled = !overlay && tab == Tab.Explore && stack.size > 1) { library.back() }
+    BackHandler(enabled = !overlay && tab != Tab.Home && !(tab == Tab.Explore && stack.size > 1)) { tab = Tab.Home }
 
     val wide = isWide
     val tabs = listOf(
         Triple(Tab.Home, Icons.AutoMirrored.Outlined.LibraryBooks, R.string.tab_home),
         Triple(Tab.Explore, Icons.Outlined.Explore, R.string.tab_explore),
+        Triple(Tab.Highlights, Icons.Outlined.FormatQuote, R.string.tab_highlights),
         Triple(Tab.Settings, Icons.Outlined.Settings, R.string.tab_settings),
     )
     val select: (Tab) -> Unit = {
         if (detail != null) library.closeDetail()
+        library.closeStats()
         tab = it
     }
     Scaffold(
@@ -172,7 +204,7 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
         },
         bottomBar = {
             // Phones: a bar at the bottom. Wide screens get a rail at the side instead.
-            if (detail == null && !wide) {
+            if (!overlay && !wide) {
                 Column {
                     HorizontalDivider(color = shelf.line)
                     NavigationBar(containerColor = shelf.pane, tonalElevation = 0.dp) {
@@ -205,7 +237,7 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
                 Spacer(Modifier.height(Space.s))
                 tabs.forEach { (t, icon, label) ->
                     NavigationRailItem(
-                        selected = tab == t && detail == null, onClick = { select(t) }, colors = colors,
+                        selected = tab == t && !overlay, onClick = { select(t) }, colors = colors,
                         icon = { Icon(icon, null) },
                         label = { Text(stringResource(label), fontWeight = FontWeight.Medium, maxLines = 1) },
                         modifier = Modifier.padding(vertical = Space.xs),
@@ -218,12 +250,14 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
         // The last details shown, so they can fade out after closing
         var shownDetail by remember { mutableStateOf(current) }
         if (current != null) shownDetail = current
-        val screen: Any = if (current != null) "detail" else tab
+        val screen: Any = if (current != null) "detail" else if (statsOpen) "stats" else tab
         AnimatedContent(
             screen, modifier = Modifier.weight(1f),
             transitionSpec = {
-                val toDetail = targetState == "detail"
-                val fromDetail = initialState == "detail"
+                // Statistics open over the tabs, and details over both, the same way
+                val depth = { s: Any -> when (s) { "detail" -> 2; "stats" -> 1; else -> 0 } }
+                val toDetail = depth(targetState) > depth(initialState)
+                val fromDetail = depth(targetState) < depth(initialState)
                 when {
                     // Details come in from the side a little; going back they leave the same way
                     toDetail -> (fadeIn(tween(220)) + slideInHorizontally(tween(220)) { it / 10 }) togetherWith fadeOut(tween(90))
@@ -235,27 +269,31 @@ fun Main(library: LibraryViewModel, openBook: (LocalBook) -> Unit) {
             label = "screen",
         ) { target ->
             val modifier = Modifier.fillMaxSize()
+            // Follows the finger on a predictive back
+            val pageBack = Modifier.graphicsLayer {
+                val p = if (target == screen) backProgress else 0f
+                val scale = 1f - 0.1f * p
+                scaleX = scale; scaleY = scale
+                translationX = p * 32.dp.toPx()
+                shape = androidx.compose.foundation.shape.RoundedCornerShape((p * 28).dp)
+                clip = p > 0f
+            }
             when (target) {
-                "detail" -> shownDetail?.let { d ->
-                    val p = if (target == screen) backProgress else 0f
-                    DetailScreen(
-                        library, d, openBook,
-                        modifier.graphicsLayer {
-                            val scale = 1f - 0.1f * p
-                            scaleX = scale; scaleY = scale
-                            translationX = p * 32.dp.toPx()
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape((p * 28).dp)
-                            clip = p > 0f
-                        },
-                    )
-                }
+                "detail" -> shownDetail?.let { d -> DetailScreen(library, d, openBook, modifier.then(pageBack)) }
+                "stats" -> StatsScreen(
+                    library, onBack = { library.closeStats() },
+                    showBook = { library.showDetail(null, it.id) },
+                    modifier = modifier.then(pageBack),
+                )
                 Tab.Home -> HomeScreen(
                     library, openBook,
                     showDetail = { library.showDetail(null, it.id) },
                     goExplore = { tab = Tab.Explore },
                     modifier = modifier,
+                    openStats = { library.openStats() },
                 )
                 Tab.Explore -> ExploreScreen(library, openBook, modifier)
+                Tab.Highlights -> HighlightsScreen(library, modifier)
                 Tab.Settings -> SettingsScreen(
                     library,
                     onSaved = { library.openRoot() },

@@ -38,6 +38,7 @@ pub fn asset_version() -> &'static str {
         for file in [
             "styles/app.css",
             "app/common.js",
+            "app/menu.js",
             "reader/sync.js",
             "reader/xpointer.js",
         ] {

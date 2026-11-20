@@ -13,4 +13,6 @@ services:
       - ADMIN_PASSWORD=
       # Public URL when running behind a reverse proxy, e.g. https://books.example.com
       - BASE_URL=
+      # Time zone for the days in reading statistics, e.g. Europe/Madrid
+      - TZ=UTC
     restart: unless-stopped

@@ -116,7 +116,11 @@ pub fn read_pdf(path: &Path) -> BookMeta {
                     .collect()
             })
             .unwrap_or_default(),
-        cover: Some(CoverSource::Pdf),
+        // A damaged file has no first page to draw a cover from
+        cover: info
+            .lines()
+            .any(|l| l.starts_with("Pages:"))
+            .then_some(CoverSource::Pdf),
         ..Default::default()
     }
 }

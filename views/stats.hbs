@@ -1,0 +1,355 @@
+<main class="main sync-page" id="statsView" tabindex="-1" {{#unless statsView}}hidden{{/unless}}>
+  <header class="toolbar">
+    <button type="button" class="icon-btn menu-btn" data-menu title="{{t "Shelves"}}" aria-label="{{t "Shelves"}}"><i
+        class="fas fa-bars"></i></button>
+    <h1>{{t "Statistics"}}</h1>
+    <span class="spacer"></span>
+    <button type="button" class="icon-btn" id="statsRefresh" title="{{t "Refresh"}}" aria-label="{{t "Refresh"}}"><i
+        class="fas fa-arrows-rotate"></i></button>
+  </header>
+
+  <div class="sync-scroll">
+    <div class="sync-wrap">
+      <div class="stats-range segmented seg-text" role="group" aria-label="{{t "Period"}}" id="stRange">
+        <button type="button" class="icon-btn" data-range="7d" aria-pressed="false">{{t "7 days"}}</button>
+        <button type="button" class="icon-btn" data-range="30d" aria-pressed="true">{{t "30 days"}}</button>
+        <button type="button" class="icon-btn" data-range="12m" aria-pressed="false">{{t "12 months"}}</button>
+        <button type="button" class="icon-btn" data-range="all" aria-pressed="false">{{t "All time"}}</button>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><span>{{t "Today"}}</span><strong id="stToday">—</strong><small id="stTodaySessions">—</small></div>
+        <div class="stat"><span>{{t "Streak"}}</span><strong id="stStreak">—</strong><small id="stLongest">—</small></div>
+        <div class="stat"><span id="stPeriodLabel">{{t "Last 30 days"}}</span><strong id="stMonth">—</strong><small id="stAverage">—</small></div>
+        <div class="stat"><span>{{t "Books finished"}}</span><strong id="stFinished">—</strong><small id="stTotal">—</small></div>
+      </div>
+
+      <div class="empty stats-empty" id="stEmpty" hidden>
+        <i class="fas fa-chart-column"></i>
+        <strong>{{t "No reading yet"}}</strong>
+        <p>{{t "Statistics are worked out from the positions your devices sync. Read a book in the web reader, the Android app or KOReader and the time shows up here."}}</p>
+      </div>
+
+      <section class="panel-section" aria-labelledby="stDaysTitle" id="stDaysSection">
+        <div class="section-head">
+          <h2 id="stDaysTitle">{{t "Time read per day"}}</h2>
+          <small class="muted">{{t "Worked out from the positions your devices sync"}}</small>
+        </div>
+        <div class="chart-box">
+          <p class="chart-readout" id="stDaysReadout" aria-live="polite"></p>
+          <div class="chart" id="stDays"></div>
+        </div>
+      </section>
+
+      <div class="sync-columns" id="stColumns">
+        <section class="panel-section" aria-labelledby="stTopTitle">
+          <div class="section-head"><h2 id="stTopTitle">{{t "Most read in the last 30 days"}}</h2></div>
+          <ol class="top-books" id="stTop"></ol>
+        </section>
+        <section class="panel-section" aria-labelledby="stMonthsTitle">
+          <div class="section-head"><h2 id="stMonthsTitle">{{t "Books finished per month"}}</h2></div>
+          <div class="chart-box">
+            <p class="chart-readout" id="stMonthsReadout" aria-live="polite"></p>
+            <div class="chart chart-months" id="stMonths"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  (function () {
+    const $ = (id) => document.getElementById(id);
+    const lang = document.documentElement.lang || 'en';
+    const RANGES = ['7d', '30d', '12m', 'all'];
+    let range = RANGES.includes(storeGet('opdshelf:stats-range')) ? storeGet('opdshelf:stats-range') : '30d';
+
+    // "13 h", never "13 h 0 min". Whole minutes read, as a day only counts
+    // for the streak from its first full minute (33 s are "0 min", not "1 min")
+    function duration(seconds) {
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return t('{n} min', { n: minutes });
+      const hours = Math.floor(minutes / 60);
+      return minutes % 60 ? t('{h} h {m} min', { h: hours, m: minutes % 60 }) : t('{h} h', { h: hours });
+    }
+    // Short, for the values over the bars
+    function short(seconds) {
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return t('{n} min', { n: minutes });
+      return t('{h} h', { h: (minutes / 60).toLocaleString(lang, { maximumFractionDigits: minutes < 600 ? 1 : 0 }) });
+    }
+    const days = (n) => (n === 1 ? t('1 day') : t('{n} days', { n }));
+    const local = (date) => new Date(date + 'T12:00:00');
+    // A round number at or over `max`, for the top line of a chart: steps of
+    // `step` (books), or round durations in seconds (step 0)
+    const TIMES = [10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 360, 480, 720, 960, 1440, 2400, 3600, 6000, 12000, 30000, 60000]
+      .map((m) => m * 60);
+    function niceMax(max, step) {
+      if (!step) return TIMES.find((s) => s >= max) || max;
+      if (max <= 0) return step;
+      const power = Math.pow(10, Math.floor(Math.log10(max / step)));
+      for (const s of [1, 2, 3, 5, 10]) if (s * power * step >= max) return s * power * step;
+      return max;
+    }
+
+    /*
+     * A bar chart: a line with the value of the bar picked (the last one with
+     * a value at first) and, when the bars are few, every value over its bar.
+     * The bars are buttons: hover, a tap or the arrow keys pick one.
+     */
+    function chart(el, readout, items, o) {
+      el.textContent = '';
+      el.classList.toggle('few', items.length <= 12);
+      const top = niceMax(Math.max(0, ...items.map(o.value)), o.step);
+      const grid = document.createElement('div');
+      grid.className = 'chart-grid';
+      grid.setAttribute('aria-hidden', 'true');
+      [1, 0.5].forEach((f) => {
+        const line = document.createElement('span');
+        line.style.bottom = f * 100 + '%';
+        line.dataset.value = o.axis(top * f);
+        grid.append(line);
+      });
+      const plot = document.createElement('div');
+      plot.className = 'chart-plot';
+      plot.setAttribute('role', 'group');
+      plot.setAttribute('aria-label', o.name);
+      const bars = items.map((item, i) => {
+        const bar = document.createElement('button');
+        bar.type = 'button';
+        bar.className = 'chart-bar';
+        bar.tabIndex = -1;
+        bar.setAttribute('aria-label', o.label(item));
+        const value = o.value(item);
+        const col = document.createElement('span');
+        col.className = 'chart-col';
+        const fill = document.createElement('i');
+        fill.style.height = (value / top) * 100 + '%';
+        if (!value) fill.className = 'zero';
+        if (items.length <= 12 && value) {
+          const v = document.createElement('em');
+          v.textContent = o.short(item);
+          v.setAttribute('aria-hidden', 'true');
+          col.append(v);
+        }
+        col.append(fill);
+        const caption = document.createElement('small');
+        caption.textContent = o.tick(item, i);
+        caption.setAttribute('aria-hidden', 'true');
+        bar.append(col, caption);
+        bar.addEventListener('mouseenter', () => pick(i, false));
+        bar.addEventListener('focus', () => pick(i, false));
+        bar.addEventListener('click', () => pick(i, true));
+        plot.append(bar);
+        return bar;
+      });
+      let current = -1;
+      function pick(i, focus) {
+        if (i < 0 || i >= bars.length) return;
+        if (current >= 0) bars[current].removeAttribute('aria-current');
+        bars.forEach((b, j) => { b.tabIndex = j === i ? 0 : -1; });
+        current = i;
+        bars[i].setAttribute('aria-current', 'true');
+        readout.replaceChildren();
+        const [when, what] = o.readout(items[i]);
+        const b = document.createElement('b');
+        b.textContent = what;
+        readout.append(when + ' · ', b);
+        if (focus) bars[i].focus();
+      }
+      plot.addEventListener('keydown', (e) => {
+        const moves = { ArrowLeft: -1, ArrowRight: 1, Home: -current, End: bars.length - 1 - current };
+        if (!(e.key in moves)) return;
+        e.preventDefault();
+        pick(Math.max(0, Math.min(bars.length - 1, current + moves[e.key])), true);
+      });
+      el.append(grid, plot);
+      let start = items.length - 1;
+      while (start > 0 && !o.value(items[start])) start--;
+      pick(o.value(items[start]) ? start : items.length - 1, false);
+    }
+
+    const PERIOD = {
+      '7d': () => t('Last 7 days'),
+      '30d': () => t('Last 30 days'),
+      '12m': () => t('Last 12 months'),
+      all: () => t('All time'),
+    };
+    const TOP = {
+      '7d': () => t('Most read in the last 7 days'),
+      '30d': () => t('Most read in the last 30 days'),
+      '12m': () => t('Most read in the last 12 months'),
+      all: () => t('Most read of all time'),
+    };
+    const FINISHED_IN = {
+      '7d': () => t('in the last 7 days'),
+      '30d': () => t('in the last 30 days'),
+      '12m': () => t('in the last 12 months'),
+      all: () => t('in all'),
+    };
+
+    function cover(book) {
+      const thumb = document.createElement('span');
+      thumb.className = 'thumb';
+      thumb.innerHTML = '<span></span>';
+      thumb.firstChild.textContent = book.format || '';
+      if (book.title) placeholderCover(thumb, book.title, book.authors || '');
+      else thumb.classList.add('none');
+      if (book.cover) {
+        const img = document.createElement('img');
+        img.src = book.cover; img.alt = ''; img.loading = 'lazy';
+        img.onerror = () => img.remove();
+        thumb.append(img);
+      }
+      return thumb;
+    }
+
+    function topBooks(list) {
+      const box = $('stTop');
+      box.textContent = '';
+      if (!list.length) {
+        const li = document.createElement('li');
+        li.className = 'muted top-none';
+        li.textContent = range === '7d' ? t('Nothing read in the last 7 days.')
+          : range === '12m' ? t('Nothing read in the last 12 months.')
+            : range === 'all' ? t('Nothing read yet.') : t('Nothing read in the last 30 days.');
+        box.append(li);
+        return;
+      }
+      const most = Math.max(...list.map((b) => b.seconds));
+      for (const book of list) {
+        const li = document.createElement('li');
+        const main = document.createElement(book.path ? 'a' : 'div');
+        main.className = 'top-book';
+        if (book.path) {
+          main.href = '/info/' + encodePath(book.path);
+          main.dataset.panel = '';
+          main.title = t('Show the details of this book');
+        }
+        const text = document.createElement('span');
+        text.className = 'top-text';
+        const name = document.createElement('b');
+        name.textContent = book.title || t('A book that is not in the library');
+        if (!book.title) name.className = 'muted';
+        text.append(name);
+        if (book.authors) {
+          const by = document.createElement('small');
+          by.textContent = book.authors;
+          text.append(by);
+        }
+        const bar = document.createElement('span');
+        bar.className = 'track';
+        bar.innerHTML = '<b></b>';
+        bar.firstChild.style.width = Math.max(2, (book.seconds / most) * 100) + '%';
+        text.append(bar);
+        const time = document.createElement('small');
+        time.className = 'top-time';
+        time.textContent = duration(book.seconds);
+        main.append(cover(book), text, time);
+        li.append(main);
+        if (book.path && book.readable) {
+          const read = document.createElement('a');
+          read.className = 'icon-btn';
+          read.href = '/read/' + encodePath(book.path);
+          read.title = t('Read');
+          read.setAttribute('aria-label', t('Read {title}', { title: book.title || '' }));
+          read.innerHTML = '<i class="fas fa-book-open" aria-hidden="true"></i>';
+          li.append(read);
+        }
+        box.append(li);
+      }
+    }
+
+    async function load() {
+      const asked = range;
+      let data;
+      $('statsRefresh').querySelector('i').classList.add('fa-spin');
+      try {
+        const response = await fetch('/api/stats?range=' + asked, { headers: { Accept: 'application/json' } });
+        if (!response.ok) throw new Error(response.statusText);
+        data = await response.json();
+      } catch {
+        $('stDaysReadout').textContent = t('Cannot load the statistics.');
+        return;
+      } finally {
+        $('statsRefresh').querySelector('i').classList.remove('fa-spin');
+      }
+      if (asked !== range) return;
+      const period = data.period;
+      $('stToday').textContent = duration(data.today.seconds);
+      $('stTodaySessions').textContent = data.today.sessions === 1 ? t('1 session') : t('{n} sessions', { n: data.today.sessions });
+      $('stStreak').textContent = days(data.streak.current);
+      $('stLongest').textContent = t('Longest: {days}', { days: days(data.streak.longest) });
+      $('stPeriodLabel').textContent = PERIOD[range]();
+      $('stMonth').textContent = duration(period.seconds);
+      $('stAverage').textContent = t('{time} a day on {days} read', {
+        time: duration(period.reading_days ? period.seconds / period.reading_days : 0), days: days(period.reading_days),
+      });
+      $('stFinished').textContent = period.finished;
+      $('stTotal').textContent = FINISHED_IN[range]();
+
+      // Nothing read on any device yet: one message instead of empty charts
+      const nothing = !data.total_seconds && data.finished.every((m) => !m.count);
+      $('stEmpty').hidden = !nothing;
+      $('stDaysSection').hidden = nothing;
+      $('stColumns').hidden = nothing;
+      if (nothing) return;
+
+      const unit = data.chart.unit;
+      $('stDaysTitle').textContent = unit === 'day' ? t('Time read per day') : unit === 'month' ? t('Time read per month') : t('Time read per year');
+      const longDay = (k) => local(k).toLocaleDateString(lang, { weekday: 'long', day: 'numeric', month: 'long' });
+      const longMonth = (k) => local(k + '-15').toLocaleDateString(lang, { month: 'long', year: 'numeric' });
+      const name = (k) => (unit === 'day' ? longDay(k) : unit === 'month' ? longMonth(k) : k);
+      const parts = data.chart.parts;
+      chart($('stDays'), $('stDaysReadout'), parts, {
+        name: $('stDaysTitle').textContent,
+        value: (p) => p.seconds,
+        step: 0,
+        axis: short,
+        short: (p) => short(p.seconds),
+        label: (p) => name(p.key) + ': ' + (p.seconds ? duration(p.seconds) : t('nothing read')),
+        readout: (p) => [name(p.key), p.seconds ? duration(p.seconds) : t('nothing read')],
+        tick: (p, i) => {
+          if (unit === 'year') return p.key;
+          if (unit === 'month') return local(p.key + '-15').toLocaleDateString(lang, { month: 'narrow' });
+          if (parts.length <= 7) return local(p.key).toLocaleDateString(lang, { weekday: 'short' });
+          // Every few days on a month, ending today
+          return (parts.length - 1 - i) % 3 === 0 ? String(local(p.key).getDate()) : '';
+        },
+      });
+      if (unit === 'month' && parts.length > 12) $('stDays').classList.add('dense');
+      else $('stDays').classList.remove('dense');
+
+      const books = (m) => m.books.map((b) => b.title || t('A book that is not in the library')).join(', ');
+      chart($('stMonths'), $('stMonthsReadout'), data.finished, {
+        name: t('Books finished per month'),
+        value: (m) => m.count,
+        step: 1,
+        axis: (n) => (Number.isInteger(n) ? String(n) : ''),
+        short: (m) => String(m.count),
+        label: (m) => longMonth(m.month) + ': ' + (m.count === 1 ? t('1 book') : t('{n} books', { n: m.count }))
+          + (m.books.length ? ' · ' + books(m) : ''),
+        readout: (m) => [longMonth(m.month), (m.count === 1 ? t('1 book') : t('{n} books', { n: m.count }))
+          + (m.books.length ? ': ' + books(m) : '')],
+        tick: (m) => local(m.month + '-15').toLocaleDateString(lang, { month: 'narrow' }),
+      });
+
+      $('stTopTitle').textContent = TOP[range]();
+      topBooks(data.top_books);
+    }
+
+    function setRange(value) {
+      range = value;
+      storeSet('opdshelf:stats-range', value);
+      document.querySelectorAll('#stRange [data-range]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.range === value));
+      load();
+    }
+    document.querySelectorAll('#stRange [data-range]').forEach((b) => {
+      b.setAttribute('aria-pressed', b.dataset.range === range);
+      b.addEventListener('click', () => setRange(b.dataset.range));
+    });
+    document.addEventListener('pagechange', (e) => { if (e.detail.page === 'stats') load(); });
+    $('statsRefresh').addEventListener('click', load);
+  })();
+</script>

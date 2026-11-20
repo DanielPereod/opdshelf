@@ -32,10 +32,31 @@ data class LocalBook(
     val lastOpenedAt: Long = 0,
     /** Marked as finished (true) or not (false) by hand; null goes by how far it was read. */
     val finishedByHand: Boolean? = null,
+    /** When [finishedByHand] last changed, in Unix seconds (by the server's clock once it has it). */
+    val finishedAt: Long = 0,
+    /** [finishedByHand] changed on this device and the server does not have it yet. */
+    val finishedPending: Boolean = false,
     val meta: BookMeta = BookMeta(),
 ) {
     /** Finished, as the web counts it: read to 98 %, unless marked otherwise. */
     val finished: Boolean get() = finishedByHand ?: (percentage >= FINISHED_AT)
+
+    /**
+     * The server's mark for a hand mark made here: "read" when finished.
+     * Unmarking clears the server's mark (null), unless the book was read to
+     * the end, which only "unread" hides.
+     */
+    val markToSend: String?
+        get() = when {
+            finishedByHand == true -> "read"
+            percentage >= FINISHED_AT -> "unread"
+            else -> null
+        }
+
+    /** Takes a mark made on another device, unless this one has a newer one not sent yet. */
+    fun adopt(mark: Mark): LocalBook =
+        if (finishedPending || mark.at <= finishedAt) this
+        else copy(finishedByHand = mark.state == "read", finishedAt = mark.at)
 
     companion object {
         const val FINISHED_AT = 0.98
@@ -64,7 +85,12 @@ class LocalStore(private val dir: File) {
     private var bookmarks: Map<String, List<Bookmark>> = read(bookmarksFile, bookmarksSerializer) ?: emptyMap()
 
     private val positionsSerializer = MapSerializer(String.serializer(), LocalPosition.serializer())
-    private val _books = MutableStateFlow(read(booksFile, ListSerializer(LocalBook.serializer())) ?: emptyList())
+    // Books marked by hand before marks were synced are sent once
+    private val _books = MutableStateFlow(
+        (read(booksFile, ListSerializer(LocalBook.serializer())) ?: emptyList()).map {
+            if (it.finishedByHand != null && it.finishedAt == 0L) it.copy(finishedPending = true) else it
+        }
+    )
     val books: StateFlow<List<LocalBook>> = _books.asStateFlow()
     private var positions: Map<String, LocalPosition> = read(positionsFile, positionsSerializer) ?: emptyMap()
 
@@ -107,8 +133,36 @@ class LocalStore(private val dir: File) {
 
     @Synchronized
     fun setFinished(id: String, finished: Boolean) {
-        _books.value = _books.value.map { if (it.id == id) it.copy(finishedByHand = finished) else it }
-        write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
+        val now = System.currentTimeMillis() / 1000
+        update { if (it.id == id) it.copy(finishedByHand = finished, finishedAt = now, finishedPending = true) else it }
+    }
+
+    /** Books marked (or unmarked) as finished here that the server does not have yet. */
+    @Synchronized
+    fun pendingMarks(): List<LocalBook> = _books.value.filter { it.finishedPending }
+
+    /** Notes that the server took a mark, unless it changed again meanwhile; `at` is the server's time. */
+    @Synchronized
+    fun markFinishedSent(sent: LocalBook, at: Long) {
+        update {
+            if (it.id == sent.id && it.finishedPending && it.finishedByHand == sent.finishedByHand && it.finishedAt == sent.finishedAt) {
+                it.copy(finishedPending = false, finishedAt = at.takeIf { t -> t > 0 } ?: sent.finishedAt)
+            } else it
+        }
+    }
+
+    /** Applies the server's marks (by document id) to the books on the device. */
+    @Synchronized
+    fun adoptMarks(marks: Map<String, Mark>) {
+        if (_books.value.none { it.document in marks }) return
+        update { book -> marks[book.document]?.let(book::adopt) ?: book }
+    }
+
+    private fun update(change: (LocalBook) -> LocalBook) {
+        val next = _books.value.map(change)
+        if (next == _books.value) return
+        _books.value = next
+        write(booksFile, ListSerializer(LocalBook.serializer()), next)
     }
 
     @Synchronized

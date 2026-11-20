@@ -1,7 +1,7 @@
-//! Books marked as read or unread in the web panel.
+//! Books marked as read or unread in the web panel or the Android app.
 //!
-//! A mark only changes how the panel shows a book: reading positions, and so
-//! KOReader and the Android app, are left alone. "Read" shows the book as
+//! A mark only changes how a book is shown: reading positions, and so
+//! KOReader, are left alone. "Read" shows the book as
 //! finished. "Unread" hides the positions saved until then, so the book is
 //! back on no shelf until someone reads it again. Marks are kept in
 //! DATA_DIR/marks.json, keyed by document id, so they follow a book that is

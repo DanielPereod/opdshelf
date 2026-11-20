@@ -282,20 +282,33 @@ pub async fn list_progress(State(state): State<AppState>) -> Response {
 #[derive(Deserialize)]
 pub struct MarkRequest {
     /// Books by their path in the library.
+    #[serde(default)]
     paths: Vec<String>,
+    /// Books by their KOReader id, as the Android app knows them.
+    #[serde(default)]
+    documents: Vec<String>,
     /// `read`, `unread`, or null to clear the mark.
     state: Option<crate::marks::State>,
 }
 
-/// Marks books as read or unread in the web panel (positions are not changed).
+/// Marks books as read or unread, from the web panel or the Android app
+/// (positions are not changed).
 pub async fn put_marks(State(state): State<AppState>, Json(request): Json<MarkRequest>) -> Response {
     let index = state.documents.index(&state.library).await;
     let by_path: HashMap<&str, &str> = index.iter().map(|(id, path)| (path.as_str(), id.as_str())).collect();
-    let documents: Vec<String> = request
+    if request.documents.iter().any(|d| !progress::valid_document(d)) {
+        return bad_document();
+    }
+    let mut documents: Vec<String> = request
         .paths
         .iter()
         .filter_map(|p| by_path.get(p.as_str()).map(|id| id.to_string()))
         .collect();
+    // Marks are kept by document id, so a book is marked even while the
+    // library has not indexed it yet
+    documents.extend(request.documents.iter().cloned());
+    documents.sort();
+    documents.dedup();
     if documents.is_empty() {
         return (StatusCode::NOT_FOUND, Json(json!({ "error": "no such book" }))).into_response();
     }

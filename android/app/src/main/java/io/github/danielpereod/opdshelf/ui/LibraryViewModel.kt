@@ -157,7 +157,9 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         _remote.value = null
         val book = app.store.book(bookId) ?: return
         viewModelScope.launch {
-            _remote.value = runCatching { app.api.getProgress(book.document) }.getOrNull()
+            val answer = runCatching { app.api.progress(book.document) }.getOrNull()
+            answer?.mark?.let { app.store.adoptMarks(mapOf(book.document to it)) }
+            _remote.value = answer?.current
         }
     }
 
@@ -218,7 +220,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun setFinished(book: LocalBook, finished: Boolean) = app.store.setFinished(book.id, finished)
+    fun setFinished(book: LocalBook, finished: Boolean) = app.sync.setFinished(book.id, finished)
 
     fun cancelDownload(id: String) {
         jobs[id]?.cancel()
@@ -235,7 +237,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         _messages.value = Notice(text.resources.getQuantityString(R.plurals.removed_count, gone.size, gone.size))
     }
 
-    fun setFinished(ids: Collection<String>, finished: Boolean) = ids.forEach { app.store.setFinished(it, finished) }
+    fun setFinished(ids: Collection<String>, finished: Boolean) = ids.forEach { app.sync.setFinished(it, finished) }
 
     fun deleteAll() {
         books.value.forEach { app.store.removeBook(it) }

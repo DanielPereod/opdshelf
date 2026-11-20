@@ -2,6 +2,8 @@ package io.github.danielpereod.opdshelf.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -79,10 +81,33 @@ class Api(private val settings: Settings) {
         if (!tmp.renameTo(target)) throw IOException("Cannot save ${target.name}")
     }
 
-    suspend fun getProgress(document: String): Position? = withContext(Dispatchers.IO) {
+    suspend fun getProgress(document: String): Position? = progress(document).current
+
+    /** A book's position and its read/unread mark. */
+    suspend fun progress(document: String): ProgressResponse = withContext(Dispatchers.IO) {
         client.newCall(Request.Builder().url(url("/api/progress/$document")).build()).execute().use {
             if (!it.isSuccessful) throw HttpError(it.code, "${it.code} ${it.message}")
-            json.decodeFromString(ProgressResponse.serializer(), it.body!!.string()).current
+            json.decodeFromString(ProgressResponse.serializer(), it.body!!.string())
+        }
+    }
+
+    /** Every book's read/unread mark, by document id. */
+    suspend fun marks(): Map<String, Mark> = withContext(Dispatchers.IO) {
+        client.newCall(Request.Builder().url(url("/api/progress")).build()).execute().use {
+            if (!it.isSuccessful) throw HttpError(it.code, "${it.code} ${it.message}")
+            json.decodeFromString(ProgressList.serializer(), it.body!!.string())
+                .marks.associate { m -> m.document to Mark(m.state, m.at) }
+        }
+    }
+
+    /** Marks a book as `read` or `unread`, or clears its mark with null. Returns the server's time. */
+    suspend fun putMark(document: String, state: String?): Long = withContext(Dispatchers.IO) {
+        val body = JsonObject(
+            mapOf("documents" to JsonArray(listOf(JsonPrimitive(document))), "state" to (state?.let(::JsonPrimitive) ?: JsonNull))
+        ).toString().toRequestBody("application/json".toMediaType())
+        client.newCall(Request.Builder().url(url("/api/marks")).put(body).build()).execute().use {
+            if (!it.isSuccessful) throw HttpError(it.code, "${it.code} ${it.message}")
+            json.decodeFromString(MarkAnswer.serializer(), it.body!!.string()).at
         }
     }
 

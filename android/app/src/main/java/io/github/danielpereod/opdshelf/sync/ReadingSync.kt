@@ -46,15 +46,18 @@ class ReadingSync(
 ) {
     private val _status = MutableStateFlow(SyncStatus(pending = pendingCount(), lastSync = settings.lastSync))
 
-    private fun pendingCount() = store.pending().size + store.pendingAnnotations().values.sumOf { it.size }
+    private fun pendingCount() =
+        store.pending().size + store.pendingAnnotations().values.sumOf { it.size } + store.pendingMarks().size
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
 
     /** Where to open a book: the newest of this device's position and the server's. */
     suspend fun start(document: String): StartPosition {
         val local = store.position(document)
-        val server = runCatching { api.getProgress(document) }.getOrElse {
+        val answer = runCatching { api.progress(document) }.getOrElse {
             return StartPosition(local?.position, local?.locator, null)
         }
+        val server = answer.current
+        answer.mark?.let { store.adoptMarks(mapOf(document to it)) }
         if (local?.pending == true) schedule()
         val start = chooseStart(local, server, settings.deviceId)
         if (start.position != null && start.position == server) {
@@ -76,6 +79,19 @@ class ReadingSync(
         _status.update { it.copy(pending = pendingCount()) }
         schedule(if (now) 0 else 2)
     }
+
+    /** Marks a book as finished or not by hand, and sends it so the web and other devices see it. */
+    fun setFinished(id: String, finished: Boolean) {
+        store.setFinished(id, finished)
+        _status.update { it.copy(pending = pendingCount()) }
+        schedule(1)
+    }
+
+    /** Gets the marks made on the web panel or other devices. Returns false if the server could not be reached. */
+    suspend fun refreshMarks(): Boolean = runCatching {
+        store.adoptMarks(api.marks())
+        true
+    }.getOrDefault(false)
 
     /** Saves a new or changed highlight (or a deletion) and sends it when possible. */
     fun annotate(document: String, annotation: Annotation): Annotation {
@@ -101,7 +117,7 @@ class ReadingSync(
         true
     }.getOrDefault(false)
 
-    /** Sends every pending position now. Returns false if some could not be sent. */
+    /** Sends every pending change now and gets the marks made elsewhere. Returns false if something failed. */
     suspend fun flush(): Boolean {
         _status.update { it.copy(syncing = true) }
         var ok = true
@@ -112,6 +128,20 @@ class ReadingSync(
             } catch (e: HttpError) {
                 if (e.code in 400..499 && e.code != 401 && e.code != 408 && e.code != 429) {
                     store.updateAnnotations(document) { it.sent(batch) }
+                } else {
+                    ok = false
+                }
+            } catch (e: Exception) {
+                ok = false
+            }
+        }
+        for (book in store.pendingMarks()) {
+            try {
+                store.markFinishedSent(book, api.putMark(book.document, book.markToSend))
+            } catch (e: HttpError) {
+                // 404: the server does not know the book (or is too old for marks by id)
+                if (e.code in 400..499 && e.code != 401 && e.code != 408 && e.code != 429) {
+                    store.markFinishedSent(book, book.finishedAt)
                 } else {
                     ok = false
                 }
@@ -134,6 +164,7 @@ class ReadingSync(
                 ok = false
             }
         }
+        if (ok && !refreshMarks()) ok = false
         if (ok) settings.lastSync = System.currentTimeMillis()
         _status.value = SyncStatus(pendingCount(), settings.lastSync, syncing = false, failing = !ok)
         return ok

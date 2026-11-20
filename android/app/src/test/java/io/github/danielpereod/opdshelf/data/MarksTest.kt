@@ -30,6 +30,18 @@ class MarksTest {
     }
 
     @Test
+    fun booksMarkedBeforeMarksWereSyncedAreQueued() {
+        val old = book.copy(finishedByHand = true)
+        val fromOldBuild = book.copy(document = "doc2", finishedByHand = false, legacyFinishedAt = 150)
+        val synced = book.copy(document = "doc3", finishedByHand = true, markedAt = 90)
+        val queued = book.copy(document = "doc4", finishedByHand = true)
+        val untouched = book.copy(document = "doc5")
+        val pending = mapOf("doc4" to ReadMark(ReadMark.READ, 70))
+        val migrated = marksToMigrate(listOf(old, fromOldBuild, synced, queued, untouched), pending, fallback = 1000)
+        assertEquals(mapOf("doc" to ReadMark(ReadMark.READ, 1000), "doc2" to ReadMark(ReadMark.UNREAD, 150)), migrated)
+    }
+
+    @Test
     fun aMarkNotSentYetIsKept() {
         // Marked here offline; the server decides when it gets it
         val local = book.copy(finishedByHand = true, markedAt = 100)

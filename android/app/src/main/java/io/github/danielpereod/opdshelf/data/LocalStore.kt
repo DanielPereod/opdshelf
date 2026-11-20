@@ -3,6 +3,7 @@ package io.github.danielpereod.opdshelf.data
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
@@ -34,6 +35,8 @@ data class LocalBook(
     val finishedByHand: Boolean? = null,
     /** When [finishedByHand] was set, here or on another device, in Unix seconds (server time once synced). */
     val markedAt: Long = 0,
+    /** Left by an older build (the one of PR #54) that kept when a book was marked; only read, to migrate. */
+    @SerialName("finishedAt") val legacyFinishedAt: Long = 0,
     val meta: BookMeta = BookMeta(),
 ) {
     /** Finished, as the web counts it: read to 98 %, unless marked otherwise. */
@@ -82,6 +85,27 @@ class LocalStore(private val dir: File) {
     private var pendingMarks: Map<String, ReadMark> = read(marksFile, marksSerializer) ?: emptyMap()
 
     private val statsFile = File(dir, "stats.json")
+
+    init {
+        migrateMarks()
+    }
+
+    /**
+     * Books marked as finished (or not) by an older version never had their mark
+     * queued, so the server and the other devices never heard of it. Queues those
+     * marks once: the book gets a [LocalBook.markedAt] that no longer matches.
+     */
+    private fun migrateMarks() {
+        val fallback = booksFile.lastModified().takeIf { it > 0 }?.div(1000) ?: return
+        val migrated = marksToMigrate(_books.value, pendingMarks, fallback)
+        if (migrated.isEmpty()) return
+        _books.value = _books.value.map { book ->
+            migrated[book.document]?.let { book.copy(markedAt = it.at) } ?: book
+        }
+        write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
+        pendingMarks = pendingMarks + migrated
+        write(marksFile, marksSerializer, pendingMarks)
+    }
 
     fun book(id: String): LocalBook? = _books.value.firstOrNull { it.id == id }
 

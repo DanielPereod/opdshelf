@@ -290,7 +290,14 @@ pub async fn list_progress(State(state): State<AppState>) -> Response {
             entry
         })
         .collect();
-    Json(json!({ "books": list, "marks": marks, "server_time": now() })).into_response()
+    // Marks cleared, so a client holding one can drop it if the clear is newer
+    let cleared: Vec<_> = state
+        .marks
+        .cleared()
+        .into_iter()
+        .map(|(document, at)| json!({ "document": document, "at": at }))
+        .collect();
+    Json(json!({ "books": list, "marks": marks, "cleared": cleared, "server_time": now() })).into_response()
 }
 
 #[derive(Deserialize)]

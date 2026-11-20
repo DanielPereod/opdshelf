@@ -50,6 +50,10 @@ struct Data {
     /// When each book was first finished (by document id).
     #[serde(default)]
     finished: BTreeMap<String, i64>,
+    /// The last time each book was read to the end (by document id): a book
+    /// marked as unread and then finished again counts from here.
+    #[serde(default)]
+    refinished: BTreeMap<String, i64>,
     /// By "device id/document id".
     #[serde(default)]
     last: HashMap<String, Last>,
@@ -134,6 +138,10 @@ impl Stats {
         self.data.lock().unwrap().finished.clone()
     }
 
+    pub fn refinished(&self) -> BTreeMap<String, i64> {
+        self.data.lock().unwrap().refinished.clone()
+    }
+
     fn save(&self) -> std::io::Result<()> {
         // Kept locked until the file is written: two saves at once could
         // otherwise mix their files, or leave the older one on disk
@@ -147,9 +155,15 @@ impl Data {
     /// Returns whether anything changed.
     fn add(&mut self, device_id: &str, document: &str, progress: &str, percentage: f64, at: i64) -> bool {
         let mut changed = false;
-        if percentage >= FINISHED && !self.finished.contains_key(document) {
-            self.finished.insert(document.to_string(), at);
-            changed = true;
+        if percentage >= FINISHED {
+            if !self.finished.contains_key(document) {
+                self.finished.insert(document.to_string(), at);
+                changed = true;
+            }
+            if self.refinished.get(document).is_none_or(|last| *last < at) {
+                self.refinished.insert(document.to_string(), at);
+                changed = true;
+            }
         }
         let key = format!("{device_id}/{document}");
         let last = self.last.get(&key);
@@ -383,7 +397,7 @@ pub async fn summary(State(state): State<AppState>, Query(query): Query<SummaryQ
     months.reverse();
     let mut finished: BTreeMap<String, Vec<serde_json::Value>> =
         months.iter().map(|m| (m.clone(), Vec::new())).collect();
-    let all_finished = finished_books(stats.finished(), state.marks.all());
+    let all_finished = finished_books(stats.finished(), stats.refinished(), state.marks.all());
     let finished_in_range = all_finished.values().filter(|at| day_of(**at) >= since).count();
     for (document, at) in all_finished {
         let month = day_of(at).get(..7).unwrap_or_default().to_string();
@@ -419,8 +433,12 @@ pub async fn summary(State(state): State<AppState>, Query(query): Query<SummaryQ
 
 /// When each book was finished: read to the end, or marked as read in the
 /// panel or the app. A book marked as unread after it was finished no longer
-/// counts.
-fn finished_books(read: BTreeMap<String, i64>, marks: HashMap<String, crate::marks::Mark>) -> BTreeMap<String, i64> {
+/// counts, unless it was read to the end again after the mark.
+fn finished_books(
+    read: BTreeMap<String, i64>,
+    latest: BTreeMap<String, i64>,
+    marks: HashMap<String, crate::marks::Mark>,
+) -> BTreeMap<String, i64> {
     use crate::marks::State as Mark;
     let mut out = read;
     for (document, mark) in marks {
@@ -430,7 +448,10 @@ fn finished_books(read: BTreeMap<String, i64>, marks: HashMap<String, crate::mar
             }
             Mark::Unread => {
                 if out.get(&document).is_some_and(|at| *at <= mark.at) {
-                    out.remove(&document);
+                    match latest.get(&document) {
+                        Some(again) if *again > mark.at => out.insert(document, *again),
+                        _ => out.remove(&document),
+                    };
                 }
             }
         }
@@ -539,8 +560,33 @@ mod tests {
             ),
         ]
         .into();
-        let finished = finished_books(read, marks);
+        let finished = finished_books(read, BTreeMap::new(), marks);
         assert_eq!(finished, [("a".to_string(), 100), ("c".to_string(), 300)].into());
+    }
+
+    #[test]
+    fn a_book_finished_again_after_unread_counts_again() {
+        use crate::marks::{Mark, State};
+        let read: BTreeMap<String, i64> = [("a".to_string(), 100), ("b".to_string(), 100)].into();
+        // "a" was read to the end again after the mark, "b" was not
+        let latest: BTreeMap<String, i64> = [("a".to_string(), 400), ("b".to_string(), 100)].into();
+        let unread = Mark {
+            state: State::Unread,
+            at: 200,
+        };
+        let marks: HashMap<String, Mark> = [("a".to_string(), unread), ("b".to_string(), unread)].into();
+        let finished = finished_books(read, latest, marks);
+        assert_eq!(finished, [("a".to_string(), 400)].into());
+    }
+
+    #[test]
+    fn the_last_time_a_book_was_finished_is_kept() {
+        let mut data = Data::default();
+        data.add("kobo", "doc", "p1", 1.0, 100);
+        data.add("kobo", "doc", "p2", 1.0, 400);
+        data.add("kobo", "doc", "p3", 1.0, 300);
+        assert_eq!(data.finished["doc"], 100);
+        assert_eq!(data.refinished["doc"], 400);
     }
 
     #[test]

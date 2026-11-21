@@ -222,6 +222,7 @@ class ReaderActivity : AppCompatActivity() {
         showBars(false)
         ui.reflowable = kind == Kind.EPUB
         ui.toc = flatten(pub.tableOfContents)
+        ui.readingOrder = pub.readingOrder.map { it.href.toString() }
         ui.searchable = pub.isSearchable
         val positions = pub.positions()
         positionsCache = positions

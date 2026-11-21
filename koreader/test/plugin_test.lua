@@ -601,6 +601,20 @@ p:flush()
 check(next(state():readSetting("pending")) == nil, "OPDShelf's own 400 drops it")
 p:onCloseDocument()
 
+-- 15. A file replaced by another one gets its own id
+state():saveSetting("live", false)
+doc_settings:saveSetting("opdshelf_sync", { synced = { timestamp = 1, device_id = "x", progress = "p" } })
+local util_lib = require("util")
+util_lib.partialMD5 = function() return "OTHERHASH" end
+page_first = 10
+p = open()
+check(p.document == "OTHERHASH", "the id is worked out from the file, not taken from the sidecar")
+check(doc_settings:readSetting("partial_md5_checksum") == "OTHERHASH" and doc_settings:readSetting("opdshelf_sync") == nil,
+    "and what the plugin knew of the old book is forgotten")
+p:onCloseDocument()
+util_lib.partialMD5 = nil
+doc_settings:saveSetting("partial_md5_checksum", "DOCHASH")
+
 -- Every text of the plugin speaks Spanish
 local missing = {}
 -- 13. Finished books: KOReader's "Finished" status is synced as a mark

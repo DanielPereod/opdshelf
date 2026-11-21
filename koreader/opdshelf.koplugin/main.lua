@@ -316,11 +316,26 @@ function OPDShelf:saveDocState()
 end
 
 function OPDShelf:digest()
-    local id = self.ui.doc_settings:readSetting("partial_md5_checksum")
-    if not id and self.ui.document.file then
-        id = util.partialMD5(self.ui.document.file)
+    local stored = self.ui.doc_settings:readSetting("partial_md5_checksum")
+    local file = self.ui.document and self.ui.document.file
+    if file then
+        -- Worked out from the file, not trusted from the sidecar: a file replaced by another
+        -- edition (or by a book of the same name) keeps the id of the one that was there
+        local ok, actual = pcall(util.partialMD5, file)
+        if ok and type(actual) == "string" and actual ~= "" then
+            if stored and stored ~= actual then
+                -- Another book: nothing of what the plugin knows of the old one applies
+                self.ui.doc_settings:saveSetting("partial_md5_checksum", actual)
+                for _i, key in ipairs({ "opdshelf_sync", "opdshelf_notes", "opdshelf_mark" }) do
+                    self.ui.doc_settings:delSetting(key)
+                end
+                self.doc_state = nil
+                self.notes_snapshot = nil
+            end
+            return actual
+        end
     end
-    return id
+    return stored
 end
 
 function OPDShelf:serverNow()

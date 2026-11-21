@@ -345,6 +345,7 @@ end
 function OPDShelf:noteServerTime(body)
     if type(body) == "table" and type(body.server_time) == "number" then
         self.server_offset = body.server_time - os.time()
+        Notes.setOffset(self.server_offset)
     end
 end
 
@@ -1231,8 +1232,13 @@ function OPDShelf:pushNotes()
     self:noteServerTime(body)
     Notes.agree(snapshot, out, body.annotations)
     self:saveNotesSnapshot()
-    -- Changes made elsewhere meanwhile
-    self:receiveNotes(body.annotations, false)
+    -- Changes made elsewhere meanwhile; and where the server kept another version of one sent
+    -- (it compares with corrected clocks) that one is taken as it is, without comparing times here
+    local rejected = {}
+    for _, id in ipairs(type(body.rejected) == "table" and body.rejected or {}) do
+        if type(id) == "string" then rejected[id] = true end
+    end
+    self:receiveNotes(body.annotations, false, rejected)
 end
 
 --- Gets the book's highlights from the server, then sends what changed here.
@@ -1271,13 +1277,13 @@ function OPDShelf:placeNote(item)
 end
 
 --- Applies highlights from the server: new ones, changed ones and deletions.
-function OPDShelf:receiveNotes(list, live)
+function OPDShelf:receiveNotes(list, live, force)
     if type(list) ~= "table" or not self:hasBook() or not self:notesEnabled() then return end
     local doc = self.ui.document
     self:trackNotes()
     local items = self.ui.annotation.annotations
     local snapshot = self:notesSnapshot()
-    local actions = Notes.merge(items, list, snapshot, not live)
+    local actions = Notes.merge(items, list, snapshot, not live, force)
     if doc.info.has_pages then
         -- Highlights made in other readers are not drawn in a PDF or a comic, but the changes and
         -- deletions the server has of the ones made here are applied (or the next change made here

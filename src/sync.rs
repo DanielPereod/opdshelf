@@ -567,10 +567,11 @@ pub async fn put_annotations(
     if batch.device_id.trim().is_empty() && batch.annotations.iter().any(|a| a.device_id.trim().is_empty()) {
         return missing_device();
     }
-    match state.annotations.merge(&document, batch, now()) {
-        Ok(changed) => Json(json!({
+    match state.annotations.merge_reporting(&document, batch, now()) {
+        Ok((changed, rejected)) => Json(json!({
             "document": document,
             "changed": changed.len(),
+            "rejected": rejected,
             "annotations": state.annotations.list(&document),
             "server_time": now(),
         }))
@@ -612,10 +613,11 @@ pub async fn put_bookmarks(
     if batch.device_id.trim().is_empty() && batch.annotations.iter().any(|a| a.device_id.trim().is_empty()) {
         return missing_device();
     }
-    match state.bookmarks.merge(&document, batch, now()) {
-        Ok(changed) => Json(json!({
+    match state.bookmarks.merge_reporting(&document, batch, now()) {
+        Ok((changed, rejected)) => Json(json!({
             "document": document,
             "changed": changed.len(),
+            "rejected": rejected,
             "bookmarks": state.bookmarks.list(&document),
             "server_time": now(),
         }))

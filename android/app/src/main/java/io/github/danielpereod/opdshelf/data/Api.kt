@@ -152,7 +152,9 @@ class Api(private val settings: Settings) {
     suspend fun getAnnotations(document: String): List<Annotation> = withContext(Dispatchers.IO) {
         client.newCall(Request.Builder().url(url("/api/annotations/$document")).build()).execute().use {
             if (!it.isSuccessful) throw HttpError(it.code, "${it.code} ${it.message}")
-            json.decodeFromString(AnnotationsResponse.serializer(), it.body!!.string()).annotations
+            val answer = json.decodeFromString(AnnotationsResponse.serializer(), it.body!!.string())
+            ServerClock.learn(answer.serverTime)
+            answer.annotations
         }
     }
 
@@ -163,13 +165,19 @@ class Api(private val settings: Settings) {
                 "device" to JsonPrimitive(settings.deviceName),
                 "device_id" to JsonPrimitive(settings.deviceId),
                 "sent_at" to JsonPrimitive(System.currentTimeMillis() / 1000),
-                "annotations" to json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(Annotation.serializer()), list),
+                // In this device's own clock: the server corrects the difference with `sent_at`
+                "annotations" to json.encodeToJsonElement(
+                    kotlinx.serialization.builtins.ListSerializer(Annotation.serializer()),
+                    list.map { it.copy(updated = ServerClock.toDevice(it.updated), created = ServerClock.toDevice(it.created)) },
+                ),
             )
         ).toString().toRequestBody("application/json".toMediaType())
         client.newCall(Request.Builder().url(url("/api/annotations/$document")).put(body).build()).execute().use {
             val text = it.body?.string().orEmpty()
             if (!it.isSuccessful) throw failure(it.code, it.message, text)
-            json.decodeFromString(AnnotationsResponse.serializer(), text).annotations
+            val answer = json.decodeFromString(AnnotationsResponse.serializer(), text)
+            ServerClock.learn(answer.serverTime)
+            answer.annotations
         }
     }
 

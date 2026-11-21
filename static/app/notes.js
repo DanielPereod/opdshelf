@@ -13,7 +13,15 @@
     cyan: 'Cyan', green: 'Green', olive: 'Olive', gray: 'Gray',
   };
 
+  // Times are kept in the server's clock, as the server's answers give them, so a browser whose
+  // clock is minutes off still compares its changes with the others' correctly. `window.serverOffset`
+  // (seconds to add to this browser's clock) is learnt from the server's answers.
   const now = () => Math.floor(Date.now() / 1000);
+  const offset = () => Math.round(window.serverOffset || 0);
+  const serverNow = () => now() + offset();
+  const learn = (body) => {
+    if (body && typeof body.server_time === 'number') window.serverOffset = body.server_time - Date.now() / 1000;
+  };
   const newId = () => 'w' + (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now()).replace(/-/g, '').slice(0, 24);
   const squeeze = (s) => (s || '').replace(/\s+/g, ' ').trim();
 
@@ -71,7 +79,9 @@
         keepalive: Boolean(keepalive),
       });
       if (!response.ok) throw new Error(response.status + ' ' + response.statusText);
-      return response.json();
+      const answer = await response.json();
+      learn(answer);
+      return answer;
     }
 
     // Takes the server's list, keeping local changes it does not have yet
@@ -80,7 +90,9 @@
       const server = new Map(serverList.map((a) => [a.id, a]));
       Object.values(state.pending).forEach((a) => {
         const s = server.get(a.id);
-        if (s && s.updated > a.updated) drop(a.id);
+        // A version from this device is one it sent earlier (the server counts the time a request took
+        // as clock difference, so it can look newer): the change made since still has to go
+        if (s && s.updated > a.updated && s.device_id !== me.id) drop(a.id);
       });
       write();
     }
@@ -107,7 +119,10 @@
       if (!batch.length) return;
       const run = (async () => {
         try {
-          const body = await request('PUT', { device: me.name, device_id: me.id, sent_at: now(), [kind]: batch }, keepalive);
+          // Sent in this browser's clock, with the time it was sent: the server corrects the difference
+          const shift = offset();
+          const sendable = batch.map((a) => ({ ...a, updated: a.updated - shift, created: (a.created || a.updated) - shift }));
+          const body = await request('PUT', { device: me.name, device_id: me.id, sent_at: now(), [kind]: sendable }, keepalive);
           // Changed again while sending: those stay queued
           batch.forEach((a) => {
             const p = state.pending[a.id];
@@ -138,7 +153,7 @@
         ...before, ...annotation,
         id: annotation.id || newId(),
         // Bringing back a deleted one must be newer than the deletion, even within the same second
-        updated: Math.max(now(), ((before && before.updated) || 0) + (before && before.deleted && !annotation.deleted ? 1 : 0)),
+        updated: Math.max(serverNow(), ((before && before.updated) || 0) + (before && before.deleted && !annotation.deleted ? 1 : 0)),
         device: me.name,
         device_id: me.id,
       };

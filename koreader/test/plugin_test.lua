@@ -644,6 +644,51 @@ do
     check(#Notes.merge({}, { changed }, snapshot, true).add == 1, "but it is when the server's version changes")
 end
 
+-- 17. Highlights with a clock that is wrong: times are compared in the server's clock
+do
+    local Notes = dofile(plugin_dir .. "/opdshelf_notes.lua")
+    local function edited(note)
+        return { opdshelf_id = "h1", text = "t", note = note, color = "yellow", drawer = "lighten",
+            pos0 = xp(1), pos1 = xp(2), datetime = "2026-11-01 10:00:00" }
+    end
+    local function server(note, updated)
+        return { id = "h1", text = "t", note = note, color = "yellow", style = "lighten", pos0 = xp(1), pos1 = xp(2), updated = updated }
+    end
+    local extra = function() return { device = "Kobo", device_id = "KOBO-ID" } end
+    local base = os.time()
+    for _i, skew in ipairs({ 3600, -3600 }) do
+        -- The server's clock is `skew` behind this device's (the Kobo's is ahead when skew > 0)
+        Notes.setOffset(-skew)
+        local item = edited("from the Kobo")
+        local agreed = { h1 = { sig = Notes.signature(edited(nil)), updated = base - 100 } }
+        -- Edited on the Kobo at server time base; its clock says base + skew
+        Notes.track({ item }, agreed, base + skew, function() return "x" end)
+        check(item.opdshelf_updated == base, "the change is kept in the server's time (" .. skew .. ")")
+        -- The web changed it later, by the server's clock
+        local actions = Notes.merge({ item }, { server("from the web", base + 300) }, agreed, true)
+        check(#actions.update == 1, "the later change on the web wins, whatever the Kobo's clock (" .. skew .. ")")
+        -- And an earlier one on the web does not undo the Kobo's
+        item = edited("from the Kobo")
+        agreed = { h1 = { sig = Notes.signature(edited(nil)), updated = base - 100 } }
+        Notes.track({ item }, agreed, base + skew, function() return "x" end)
+        actions = Notes.merge({ item }, { server("from the web", base - 30) }, agreed, true)
+        check(#actions.update == 0, "an earlier change on the web does not undo it (" .. skew .. ")")
+        local out = Notes.outgoing({ item }, agreed, extra)
+        check(#out == 1 and out[1].updated == base + skew, "it is sent in the Kobo's own clock for the server to correct (" .. skew .. ")")
+    end
+    Notes.setOffset(0)
+    -- The server says it kept another version: that one is taken, without comparing times
+    local item = edited("from the Kobo")
+    item.opdshelf_updated = base + 5000
+    local agreed = { h1 = { sig = Notes.signature(edited(nil)), updated = base - 100 } }
+    local actions = Notes.merge({ item }, { server("from the web", base) }, agreed, true, { h1 = true })
+    check(#actions.update == 1 and agreed.h1.updated == base, "the server's version wins when it says it kept it")
+    -- Also a deletion made here that lost to a later edit elsewhere
+    agreed = { h1 = { sig = "x", updated = base - 100, deleted = true, deleted_at = base + 5000 } }
+    actions = Notes.merge({}, { server("from the web", base) }, agreed, true, { h1 = true })
+    check(#actions.add == 1, "a deletion that lost brings the highlight back")
+end
+
 -- Every text of the plugin speaks Spanish
 local missing = {}
 -- 13. Finished books: KOReader's "Finished" status is synced as a mark

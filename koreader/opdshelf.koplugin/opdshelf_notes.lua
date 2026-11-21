@@ -16,6 +16,16 @@ reach the server, are sent the next time the book syncs.
 
 local Notes = {}
 
+-- Seconds to add to this device's clock to get the server's. Times kept for the highlights
+-- (`opdshelf_updated`, the snapshot) are in the server's clock, like everything the server
+-- answers, so a Kobo whose clock is off still compares them right; they are sent back in the
+-- device's clock together with `sent_at`, which is how the server corrects them.
+Notes.offset = 0
+
+function Notes.setOffset(seconds)
+    Notes.offset = type(seconds) == "number" and seconds or 0
+end
+
 local COLORS = {
     yellow = true, orange = true, red = true, purple = true, blue = true,
     cyan = true, green = true, olive = true, gray = true,
@@ -67,12 +77,10 @@ function Notes.newId(device_id, item, seed)
     return string.format("k%s%x%06x", base, stamp, salt % 0x1000000)
 end
 
---- When a highlight was last changed here.
+--- When a highlight was last changed here, in the server's clock.
 function Notes.localTime(item)
     return item.opdshelf_updated
-        or Notes.parseTime(item.datetime_updated)
-        or Notes.parseTime(item.datetime)
-        or os.time()
+        or ((Notes.parseTime(item.datetime_updated) or Notes.parseTime(item.datetime) or os.time()) + Notes.offset)
 end
 
 --[[--
@@ -101,7 +109,7 @@ function Notes.toServer(item, extra)
         cfi = server.cfi,
         context = server.context,
         created = Notes.parseTime(item.datetime) or Notes.localTime(item),
-        updated = Notes.localTime(item),
+        updated = Notes.localTime(item) - Notes.offset,
         device = extra.device,
         device_id = extra.device_id,
     }
@@ -136,6 +144,7 @@ were deleted. Call it whenever KOReader says the annotations changed.
 @return whether anything changed
 --]]
 function Notes.track(items, snapshot, now, newId)
+    now = now + Notes.offset
     local changed = false
     local present = {}
     for _, item in ipairs(items) do
@@ -181,7 +190,7 @@ function Notes.outgoing(items, snapshot, extra_for)
     for id, kept in pairs(snapshot) do
         if kept.deleted and not kept.sent then
             local extra = extra_for(nil)
-            out[#out+1] = { id = id, deleted = true, updated = kept.deleted_at or kept.updated,
+            out[#out+1] = { id = id, deleted = true, updated = (kept.deleted_at or kept.updated) - Notes.offset,
                 device = extra.device, device_id = extra.device_id }
         end
     end
@@ -196,9 +205,12 @@ Works out what to do with the server's highlights of the book.
 @param complete whether `list` is all the server has for the book (not just what changed): a
   highlight agreed on that the server no longer has (another server, a lost file) is forgotten
   so that it is sent again
+@param force id -> true for the highlights the server said it kept its own version of: its version
+  wins whatever the times say
 @return actions: { add = {server…}, update = {{item, server}…}, remove = {item…} }
 --]]
-function Notes.merge(items, list, snapshot, complete)
+function Notes.merge(items, list, snapshot, complete, force)
+    force = force or {}
     local by_id = {}
     for _, item in ipairs(items) do
         if Notes.isHighlight(item) and item.opdshelf_id then by_id[item.opdshelf_id] = item end
@@ -222,6 +234,7 @@ function Notes.merge(items, list, snapshot, complete)
             local sig = Notes.signature(s)
             local changed_here = item and (not kept or kept.deleted or kept.sig ~= Notes.signature(item))
             local here = item and (changed_here and Notes.localTime(item) or (kept and kept.updated or 0)) or 0
+            if force[s.id] then here = -1 end
             if s.deleted then
                 if item and (not changed_here or here <= (s.updated or 0)) then
                     actions.remove[#actions.remove+1] = item
@@ -232,7 +245,7 @@ function Notes.merge(items, list, snapshot, complete)
             elseif not item then
                 if kept and kept.missing and kept.sig == sig then
                     -- Already tried: its text is not in this copy of the book
-                elseif kept and kept.deleted and (kept.deleted_at or 0) >= (s.updated or 0) then
+                elseif kept and kept.deleted and not force[s.id] and (kept.deleted_at or 0) >= (s.updated or 0) then
                     -- Deleted here after its last change elsewhere: the deletion goes out
                     kept.sent = nil
                 elseif type(s.pos0) == "string" and s.pos0:sub(1, 1) == "/" then

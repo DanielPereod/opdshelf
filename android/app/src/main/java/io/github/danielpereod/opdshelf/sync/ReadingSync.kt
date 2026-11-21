@@ -14,6 +14,7 @@ import io.github.danielpereod.opdshelf.data.Annotation
 import io.github.danielpereod.opdshelf.data.Api
 import io.github.danielpereod.opdshelf.data.HttpError
 import io.github.danielpereod.opdshelf.data.LibraryProgress
+import io.github.danielpereod.opdshelf.data.ServerClock
 import io.github.danielpereod.opdshelf.data.clearedByDocument
 import io.github.danielpereod.opdshelf.data.marksByDocument
 import io.github.danielpereod.opdshelf.data.LocalPosition
@@ -116,7 +117,7 @@ class ReadingSync(
 
     /** Saves a new or changed highlight (or a deletion) and sends it when possible. */
     fun annotate(document: String, annotation: Annotation): Annotation {
-        val now = System.currentTimeMillis() / 1000
+        val now = ServerClock.now()
         val before = store.annotations(document).find(annotation.id)
         val stamped = annotation.copy(
             updated = maxOf(now, before?.updated ?: 0),
@@ -133,7 +134,7 @@ class ReadingSync(
     /** Gets a book's highlights from the server, keeping changes not sent yet. */
     suspend fun refreshAnnotations(document: String): Boolean = runCatching {
         val server = api.getAnnotations(document)
-        store.updateAnnotations(document) { it.adopt(server) }
+        store.updateAnnotations(document) { it.adopt(server, settings.deviceId) }
         if (store.annotations(document).pending.isNotEmpty()) schedule(0)
         true
     }.getOrDefault(false)
@@ -157,7 +158,7 @@ class ReadingSync(
         for ((document, batch) in store.pendingAnnotations()) {
             try {
                 val answer = api.putAnnotations(document, batch)
-                store.updateAnnotations(document) { it.sent(batch).adopt(answer) }
+                store.updateAnnotations(document) { it.sent(batch).adopt(answer, settings.deviceId) }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: HttpError) {

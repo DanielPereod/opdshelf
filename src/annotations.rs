@@ -134,6 +134,23 @@ fn clip(mut value: String, max: usize) -> String {
     value
 }
 
+/// Whether two versions of a highlight say the same, whatever the times.
+fn same_content(a: &Annotation, b: &Annotation) -> bool {
+    Annotation {
+        updated: 0,
+        created: 0,
+        device: String::new(),
+        device_id: String::new(),
+        ..a.clone()
+    } == Annotation {
+        updated: 0,
+        created: 0,
+        device: String::new(),
+        device_id: String::new(),
+        ..b.clone()
+    }
+}
+
 impl Annotation {
     /// Cleans up what a device sent, with its times corrected by `skew` and never in the future.
     fn tidy(mut self, batch: &Batch, skew: i64, now: i64) -> Option<Self> {
@@ -241,6 +258,18 @@ impl Annotations {
 
     /// Merges what a device sent. Returns the highlights that changed.
     pub fn merge(&self, document: &str, batch: Batch, now: i64) -> std::io::Result<Vec<Annotation>> {
+        self.merge_reporting(document, batch, now).map(|(changed, _)| changed)
+    }
+
+    /// Like `merge`, and also tells which of the highlights sent lost against a newer version
+    /// the server already had. A device compares times on its own clock, which can be off by
+    /// minutes; this lets it take the server's version without comparing anything.
+    pub fn merge_reporting(
+        &self,
+        document: &str,
+        batch: Batch,
+        now: i64,
+    ) -> std::io::Result<(Vec<Annotation>, Vec<String>)> {
         let skew = batch.sent_at.map_or(0, |sent| now - sent);
         let incoming: Vec<Annotation> = batch
             .annotations
@@ -249,6 +278,7 @@ impl Annotations {
             .filter_map(|a| a.tidy(&batch, skew, now))
             .collect();
         let mut changed = Vec::new();
+        let mut rejected = Vec::new();
         {
             let mut books = self.books.lock().unwrap();
             let list = books.entry(document.to_string()).or_default();
@@ -265,6 +295,8 @@ impl Annotations {
                             let created = kept.created.min(annotation.created);
                             *kept = Annotation { created, ..annotation };
                             changed.push(kept.clone());
+                        } else if !newer && !same_content(kept, &annotation) {
+                            rejected.push(kept.id.clone());
                         }
                     }
                     None => {
@@ -287,7 +319,7 @@ impl Annotations {
         if !changed.is_empty() {
             self.save()?;
         }
-        Ok(changed)
+        Ok((changed, rejected))
     }
 
     /// Drops the highlights of documents `keep` rejects (books no longer in the
@@ -491,6 +523,30 @@ mod tests {
             annotations: list,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_device_is_told_which_of_its_changes_lost() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Annotations::open(dir.path());
+        let mut web = note("h1", 200);
+        web.note = "From the web".into();
+        a.merge("doc", batch(vec![web.clone()]), 1000).unwrap();
+        // The same one again, and a copy from another device with nothing different: nothing to report
+        let (changed, rejected) = a.merge_reporting("doc", batch(vec![web.clone()]), 1000).unwrap();
+        assert!(changed.is_empty() && rejected.is_empty());
+        // A change that is older (as the server measures it) loses, and the device is told
+        let mut older = note("h1", 150);
+        older.note = "From the Kobo".into();
+        let (changed, rejected) = a.merge_reporting("doc", batch(vec![older]), 1000).unwrap();
+        assert!(changed.is_empty());
+        assert_eq!(rejected, vec!["h1".to_string()]);
+        // So does a deletion that is older than an edit
+        let mut gone = note("h1", 120);
+        gone.deleted = true;
+        let (_, rejected) = a.merge_reporting("doc", batch(vec![gone]), 1000).unwrap();
+        assert_eq!(rejected, vec!["h1".to_string()]);
+        assert_eq!(a.list("doc")[0].note, "From the web");
     }
 
     #[test]

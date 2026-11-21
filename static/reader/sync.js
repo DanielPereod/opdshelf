@@ -80,8 +80,13 @@
         keepalive: Boolean(keepalive),
       });
       if (!response.ok) throw new Error(response.status + ' ' + response.statusText);
-      return response.json();
+      const answer = await response.json();
+      // The difference between this browser's clock and the server's, to compare their times
+      if (answer && typeof answer.server_time === 'number') window.serverOffset = answer.server_time - Date.now() / 1000;
+      return answer;
     }
+    // This browser's time on the server's clock
+    const inServerTime = (t) => t + Math.round(window.serverOffset || 0);
 
     async function flush(keepalive) {
       clearTimeout(timer);
@@ -121,7 +126,7 @@
       }
       if (local && local.pending) {
         flush();
-        if (!server || local.record.timestamp >= server.timestamp) return { record: local.record, from: null };
+        if (!server || inServerTime(local.record.timestamp) >= server.timestamp) return { record: local.record, from: null };
       }
       if (!server) return { record: local ? local.record : null, from: null };
       writeLocal({ record: server, pending: false });
@@ -184,7 +189,7 @@
           if (!record || record.device_id === me) return;
           // Not over a position of this browser that is waiting to be sent and is newer
           const local = readLocal();
-          if (!(local && local.pending && local.record.timestamp >= record.timestamp)) writeLocal({ record, pending: false });
+          if (!(local && local.pending && inServerTime(local.record.timestamp) >= record.timestamp)) writeLocal({ record, pending: false });
           onRemote(record);
         });
         source.addEventListener('annotations', (e) => {

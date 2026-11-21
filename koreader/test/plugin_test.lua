@@ -83,7 +83,10 @@ end } end
 package.preload["logger"] = function() return { warn = function(...) note("warn", ...) end, dbg = function() end } end
 package.preload["ltn12"] = function() return {
     source = { string = function(s) local done = false return function() if done then return nil end done = true return s end end },
-    sink = { table = function(t) return function(chunk) if chunk then t[#t+1] = chunk end return 1 end end },
+    sink = {
+        table = function(t) return function(chunk) if chunk then t[#t+1] = chunk end return 1 end end,
+        file = function(f) return function(chunk) if chunk then f:write(chunk) else f:close() end return 1 end end,
+    },
 } end
 package.preload["mime"] = function() return { b64 = function(s) return "B64(" .. s .. ")" end } end
 -- The live connection never connects in these tests
@@ -507,6 +510,16 @@ write(dir .. "/opdshelf_setup.json", setup)
 local q = OPDShelf:new{ ui = ui, dialog = {}, view = {}, path = dir }
 check(state():readSetting("server") == "https://books.example", "an account already set up stays")
 check(not exists(dir .. "/opdshelf_setup.json"), "and the setup file is removed, as it holds the password")
+-- ... unless the server turned that account down: the plugin downloaded again with the new password is used
+respond(401, { error = "Unauthorized" })
+q.client:getProgress("0123456789abcdef0123456789abcdef")
+check(state():readSetting("auth_rejected") == true, "a 401 is remembered")
+write(dir .. "/opdshelf_setup.json", setup)
+q = OPDShelf:new{ ui = ui, dialog = {}, view = {}, path = dir }
+check(state():readSetting("server") == "http://new.example" and state():readSetting("password") == "pw"
+    and not state():readSetting("auth_rejected"), "a setup replaces an account the server rejected")
+state():saveSetting("server", "https://books.example")
+state():saveSetting("password", "secret")
 state():saveSetting("server", nil)
 write(dir .. "/opdshelf_setup.json", setup)
 q = OPDShelf:new{ ui = ui, dialog = {}, view = {}, path = dir }
@@ -687,6 +700,28 @@ do
     agreed = { h1 = { sig = "x", updated = base - 100, deleted = true, deleted_at = base + 5000 } }
     actions = Notes.merge({}, { server("from the web", base) }, agreed, true, { h1 = true })
     check(#actions.add == 1, "a deletion that lost brings the highlight back")
+end
+
+-- 18. A book downloaded again does not lose the one that is there if it cannot be put in place
+do
+    local base = os.tmpname()
+    os.remove(base)
+    os.execute("mkdir -p '" .. base .. "'")
+    local file = base .. "/book.epub"
+    local function put(path, text) local f = assert(io.open(path, "wb")) f:write(text) f:close() end
+    local function get(path) local f = io.open(path, "rb") if not f then return nil end local t = f:read("*a") f:close() return t end
+    put(file, "old copy")
+    respond(200, "new copy")
+    local ok = p.client:download("https://books.example/download/book.epub", file)
+    check(ok and get(file) == "new copy" and not get(file .. ".old") and not get(file .. ".part"), "the new book replaces it and nothing is left over")
+    -- The new file cannot be moved (here the .part is gone): the old one is still there
+    respond(200, "other copy")
+    local real_rename = os.rename
+    os.rename = function(from, to) if from:match("%.part$") then return nil, "no space left" end return real_rename(from, to) end
+    ok = p.client:download("https://books.example/download/book.epub", file)
+    os.rename = real_rename
+    check(ok == false and get(file) == "new copy" and not get(file .. ".old"), "when it cannot be put in place the one there is kept")
+    os.execute("rm -rf '" .. base .. "'")
 end
 
 -- Every text of the plugin speaks Spanish

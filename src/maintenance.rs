@@ -291,9 +291,9 @@ pub(crate) const TAB: &str = "/admin/settings/maintenance";
 fn redirect(notice: Option<&str>, error: Option<&str>) -> Response {
     let mut url = String::from(TAB);
     if let Some(n) = notice {
-        url.push_str(&format!("?notice={}", paths::url_encode(n)));
+        url.push_str(&format!("?{}", crate::auth::flash::param("notice", n)));
     } else if let Some(e) = error {
-        url.push_str(&format!("?error={}", paths::url_encode(e)));
+        url.push_str(&format!("?{}", crate::auth::flash::param("error", e)));
     }
     Redirect::to(&url).into_response()
 }

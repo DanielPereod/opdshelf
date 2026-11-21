@@ -145,6 +145,33 @@ impl Auth {
     }
 }
 
+/// Messages in an address (`?notice=…`, `?error=…`) are shown on the panel only if this server wrote
+/// them: they carry a signature made with a key that exists only in this process. A link made by
+/// someone else cannot put its own words on the page.
+pub mod flash {
+    use super::{hex, hmac};
+    use std::sync::LazyLock;
+    use subtle::ConstantTimeEq;
+
+    static KEY: LazyLock<[u8; 32]> = LazyLock::new(rand::random);
+
+    fn sign(text: &str) -> String {
+        hex(&hmac(&*KEY, format!("flash:{text}").as_bytes()))[..32].to_string()
+    }
+
+    /// `kind=<text>&<kind>_sig=<signature>`, for the address of a page that shows the message.
+    pub fn param(kind: &str, text: &str) -> String {
+        format!("{kind}={}&{kind}_sig={}", crate::paths::url_encode(text), sign(text))
+    }
+
+    /// The message, if the signature in the address is the one this server gave it.
+    pub fn verified(text: Option<&str>, signature: Option<&str>) -> Option<String> {
+        let (text, signature) = (text?, signature?);
+        let genuine: bool = sign(text).as_bytes().ct_eq(signature.as_bytes()).into();
+        genuine.then(|| text.to_string())
+    }
+}
+
 fn hmac(key: &[u8], data: &[u8]) -> Vec<u8> {
     let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
     mac.update(data);
@@ -258,6 +285,24 @@ mod tests {
         assert_eq!(third.session_token(), first.session_token());
         assert_ne!(third.session_token(), second.session_token());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_messages_this_server_wrote_are_shown() {
+        let written = flash::param("notice", "Saved");
+        let signature = written.rsplit("notice_sig=").next().unwrap();
+        assert_eq!(
+            flash::verified(Some("Saved"), Some(signature)).as_deref(),
+            Some("Saved")
+        );
+        // A link someone else made, or one changed on the way
+        assert_eq!(
+            flash::verified(Some("Call 555-0100 to restore your account"), Some(signature)),
+            None
+        );
+        assert_eq!(flash::verified(Some("Saved"), Some("abc")), None);
+        assert_eq!(flash::verified(Some("Saved"), None), None);
+        assert_eq!(flash::verified(None, Some(signature)), None);
     }
 
     #[test]

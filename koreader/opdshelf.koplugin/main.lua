@@ -179,9 +179,14 @@ function OPDShelf:applySetup()
     os.remove(path)
     local ok, setup = pcall(JSON.decode, text)
     if not ok or type(setup) ~= "table" or type(setup.server) ~= "string" then return end
-    -- An account that is already set up stays
-    if (self.state:readSetting("server") or "") ~= "" and (self.state:readSetting("password") or "") ~= "" then return end
+    -- An account that is already set up stays, unless the server turned it down (the password was
+    -- changed there and this is the plugin downloaded again with the new one)
+    if (self.state:readSetting("server") or "") ~= "" and (self.state:readSetting("password") or "") ~= ""
+        and not self.state:readSetting("auth_rejected") then
+        return
+    end
     local function text_or_nil(v) return type(v) == "string" and v or nil end
+    self.state:saveSetting("auth_rejected", nil)
     self.state:saveSetting("server", setup.server)
     self.state:saveSetting("username", text_or_nil(setup.username))
     self.state:saveSetting("password", text_or_nil(setup.password))
@@ -211,7 +216,21 @@ function OPDShelf:makeClient()
         server = self.state:readSetting("server") or "",
         username = self.state:readSetting("username"),
         password = self.state:readSetting("password"),
+        -- What the server answers to the account, to know when it has been turned down
+        on_code = function(code) self:noteAuthCode(code) end,
     }
+end
+
+-- Remembers whether the server accepts the account: a setup from the panel replaces one it rejects
+function OPDShelf:noteAuthCode(code)
+    local rejected = self.state:readSetting("auth_rejected") and true or false
+    if code == 401 and not rejected then
+        self.state:saveSetting("auth_rejected", true)
+        self.state:flush()
+    elseif code == 200 and rejected then
+        self.state:saveSetting("auth_rejected", nil)
+        self.state:flush()
+    end
 end
 
 function OPDShelf:deviceName()

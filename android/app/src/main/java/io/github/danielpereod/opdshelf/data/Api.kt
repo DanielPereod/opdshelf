@@ -18,6 +18,9 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
+/** A `.part` file older than this is the leftover of a download that never finished. */
+private const val STALE_PART_MS = 60 * 60 * 1000L
+
 /** [reason] is the server's code for what went wrong, such as `not_empty`, when it gives one. */
 class HttpError(val code: Int, message: String, val reason: String? = null) : IOException(message) {
     /**
@@ -71,25 +74,35 @@ class Api(private val settings: Settings) {
     /** Downloads to [target], through a temporary file so a cut download never looks complete. */
     suspend fun download(url: String, target: File, onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
         val tmp = File(target.parentFile, target.name + ".part")
-        client.newCall(Request.Builder().url(url).build()).execute().use { response ->
-            if (!response.isSuccessful) throw HttpError(response.code, "${response.code} ${response.message}")
-            val body = response.body!!
-            val total = body.contentLength()
-            tmp.outputStream().use { out ->
-                body.byteStream().use { input ->
-                    val buffer = ByteArray(64 * 1024)
-                    var done = 0L
-                    while (true) {
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        out.write(buffer, 0, n)
-                        done += n
-                        if (total > 0) onProgress(done.toFloat() / total)
+        // What an earlier download left when the app was closed in the middle of it
+        target.parentFile?.listFiles { f -> f.name.endsWith(".part") && f != tmp }
+            ?.filter { System.currentTimeMillis() - it.lastModified() > STALE_PART_MS }
+            ?.forEach { it.delete() }
+        try {
+            client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                if (!response.isSuccessful) throw HttpError(response.code, "${response.code} ${response.message}")
+                val body = response.body!!
+                val total = body.contentLength()
+                tmp.outputStream().use { out ->
+                    body.byteStream().use { input ->
+                        val buffer = ByteArray(64 * 1024)
+                        var done = 0L
+                        while (true) {
+                            val n = input.read(buffer)
+                            if (n < 0) break
+                            out.write(buffer, 0, n)
+                            done += n
+                            if (total > 0) onProgress(done.toFloat() / total)
+                        }
                     }
                 }
             }
+            if (!tmp.renameTo(target)) throw IOException("Cannot save ${target.name}")
+        } catch (e: Throwable) {
+            // A failed or cancelled download leaves nothing behind
+            tmp.delete()
+            throw e
         }
-        if (!tmp.renameTo(target)) throw IOException("Cannot save ${target.name}")
     }
 
     suspend fun getProgress(document: String): Position? = bookProgress(document).current

@@ -219,7 +219,11 @@ async fn count_pages(state: &AppState, feed: &mut Feed, books: &[&Book], page: u
         .filter(|b| crate::reader::is_comic(b))
         .collect();
     feed.documents = state.documents.ids_by_path();
-    let counts = futures_util::future::join_all(comics.iter().map(|b| crate::reader::page_list(state, b))).await;
+    // A few at a time: each CBR, CB7 or CBT is a `bsdtar` process, and a page can hold fifty
+    let mut counts = Vec::with_capacity(comics.len());
+    for group in comics.chunks(4) {
+        counts.extend(futures_util::future::join_all(group.iter().map(|b| crate::reader::page_list(state, b))).await);
+    }
     for (book, pages) in comics.into_iter().zip(counts) {
         if let Some(pages) = pages.filter(|p| !p.is_empty()) {
             feed.pages.insert(book.path.clone(), pages.len());
@@ -430,6 +434,8 @@ impl Feed {
                 self.link("next", &page_href(page + 1), self.kind);
             }
         }
+        // The feed's own address names the page it is, not the first one
+        self.path_and_query = page_href(page);
         self.extra.push(format!(
             "<opensearch:totalResults>{}</opensearch:totalResults>",
             books.len()

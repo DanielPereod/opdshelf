@@ -45,10 +45,10 @@ pub async fn edit_page(
             "title": book.title,
             "authors": meta.authors.join("; "),
             "description": meta.description,
-            "language": meta.language,
+            "language": meta.language.as_deref().map(crate::metadata::form_language),
             "publisher": meta.publisher,
             "subjects": meta.subjects.join(", "),
-            "date": meta.date,
+            "date": meta.date.as_deref().map(crate::metadata::form_date),
             "identifier": meta.identifier,
             "series": meta.series,
             "seriesIndex": meta.series_index,
@@ -140,8 +140,12 @@ pub async fn save(State(state): State<AppState>, mut multipart: Multipart) -> Re
             Ok(image) => Some(image),
             Err(err) => {
                 let error = format!("Cannot download the cover: {err}");
-                return Redirect::to(&format!("{}?error={}", edit_url(&rel), paths::url_encode(&error)))
-                    .into_response();
+                return Redirect::to(&format!(
+                    "{}?{}",
+                    edit_url(&rel),
+                    crate::auth::flash::param("error", &error)
+                ))
+                .into_response();
             }
         }
     } else {
@@ -157,8 +161,12 @@ pub async fn save(State(state): State<AppState>, mut multipart: Multipart) -> Re
             Ok(file) => Some(file),
             Err(err) => {
                 let error = format!("Cannot save the cover: {err}");
-                return Redirect::to(&format!("{}?error={}", edit_url(&rel), paths::url_encode(&error)))
-                    .into_response();
+                return Redirect::to(&format!(
+                    "{}?{}",
+                    edit_url(&rel),
+                    crate::auth::flash::param("error", &error)
+                ))
+                .into_response();
             }
         },
         None if form.get("remove_cover").is_some_and(|v| v == "1") => None,
@@ -174,11 +182,21 @@ pub async fn save(State(state): State<AppState>, mut multipart: Multipart) -> Re
     };
     if let Err(err) = result {
         let error = format!("Cannot save: {err}");
-        return Redirect::to(&format!("{}?error={}", edit_url(&rel), paths::url_encode(&error))).into_response();
+        return Redirect::to(&format!(
+            "{}?{}",
+            edit_url(&rel),
+            crate::auth::flash::param("error", &error)
+        ))
+        .into_response();
     }
     state.library.invalidate();
     tracing::info!("edited metadata of {rel}");
-    Redirect::to(&format!("{}?notice=Saved", edit_url(&rel))).into_response()
+    Redirect::to(&format!(
+        "{}?{}",
+        edit_url(&rel),
+        crate::auth::flash::param("notice", "Saved")
+    ))
+    .into_response()
 }
 
 #[derive(Deserialize)]
@@ -199,9 +217,9 @@ pub async fn reset(State(state): State<AppState>, Form(form): Form<ResetForm>) -
     }
     state.library.invalidate();
     Redirect::to(&format!(
-        "{}?notice={}",
+        "{}?{}",
         edit_url(&rel),
-        paths::url_encode("Restored the file's metadata")
+        crate::auth::flash::param("notice", "Restored the file's metadata")
     ))
     .into_response()
 }

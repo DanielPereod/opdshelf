@@ -445,6 +445,12 @@ async fn pagination() {
     let page3 = t.text("/opds/books?sort=name-asc&page=3").await;
     assert!(page3.contains("book4") && !page3.contains("book0"));
     assert!(!page3.contains(r#"rel="next""#));
+    // A feed's own address is the page it shows, not the first one
+    assert!(
+        page3.contains(r#"rel="self" href="http://localhost/opds/books?sort=name-asc&amp;page=3""#),
+        "{page3}"
+    );
+    assert!(page1.contains(r#"rel="self" href="http://localhost/opds/books?sort=name-asc""#));
 }
 
 #[tokio::test]

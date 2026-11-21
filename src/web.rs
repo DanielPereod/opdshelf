@@ -229,7 +229,7 @@ async fn refuse_when_read_only(State(state): State<AppState>, request: Request, 
     } else {
         "/admin"
     };
-    Redirect::to(&format!("{back}?error={}", paths::url_encode(READ_ONLY))).into_response()
+    Redirect::to(&format!("{back}?{}", crate::auth::flash::param("error", READ_ONLY))).into_response()
 }
 
 pub async fn library_writable(state: &AppState) -> bool {
@@ -411,10 +411,10 @@ pub fn admin_redirect(folder: &str, notice: Option<&str>, error: Option<&str>) -
         params.push(format!("folder={}", paths::url_encode(folder)));
     }
     if let Some(n) = notice {
-        params.push(format!("notice={}", paths::url_encode(n)));
+        params.push(crate::auth::flash::param("notice", n));
     }
     if let Some(e) = error {
-        params.push(format!("error={}", paths::url_encode(e)));
+        params.push(crate::auth::flash::param("error", e));
     }
     if !params.is_empty() {
         url = format!("{url}?{}", params.join("&"));
@@ -490,6 +490,9 @@ pub struct AdminQuery {
     folder: Option<String>,
     notice: Option<String>,
     error: Option<String>,
+    /// Prove that this server wrote the notice or error (see `auth::flash`).
+    notice_sig: Option<String>,
+    error_sig: Option<String>,
     /// Set when the inspector asks for just its own HTML.
     panel: Option<String>,
     /// The inspector's tab: `notes` for the highlights and notes of the book.
@@ -566,8 +569,8 @@ pub async fn library_data(state: &AppState, query: &AdminQuery) -> serde_json::V
         "sortMode": sort.as_str(),
         "accept": extensions.join(","),
         "formats": extensions.iter().map(|e| e.trim_start_matches('.').to_uppercase()).collect::<Vec<_>>().join(", "),
-        "notice": query.notice,
-        "error": query.error,
+        "notice": crate::auth::flash::verified(query.notice.as_deref(), query.notice_sig.as_deref()),
+        "error": crate::auth::flash::verified(query.error.as_deref(), query.error_sig.as_deref()),
         "readOnly": !library_writable(state).await,
         "apkLocal": apps::is_local(state, &apps::ANDROID),
         "pluginLocal": apps::is_local(state, &apps::KOREADER),

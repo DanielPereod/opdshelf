@@ -257,6 +257,12 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("Sort by {column}", "Ordenar por {column}"),
     ("Live", "En vivo"),
     ("Connecting…", "Conectando…"),
+    ("Sign in again", "Entra de nuevo"),
+    ("Cannot save the position", "No se puede guardar la posición"),
+    ("Cannot save the bookmarks", "No se pueden guardar los marcadores"),
+    ("Cannot save the highlights", "No se pueden guardar los subrayados"),
+    ("Invalid path", "Ruta no válida"),
+    ("no connection", "sin conexión"),
     (
         "One book could not be read just now, so positions, highlights, bookmarks and marks are not cleaned. Try again in a moment.",
         "Un libro no se ha podido leer ahora mismo, así que no se limpian posiciones, subrayados, marcadores ni marcas. Inténtalo de nuevo en un momento.",

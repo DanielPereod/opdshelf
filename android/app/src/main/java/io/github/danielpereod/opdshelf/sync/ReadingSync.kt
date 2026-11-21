@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.TimeUnit
 
 /**
@@ -42,6 +43,9 @@ data class SyncStatus(
     /** The last attempt could not reach the server. */
     val failing: Boolean = false,
 )
+
+/** How long opening a book waits for the server's position, in milliseconds. */
+private const val START_WAIT_MS = 4_000L
 
 class ReadingSync(
     private val context: Context,
@@ -86,9 +90,10 @@ class ReadingSync(
     /** Where to open a book: the newest of this device's position and the server's. */
     suspend fun start(document: String): StartPosition {
         val local = store.position(document)
-        val answer = runCatching { api.bookProgress(document) }.getOrElse {
-            return StartPosition(local?.position, local?.locator, null)
-        }
+        // Waits for the server only a moment: the book opens on this device's position meanwhile
+        // (a server that is down or slow must not leave the reader blank for half a minute)
+        val answer = withTimeoutOrNull(START_WAIT_MS) { runCatching { api.bookProgress(document) }.getOrNull() }
+            ?: return StartPosition(local?.position, local?.locator, null)
         answer.mark?.let { store.adoptMarks(mapOf(document to it)) }
         val server = answer.current
         if (local?.pending == true) schedule()

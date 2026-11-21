@@ -21,7 +21,7 @@
     (function () {
       const savedTheme = storeGet("theme");
       const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      if (savedTheme === 'dark' || (!savedTheme && systemDark)) {
+      if (savedTheme === 'dark' || (savedTheme !== 'light' && systemDark)) {
         document.documentElement.classList.add('dark');
       }
     })();

@@ -271,12 +271,17 @@
         t('Its saved positions are removed. Other devices keep theirs, and it shows up again if it syncs later.'),
         t('Forget'));
       if (!ok) return;
-      const response = await fetch('/api/devices/' + encodeURIComponent(device.device_id), {
-        method: 'DELETE',
-        headers: { 'X-CSRF-Token': csrf, Accept: 'application/json' },
-      });
-      if (response.ok) showToast(t('{device} forgotten', { device: device.device || t('Unknown device') }));
-      else showToast(t('Cannot forget the device: {reason}', { reason: response.statusText }));
+      try {
+        const response = await fetch('/api/devices/' + encodeURIComponent(device.device_id), {
+          method: 'DELETE',
+          headers: { 'X-CSRF-Token': csrf, Accept: 'application/json' },
+        });
+        if (!response.ok) throw new Error(response.statusText || response.status);
+        showToast(t('{device} forgotten', { device: device.device || t('Unknown device') }));
+      } catch (err) {
+        // No network, or the server said no
+        showToast(t('Cannot forget the device: {reason}', { reason: (err && err.message) || t('no connection') }));
+      }
       load();
     }
 

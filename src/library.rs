@@ -658,11 +658,23 @@ mod tests {
         // Unless something was changed in the panel meanwhile
         lib.invalidate();
         assert_eq!(lib.snapshot().await.books.len(), 3);
-        // Requests that were waiting while one scan ran take its result
-        let scans = lib.scans.load(Ordering::SeqCst);
-        let (a, b, c) = tokio::join!(lib.refresh(), lib.refresh(), lib.refresh());
-        assert!(a.books.len() == 3 && b.books.len() == 3 && c.books.len() == 3);
-        assert!(lib.scans.load(Ordering::SeqCst) <= scans + 1);
+        // Requests that were waiting while a scan ran take its result: here, with the scan lock held
+        // by someone else, two of them wait, a scan is finished, and neither starts another
+        let guard = lib.scan_lock.lock().await;
+        let seen = lib.scans.load(Ordering::SeqCst);
+        let waiting: Vec<_> = (0..2)
+            .map(|_| {
+                let lib = lib.clone();
+                tokio::spawn(async move { lib.refresh().await })
+            })
+            .collect();
+        tokio::task::yield_now().await;
+        lib.scans.fetch_add(1, Ordering::SeqCst);
+        drop(guard);
+        for task in waiting {
+            assert_eq!(task.await.unwrap().books.len(), 3);
+        }
+        assert_eq!(lib.scans.load(Ordering::SeqCst), seen + 1, "nobody scanned again");
     }
 
     #[tokio::test]

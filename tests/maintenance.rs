@@ -126,9 +126,25 @@ async fn finds_duplicates_and_cleans_data_of_gone_books() {
     let (status, location, _) = get(&app, "/admin/maintenance?notice=Hi%20there").await;
     assert!(status.is_redirection());
     assert_eq!(location, "/admin/settings/maintenance?notice=Hi%20there");
-    let (status, _, done) = get(&app, "/admin/settings/maintenance?notice=Removed%203%20entries").await;
+    // A message this server wrote is shown
+    let written = opdshelf::auth::flash::param("notice", "Removed 3 entries");
+    let (status, _, done) = get(&app, &format!("/admin/settings/maintenance?{written}")).await;
     assert_eq!(status, StatusCode::OK);
     assert!(done.contains("Removed 3 entries"));
+    // Words in a link someone else made are not
+    let (status, _, spoofed) = get(
+        &app,
+        "/admin/settings/maintenance?notice=Your%20session%20expired%2C%20call%20555",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!spoofed.contains("call 555"));
+    let (_, _, forged) = get(
+        &app,
+        "/admin/settings/maintenance?error=Hacked&error_sig=00000000000000000000000000000000",
+    )
+    .await;
+    assert!(!forged.contains("Hacked"));
 
     // Not duplicates: the group is hidden
     let key_at = html.find(r#"name="key" value=""#).unwrap() + 18;

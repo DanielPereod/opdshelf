@@ -177,6 +177,60 @@ pub(crate) fn read_entry<R: Read + Seek>(
     read_limited(entry, limit)
 }
 
+/// A date the edit form accepts (`YYYY`, `YYYY-MM` or `YYYY-MM-DD`) from what a book has: Calibre
+/// writes `2019-05-01T22:00:00+00:00`, Open Library `May 1, 2019`. Empty if there is no year.
+pub fn form_date(date: &str) -> String {
+    let date = date.trim();
+    let digits = |s: &str, n: usize| s.len() >= n && s.as_bytes()[..n].iter().all(u8::is_ascii_digit);
+    if digits(date, 4) && !date.as_bytes().get(4).is_some_and(u8::is_ascii_digit) {
+        let mut out = date[..4].to_string();
+        let mut rest = &date[4..];
+        for _ in 0..2 {
+            match rest.strip_prefix('-') {
+                Some(next) if digits(next, 2) && !next.as_bytes().get(2).is_some_and(u8::is_ascii_digit) => {
+                    out.push('-');
+                    out.push_str(&next[..2]);
+                    rest = &next[2..];
+                }
+                _ => break,
+            }
+        }
+        return out;
+    }
+    // "May 1, 2019": just the year
+    let bytes = date.as_bytes();
+    (0..bytes.len().saturating_sub(3))
+        .find(|&i| {
+            date.is_char_boundary(i)
+                && digits(&date[i..], 4)
+                && (i == 0 || !bytes[i - 1].is_ascii_digit())
+                && !bytes.get(i + 4).is_some_and(u8::is_ascii_digit)
+        })
+        .map(|i| date[i..i + 4].to_string())
+        .unwrap_or_default()
+}
+
+/// A language code the edit form accepts (`es`, `en-GB`) from what a book has (`en_US`, `eng `).
+pub fn form_language(language: &str) -> String {
+    let code = language.trim().replace('_', "-");
+    let valid = |code: &str| {
+        let mut parts = code.split('-');
+        parts
+            .next()
+            .is_some_and(|first| (2..=3).contains(&first.len()) && first.bytes().all(|b| b.is_ascii_alphabetic()))
+            && parts.all(|p| (2..=8).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_alphanumeric()))
+    };
+    if valid(&code) {
+        code
+    } else {
+        // "es, en" or "Spanish": the first code there is, or nothing
+        code.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
+            .find(|part| valid(part))
+            .unwrap_or_default()
+            .to_string()
+    }
+}
+
 pub(crate) fn image_mime(name: &str) -> Option<&'static str> {
     match paths::extension(name).as_str() {
         "jpg" | "jpeg" => Some("image/jpeg"),
@@ -697,6 +751,24 @@ fn fb2_binary(xml: &str, id: &str) -> Result<Vec<u8>, String> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[test]
+    fn dates_and_languages_are_given_to_the_form_in_the_shape_it_accepts() {
+        use super::{form_date, form_language};
+        assert_eq!(form_date("2019-05-01T22:00:00+00:00"), "2019-05-01");
+        assert_eq!(form_date("2019-05"), "2019-05");
+        assert_eq!(form_date("2019"), "2019");
+        assert_eq!(form_date("2019-5-1"), "2019");
+        assert_eq!(form_date("May 1, 2019"), "2019");
+        assert_eq!(form_date("c. 1998-"), "1998");
+        assert_eq!(form_date("unknown"), "");
+        assert_eq!(form_date("12345"), "");
+        assert_eq!(form_language("en_US"), "en-US");
+        assert_eq!(form_language(" es "), "es");
+        assert_eq!(form_language("eng"), "eng");
+        assert_eq!(form_language("es, en"), "es");
+        assert_eq!(form_language("Spanish"), "");
+    }
+
     use super::*;
     use std::io::Write;
 

@@ -35,7 +35,22 @@
     let state;
     try { state = JSON.parse(storeGet(key)) || null; } catch { state = null; }
     if (!state || !Array.isArray(state.list)) state = { list: [], pending: {} };
-    const write = () => storeSet(key, JSON.stringify(state));
+    // Changes this tab already sent (id → `updated`), so they are not taken back from storage
+    const done = {};
+    const drop = (id) => { done[id] = state.pending[id].updated; delete state.pending[id]; };
+    const write = () => {
+      // Another tab with the same book may have queued changes (offline): keep them, as
+      // writing this tab's copy over the key would erase them
+      try {
+        const other = JSON.parse(storeGet(key));
+        Object.values((other && other.pending) || {}).forEach((a) => {
+          const mine = state.pending[a.id];
+          if ((done[a.id] || 0) >= a.updated) return;
+          if (!mine || mine.updated < a.updated) state.pending[a.id] = a;
+        });
+      } catch { }
+      storeSet(key, JSON.stringify(state));
+    };
     const emit = (changed) => listeners.forEach((fn) => fn(changed || null));
 
     // The server's copy with the changes not sent yet on top
@@ -65,7 +80,7 @@
       const server = new Map(serverList.map((a) => [a.id, a]));
       Object.values(state.pending).forEach((a) => {
         const s = server.get(a.id);
-        if (s && s.updated > a.updated) delete state.pending[a.id];
+        if (s && s.updated > a.updated) drop(a.id);
       });
       write();
     }
@@ -86,26 +101,33 @@
     async function flush(keepalive) {
       clearTimeout(timer);
       if (!documentId) return;
-      if (sending) return sending;
+      // On leaving the page everything waiting goes now, even if another sending is under way
+      if (sending && !keepalive) return sending;
       const batch = Object.values(state.pending);
       if (!batch.length) return;
-      sending = (async () => {
+      const run = (async () => {
         try {
           const body = await request('PUT', { device: me.name, device_id: me.id, sent_at: now(), [kind]: batch }, keepalive);
           // Changed again while sending: those stay queued
           batch.forEach((a) => {
             const p = state.pending[a.id];
-            if (p && p.updated === a.updated && p.note === a.note && p.color === a.color && p.deleted === a.deleted) delete state.pending[a.id];
+            if (p && p.updated === a.updated && p.note === a.note && p.color === a.color && p.deleted === a.deleted) drop(a.id);
           });
           adopt(body[kind] || []);
           emit();
+          // Saved while sending: those need their own sending, nothing else would start it
+          if (Object.keys(state.pending).length) {
+            clearTimeout(timer);
+            timer = setTimeout(flush, 300);
+          }
         } catch {
           timer = setTimeout(flush, 15000);
         } finally {
-          sending = null;
+          if (!keepalive) sending = null;
         }
       })();
-      return sending;
+      if (!keepalive) sending = run;
+      return run;
     }
 
     // Saves a new or changed highlight
@@ -148,7 +170,7 @@
         if (i >= 0 && state.list[i].updated > a.updated) return;
         if (i >= 0) state.list[i] = a; else state.list.push(a);
         const p = state.pending[a.id];
-        if (p && p.updated <= a.updated && a.device_id !== me.id) delete state.pending[a.id];
+        if (p && p.updated <= a.updated && a.device_id !== me.id) drop(a.id);
         touched = true;
       });
       if (touched) {
@@ -160,6 +182,9 @@
     const onChange = (fn) => listeners.push(fn);
     window.addEventListener('online', () => flush());
     window.addEventListener('pagehide', () => flush(true));
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flush(true);
+    });
 
     return { load, list, get, save, remove, restore, applyRemote, onChange, flush, documentId };
   }

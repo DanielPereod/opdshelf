@@ -579,6 +579,28 @@ settings[3].callback()
 q.chooseDownloadDir = chooser
 check(heard == "folder", "the home screen hears when a setting it shows changed")
 
+-- 14. Positions are only dropped when OPDShelf itself refuses them
+doc_settings:delSetting("opdshelf_sync")
+state():saveSetting("pending", nil)
+online = true
+page_first = 120
+p = open()
+respond(200, { current = remote("KOBO-ID", 120) })
+runScheduled()
+respond(404, "<html>Not found</html>")
+p:push{ force = true }
+check(state():readSetting("pending").DOCHASH ~= nil, "a 404 page from a proxy keeps the position in the queue")
+respond(200, "<html>Sign in to the Wi-Fi</html>")
+p:flush()
+check(state():readSetting("pending").DOCHASH ~= nil, "so does a captive portal answering 200 with a page")
+respond(403, "")
+p:flush()
+check(state():readSetting("pending").DOCHASH ~= nil, "and a 403")
+respond(400, { error = "Not a document id" })
+p:flush()
+check(next(state():readSetting("pending")) == nil, "OPDShelf's own 400 drops it")
+p:onCloseDocument()
+
 -- Every text of the plugin speaks Spanish
 local missing = {}
 -- 13. Finished books: KOReader's "Finished" status is synced as a mark

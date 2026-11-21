@@ -55,10 +55,19 @@
     const settled = () => (navigator.onLine === false ? 'offline' : following ? 'live' : 'saved');
     if (!documentId) showState('off');
 
+    // What is waiting to be sent lives in memory; storage (which may be blocked or full)
+    // is only a copy that lets the next page of this browser, or a reload, find it
+    let memory = null;
+    let seq = 0;
+    let retryDelay = 5000;
     const readLocal = () => {
+      if (memory) return memory;
       try { return JSON.parse(storeGet(localKey)) || null; } catch { return null; }
     };
-    const writeLocal = (entry) => storeSet(localKey, JSON.stringify(entry));
+    const writeLocal = (entry) => {
+      memory = { ...entry, seq: ++seq };
+      storeSet(localKey, JSON.stringify(memory));
+    };
 
     async function request(method, body, keepalive) {
       if (!documentId) throw new Error('no document id');
@@ -80,15 +89,20 @@
       try {
         // With the time it was sent, the server corrects a wrong clock
         await request('PUT', { ...local.record, sent_at: Math.floor(Date.now() / 1000) }, keepalive);
+        retryDelay = 5000;
         const now = readLocal();
-        // Something newer may have been saved while sending
-        if (now && now.record.timestamp === local.record.timestamp) {
+        // Something newer may have been saved while sending (even in the same second)
+        if (now && now.seq === local.seq) {
           writeLocal({ record: now.record, pending: false });
           showState(settled());
         }
       } catch {
-        // Offline: kept until the connection is back
+        // Offline: kept, and tried again until it gets through
         showState('offline');
+        if (!keepalive) {
+          timer = setTimeout(flush, retryDelay);
+          retryDelay = Math.min(60000, retryDelay * 2);
+        }
       }
     }
 
@@ -141,34 +155,40 @@
       let retry = 2000;
       let reconnecting = false;
       const query = new URLSearchParams({ documents: documentId, device_id: me, device });
+      const catchUp = async () => {
+        if (extra.resync) extra.resync();
+        try {
+          const record = (await request('GET')).current;
+          if (record && record.device_id !== me) onRemote(record);
+        } catch { }
+      };
       const connect = () => {
         const source = new EventSource('/api/progress/events?' + query);
         source.addEventListener('hello', () => {
           retry = 2000;
           following = true;
           if (!(readLocal() || {}).pending) showState('live');
-          // Catch up with highlights changed while disconnected
-          if (reconnecting && extra.resync) extra.resync();
+          // Catch up with what changed while disconnected, and send what was kept meanwhile
+          if (reconnecting) {
+            flush();
+            catchUp();
+          }
           reconnecting = true;
         });
         source.addEventListener('progress', (e) => {
           const change = JSON.parse(e.data);
           const record = change.current;
           if (!record || record.device_id === me) return;
-          writeLocal({ record, pending: false });
+          // Not over a position of this browser that is waiting to be sent and is newer
+          const local = readLocal();
+          if (!(local && local.pending && local.record.timestamp >= record.timestamp)) writeLocal({ record, pending: false });
           onRemote(record);
         });
         source.addEventListener('annotations', (e) => {
           const change = JSON.parse(e.data);
           if (extra.annotations && change.document === documentId) extra.annotations(change.annotations || []);
         });
-        source.addEventListener('resync', async () => {
-          if (extra.resync) extra.resync();
-          try {
-            const record = (await request('GET')).current;
-            if (record && record.device_id !== me) onRemote(record);
-          } catch { }
-        });
+        source.addEventListener('resync', catchUp);
         source.onerror = () => {
           source.close();
           following = false;

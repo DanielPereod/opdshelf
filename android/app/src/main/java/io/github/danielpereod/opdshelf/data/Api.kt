@@ -19,7 +19,18 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /** [reason] is the server's code for what went wrong, such as `not_empty`, when it gives one. */
-class HttpError(val code: Int, message: String, val reason: String? = null) : IOException(message)
+class HttpError(val code: Int, message: String, val reason: String? = null) : IOException(message) {
+    /**
+     * OPDShelf itself refused what was sent (a 400 or 422 with its JSON error): it never will
+     * take it, so it can be dropped. Any other failure (a proxy answering 403 or 404 while the
+     * server restarts, a server older than the app) is to be tried again.
+     */
+    val rejected: Boolean get() = reason == REJECTED
+
+    companion object {
+        const val REJECTED = "rejected"
+    }
+}
 
 val json = Json { ignoreUnknownKeys = true; encodeDefaults = false; explicitNulls = false }
 
@@ -115,7 +126,7 @@ class Api(private val settings: Settings) {
         ).toString().toRequestBody("application/json".toMediaType())
         client.newCall(Request.Builder().url(url("/api/marks")).put(body).build()).execute().use {
             val text = it.body?.string().orEmpty()
-            if (!it.isSuccessful) throw HttpError(it.code, serverError(text) ?: "${it.code} ${it.message}")
+            if (!it.isSuccessful) throw failure(it.code, it.message, text)
             json.decodeFromString(MarksResponse.serializer(), text).marks[document]
         }
     }
@@ -134,7 +145,7 @@ class Api(private val settings: Settings) {
             ("sent_at" to JsonPrimitive(System.currentTimeMillis() / 1000))
         val body = JsonObject(fields).toString().toRequestBody("application/json".toMediaType())
         client.newCall(Request.Builder().url(url("/api/progress/$document")).put(body).build()).execute().use {
-            if (!it.isSuccessful) throw HttpError(it.code, "${it.code} ${it.message}")
+            if (!it.isSuccessful) throw failure(it.code, it.message, it.body?.string().orEmpty())
         }
     }
 
@@ -156,8 +167,9 @@ class Api(private val settings: Settings) {
             )
         ).toString().toRequestBody("application/json".toMediaType())
         client.newCall(Request.Builder().url(url("/api/annotations/$document")).put(body).build()).execute().use {
-            if (!it.isSuccessful) throw HttpError(it.code, "${it.code} ${it.message}")
-            json.decodeFromString(AnnotationsResponse.serializer(), it.body!!.string()).annotations
+            val text = it.body?.string().orEmpty()
+            if (!it.isSuccessful) throw failure(it.code, it.message, text)
+            json.decodeFromString(AnnotationsResponse.serializer(), text).annotations
         }
     }
 
@@ -234,6 +246,13 @@ class Api(private val settings: Settings) {
             }
             runCatching { json.decodeFromString(FolderAnswer.serializer(), text) }.getOrDefault(FolderAnswer())
         }
+    }
+
+    /** The error of a failed request that is sent to be kept (positions, marks, highlights). */
+    private fun failure(code: Int, message: String, text: String): HttpError {
+        val error = serverError(text)
+        val rejected = (code == 400 || code == 422) && error != null
+        return HttpError(code, error ?: "$code $message", if (rejected) HttpError.REJECTED else null)
     }
 
     private fun serverError(text: String): String? =

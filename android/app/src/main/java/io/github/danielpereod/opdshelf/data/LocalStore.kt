@@ -297,17 +297,50 @@ class LocalStore(private val dir: File) {
         write(annotationsFile, annotationsSerializer, _annotations.value)
     }
 
+    /**
+     * Forgets everything waiting to be sent (positions, marks, highlights). For when the app is
+     * connected to another server: those changes are of the old one and must not reach the new.
+     * The books and highlights shown stay.
+     */
+    @Synchronized
+    fun discardPending() {
+        positions = positions.mapValues { it.value.copy(pending = false) }
+        write(positionsFile, positionsSerializer, positions)
+        pendingMarks = emptyMap()
+        write(marksFile, marksSerializer, pendingMarks)
+        _annotations.value.keys.toList().forEach { document ->
+            updateAnnotations(document) { it.copy(pending = emptyMap()) }
+        }
+    }
+
     /** Highlight changes not sent yet, by book. */
     @Synchronized
     fun pendingAnnotations(): Map<String, List<Annotation>> =
         _annotations.value.mapValues { it.value.pending.values.toList() }.filterValues { it.isNotEmpty() }
 
-    private fun <T> read(file: File, serializer: kotlinx.serialization.KSerializer<T>): T? =
-        runCatching { json.decodeFromString(serializer, file.readText()) }.getOrNull()
+    /**
+     * The file's content, or null if there is none. A file that exists but cannot be read
+     * (a power cut while it was written, a bad update) is copied aside as `.bad` before the
+     * next write replaces it, instead of being taken for an empty list and overwritten.
+     */
+    private fun <T> read(file: File, serializer: kotlinx.serialization.KSerializer<T>): T? {
+        if (!file.exists()) return null
+        return runCatching { json.decodeFromString(serializer, file.readText()) }.getOrElse {
+            runCatching { file.copyTo(File(file.parentFile, file.name + ".bad"), overwrite = true) }
+            null
+        }
+    }
 
+    /** Writes to a temporary file, makes sure it reached the disk, and only then replaces the real one. */
     private fun <T> write(file: File, serializer: kotlinx.serialization.KSerializer<T>, value: T) {
         val tmp = File(file.parentFile, file.name + ".tmp")
-        tmp.writeText(json.encodeToString(serializer, value))
-        tmp.renameTo(file)
+        java.io.FileOutputStream(tmp).use { out ->
+            out.write(json.encodeToString(serializer, value).toByteArray())
+            out.fd.sync()
+        }
+        if (!tmp.renameTo(file)) {
+            tmp.copyTo(file, overwrite = true)
+            tmp.delete()
+        }
     }
 }

@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.TimeUnit
 
 /**
@@ -86,7 +87,9 @@ class ReadingSync(
         val server = answer.current
         if (local?.pending == true) schedule()
         val start = chooseStart(local, server, settings.deviceId)
-        if (start.position != null && start.position == server) {
+        // A position of this device not sent yet is kept and sent: the server decides which one is
+        // newer (it corrects this device's clock), instead of it being dropped here
+        if (start.position != null && start.position == server && local?.pending != true) {
             store.savePosition(document, LocalPosition(server, pending = false, locator = start.locator))
             store.setPercentage(document, server.percentage, server.timestamp)
         }
@@ -131,15 +134,29 @@ class ReadingSync(
     }.getOrDefault(false)
 
     /** Sends every pending position now. Returns false if some could not be sent. */
-    suspend fun flush(): Boolean {
+    suspend fun flush(): Boolean = flushLock.withLock {
+        try {
+            sendPending()
+        } finally {
+            // Cancelled midway (the job was stopped): not still "syncing"
+            _status.update { it.copy(syncing = false) }
+        }
+    }
+
+    /** One sending at a time: "Sync" while the background job is working must not send everything twice. */
+    private val flushLock = kotlinx.coroutines.sync.Mutex()
+
+    private suspend fun sendPending(): Boolean {
         _status.update { it.copy(syncing = true) }
         var ok = true
         for ((document, batch) in store.pendingAnnotations()) {
             try {
                 val answer = api.putAnnotations(document, batch)
                 store.updateAnnotations(document) { it.sent(batch).adopt(answer) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: HttpError) {
-                if (e.code in 400..499 && e.code != 401 && e.code != 408 && e.code != 429) {
+                if (e.rejected) {
                     store.updateAnnotations(document) { it.sent(batch) }
                 } else {
                     ok = false
@@ -151,8 +168,10 @@ class ReadingSync(
         for ((document, mark) in store.pendingMarks()) {
             try {
                 store.markSent(document, mark, api.putMark(document, mark))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: HttpError) {
-                if (e.code in 400..499 && e.code != 401 && e.code != 408 && e.code != 429) {
+                if (e.rejected) {
                     store.markSent(document, mark, null)
                 } else {
                     ok = false
@@ -165,9 +184,11 @@ class ReadingSync(
             try {
                 api.putProgress(document, position)
                 store.markSent(document, position)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: HttpError) {
-                // The server will never take it (e.g. a bad request): stop retrying
-                if (e.code in 400..499 && e.code != 401 && e.code != 408 && e.code != 429) {
+                // Only OPDShelf's own refusal (a bad request) is final; anything else is tried again
+                if (e.rejected) {
                     store.markSent(document, position)
                 } else {
                     ok = false
@@ -190,7 +211,7 @@ class ReadingSync(
             .setInitialDelay(delaySeconds, TimeUnit.SECONDS)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
-        WorkManager.getInstance(context).enqueueUniqueWork("sync-positions", ExistingWorkPolicy.REPLACE, request)
+        WorkManager.getInstance(context).enqueueUniqueWork("sync-positions", ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
 }
 

@@ -655,7 +655,8 @@ function OPDShelf:flush(interactive)
     for document, item in pairs(pending) do
         item.sent_at = os.time()
         local code, body = self.client:putProgress(document, item)
-        if code == 200 then
+        -- Only an answer from OPDShelf (JSON) counts as sent: a portal or proxy may answer 200 with a page
+        if code == 200 and type(body) == "table" then
             pending[document] = nil
             sent = sent + 1
             self:noteServerTime(body)
@@ -663,8 +664,9 @@ function OPDShelf:flush(interactive)
         elseif code == 401 then
             rejected = true
             break
-        elseif code and code >= 400 and code < 500 then
-            -- The server will never accept it
+        elseif (code == 400 or code == 422) and type(body) == "table" and body.error then
+            -- OPDShelf itself will never accept it. Any other failure (a proxy answering 403 or
+            -- 404 while the server restarts, a server older than the plugin) is tried again
             logger.warn("OPDShelf: position rejected with", code)
             pending[document] = nil
         else
@@ -875,7 +877,7 @@ function OPDShelf:stepStream()
     end
     self.stream = nil
     logger.dbg("OPDShelf: live connection ended:", err)
-    if status == 401 or status == 404 or self.closed then return end
+    if status == 401 or self.closed then return end
     self.stream_failures = (self.stream_failures or 0) + 1
     local wait = RETRY[math.min(self.stream_failures, #RETRY)]
     self.retry_task = self.retry_task or function() self:startStream() end

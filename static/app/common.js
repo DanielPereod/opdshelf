@@ -111,12 +111,14 @@ function encodePath(path) {
 // This browser as a device of the sync: an id kept in this browser and a name
 // such as "Firefox on Linux". The reader and the panel use the same one.
 function opdshelfDevice() {
+  // Kept in memory too: with storage blocked or full each page would otherwise be a new device
   function deviceId() {
-    let id = storeGet('opdshelf:device-id');
+    let id = storeGet('opdshelf:device-id') || window.__opdshelfDeviceId;
     if (!id) {
       id = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now()).replace(/-/g, '');
       storeSet('opdshelf:device-id', id);
     }
+    window.__opdshelfDeviceId = id;
     return id;
   }
 

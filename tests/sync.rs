@@ -935,12 +935,14 @@ async fn today_follows_the_day_the_device_asks_for() {
     let now = chrono::Utc::now().timestamp();
     // The day the reading was counted on
     let date = opdshelf::stats::day_of(now - 120);
+    // Sent without `sent_at`: the server corrects each request's clock on its own, so a second
+    // changing between the two requests would move the two positions by different amounts
     for (progress, at) in [("/a", now - 300), ("/b", now - 120)] {
         let (status, _) = t
             .api(
                 "PUT",
                 &format!("/api/progress/{DOC}"),
-                Some(json!({ "progress": progress, "percentage": 0.2, "device": "Kobo", "device_id": "K1", "timestamp": at, "sent_at": now })),
+                Some(json!({ "progress": progress, "percentage": 0.2, "device": "Kobo", "device_id": "K1", "timestamp": at })),
             )
             .await;
         assert_eq!(status, StatusCode::OK);

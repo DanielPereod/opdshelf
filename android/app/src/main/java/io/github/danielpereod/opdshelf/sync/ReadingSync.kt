@@ -14,6 +14,7 @@ import io.github.danielpereod.opdshelf.data.Annotation
 import io.github.danielpereod.opdshelf.data.Api
 import io.github.danielpereod.opdshelf.data.HttpError
 import io.github.danielpereod.opdshelf.data.LibraryProgress
+import io.github.danielpereod.opdshelf.data.clearedByDocument
 import io.github.danielpereod.opdshelf.data.marksByDocument
 import io.github.danielpereod.opdshelf.data.LocalPosition
 import io.github.danielpereod.opdshelf.data.LocalStore

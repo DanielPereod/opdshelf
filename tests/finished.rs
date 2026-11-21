@@ -204,3 +204,17 @@ async fn clearing_the_mark_shows_the_progress_again() {
     assert_eq!(body["status"], "reading");
     assert_eq!(body["current"]["percentage"], 0.4);
 }
+
+/// Each book of an OPDS feed says its document id, so the apps can match a
+/// downloaded file to its book even after it was moved or renamed.
+#[tokio::test]
+async fn opds_entries_carry_the_document_id() {
+    let app = app();
+    // Looking at the statuses reads the id of every book once
+    app.in_opds("reading").await;
+    let (_, feed) = app.raw("GET", "/opds/books", None).await;
+    assert!(
+        feed.contains(&format!("<opdshelf:document>{DOC}</opdshelf:document>")),
+        "{feed}"
+    );
+}

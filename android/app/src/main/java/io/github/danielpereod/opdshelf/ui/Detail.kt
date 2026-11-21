@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import io.github.danielpereod.opdshelf.R
 import io.github.danielpereod.opdshelf.app
 import io.github.danielpereod.opdshelf.data.LocalBook
+import io.github.danielpereod.opdshelf.data.localFor
 import java.io.File
 
 /** A book's page: cover, summary, where it was left, and what can be done with it. */
@@ -71,7 +72,7 @@ fun DetailScreen(library: LibraryViewModel, detail: Detail, openBook: (LocalBook
     val context = LocalContext.current
     val loader = rememberImageLoader()
     val entry = detail.entry
-    val local = books.firstOrNull { it.id == detail.bookId }
+    val local = books.firstOrNull { it.id == detail.bookId } ?: entry?.let { books.localFor(it) }
     val downloading = downloads[detail.bookId]
     var confirmRemove by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }

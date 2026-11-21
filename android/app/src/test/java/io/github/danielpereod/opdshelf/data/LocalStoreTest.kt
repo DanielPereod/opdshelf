@@ -43,4 +43,19 @@ class LocalStoreTest {
         assertEquals(0.5, store.position("doc")!!.position.percentage, 0.0)
         assertEquals(1, store.books.value.size)
     }
+
+    @Test
+    fun aBookMovedOnTheServerIsStillTheDownloadedOne() {
+        val entry = { id: String, document: String? ->
+            Entry(id, "B", emptyList(), null, null, null, null, null, document = document)
+        }
+        val local = listOf(book.copy(id = "urn:opdshelf:book:Old/B.epub", document = "doc"))
+        // Moved: another id, the same document
+        assertEquals("doc", local.localFor(entry("urn:opdshelf:book:New/B.epub", "doc"))?.document)
+        // The same id needs no document
+        assertEquals("doc", local.localFor(entry("urn:opdshelf:book:Old/B.epub", null))?.document)
+        // Another book with the same title is not it
+        assertEquals(null, local.localFor(entry("urn:opdshelf:book:Other/B.epub", "other")))
+        assertEquals(null, local.localFor(entry("urn:opdshelf:book:Other/B.epub", null)))
+    }
 }

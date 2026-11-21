@@ -313,6 +313,12 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                     sizeBytes = file.length(),
                     meta = entry.meta,
                 )
+                // The same book already on this device under another id (it was moved or renamed on
+                // the server): it becomes this one, so there are not two copies with two marks
+                app.store.books.value.firstOrNull { it.document == document && it.id != entry.id }?.let { old ->
+                    app.store.changeId(old.id, entry.id)
+                    if (old.fileName != book.fileName) app.store.file(old).delete()
+                }
                 app.store.addBook(book)
                 // Where it was left on other devices
                 runCatching { app.sync.start(document) }

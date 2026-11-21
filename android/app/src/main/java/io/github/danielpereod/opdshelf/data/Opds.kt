@@ -26,7 +26,16 @@ data class Entry(
     val thumbnailUrl: String?,
     val coverUrl: String?,
     val meta: BookMeta = BookMeta(),
+    /** The book's id for syncing (a partial MD5 of its file), as the server says it; null if it does not. */
+    val document: String? = null,
 )
+
+/**
+ * The downloaded book of an entry: the one under its id or, when the book was moved or
+ * renamed on the server (its id is its path), the one with the same document id.
+ */
+fun List<LocalBook>.localFor(entry: Entry): LocalBook? =
+    firstOrNull { it.id == entry.id } ?: entry.document?.let { document -> firstOrNull { it.document == document } }
 
 /** What else the catalog says about a book, shown in its details. */
 @kotlinx.serialization.Serializable
@@ -95,6 +104,7 @@ fun parseFeed(input: InputStream, baseUrl: String): Feed {
                 ?.getAttribute("href")?.let(resolve),
             coverUrl = links.firstOrNull { it.getAttribute("rel") == "http://opds-spec.org/image" }
                 ?.getAttribute("href")?.let(resolve),
+            document = entry.childText("document"),
             meta = BookMeta(
                 publisher = entry.childText("publisher"),
                 issued = entry.childText("issued") ?: entry.childText("published"),

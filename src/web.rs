@@ -1671,7 +1671,27 @@ async fn logout(State(state): State<AppState>, Form(form): Form<CsrfForm>) -> Re
 // ---------------------------------------------------------------------------
 // Static files embedded in the binary
 
-async fn static_file(Path(path): Path<String>) -> Response {
+/// How long a static file may be kept. The pages ask for the app's own scripts and styles with
+/// `?v=<version of this build>`, so those never change under one address and are kept for good;
+/// the vendored libraries and images change only with an update, so a day is fine; anything else
+/// of ours asked for without a version is checked every time, so a new build is never hidden
+/// behind a day-old copy.
+fn static_cache(path: &str, versioned: bool) -> &'static str {
+    if versioned {
+        "public, max-age=31536000, immutable"
+    } else if path.starts_with("vendor/")
+        || !(path.ends_with(".js") || path.ends_with(".css") || path.ends_with(".mjs"))
+    {
+        "public, max-age=86400"
+    } else {
+        "no-cache"
+    }
+}
+
+async fn static_file(
+    Path(path): Path<String>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> Response {
     match Static::get(&path) {
         Some(file) => {
             let mime = match paths::extension(&path).as_str() {
@@ -1681,7 +1701,10 @@ async fn static_file(Path(path): Path<String>) -> Response {
             (
                 [
                     (header::CONTENT_TYPE, mime.to_string()),
-                    (header::CACHE_CONTROL, "public, max-age=86400".to_string()),
+                    (
+                        header::CACHE_CONTROL,
+                        static_cache(&path, query.contains_key("v")).to_string(),
+                    ),
                 ],
                 file.data,
             )
@@ -1693,7 +1716,22 @@ async fn static_file(Path(path): Path<String>) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use super::is_isbn;
+    use super::{is_isbn, static_cache};
+
+    #[test]
+    fn a_new_build_is_never_hidden_behind_a_cached_script() {
+        // Asked for by version: kept for good
+        assert!(static_cache("app/notes.js", true).contains("immutable"));
+        // Ours without a version: checked every time
+        assert_eq!(static_cache("reader/xpointer.js", false), "no-cache");
+        assert_eq!(static_cache("styles/app.css", false), "no-cache");
+        // Libraries and images: a day
+        assert_eq!(
+            static_cache("vendor/epubjs/epub.min.js", false),
+            "public, max-age=86400"
+        );
+        assert_eq!(static_cache("icon.png", false), "public, max-age=86400");
+    }
 
     #[test]
     fn tells_isbns_from_other_identifiers() {

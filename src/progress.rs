@@ -185,22 +185,24 @@ impl Progress {
         let (device_id, progress) = (record.device_id.clone(), record.progress.clone());
         self.stats
             .record(&device_id, document, &progress, record.percentage, record.timestamp);
-        let (before, current) = {
+        let current = {
             let mut books = self.books.lock().unwrap();
             let history = books.entry(document.to_string()).or_default();
             let before = current(history).cloned();
             add(history, record);
-            (before, current(history).cloned().expect("a position was just added"))
+            let current = current(history).cloned().expect("a position was just added");
+            if before.as_ref() != Some(&current) {
+                // Sent while the positions are locked, so listeners get the changes
+                // in the order they were made. Nobody listening is fine
+                let _ = self.changes.send(Change {
+                    document: document.to_string(),
+                    current: current.clone(),
+                });
+            }
+            current
         };
         self.save()?;
         let accepted = current.device_id == device_id && current.progress == progress;
-        if before.as_ref() != Some(&current) {
-            // Nobody listening is fine
-            let _ = self.changes.send(Change {
-                document: document.to_string(),
-                current: current.clone(),
-            });
-        }
         Ok(Saved { current, accepted })
     }
 

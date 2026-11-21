@@ -49,7 +49,7 @@ pub fn router(config: Config) -> Router {
             config.allowed_extensions.clone(),
             Store::open(&config.data_dir),
         ),
-        auth: Auth::new(&config),
+        auth: Auth::open(&config, &config.data_dir),
         templates: Arc::new(templates::registry()),
         lookup: Lookup::new(&config.openlibrary_url, &config.google_books_url),
         progress: Progress::open(&config.data_dir),
@@ -271,8 +271,22 @@ async fn require_auth(State(state): State<AppState>, request: Request, next: Nex
     // KOReader's sync plugin logs in with its own headers, checked by each /kosync handler
     let public =
         path.starts_with("/static/") || path.starts_with("/kosync/") || path == "/user/login" || path == "/healthz";
-    if public || state.auth.is_authorized(request.headers()) {
+    if public {
         return next.run(request).await;
+    }
+    if state.auth.is_authorized(request.headers()) {
+        // Using the site keeps the session alive, so it only ends after 15 days without use
+        let renew = crate::auth::cookie(request.headers(), crate::auth::SESSION_COOKIE).map(|_| {
+            let secure = is_https(&state, request.headers());
+            state.auth.session_cookie(secure)
+        });
+        let mut response = next.run(request).await;
+        if let Some(cookie) = renew.and_then(|c| HeaderValue::from_str(&c).ok()) {
+            if !response.headers().contains_key(header::SET_COOKIE) {
+                response.headers_mut().append(header::SET_COOKIE, cookie);
+            }
+        }
+        return response;
     }
     let wants_html = request
         .headers()
@@ -287,6 +301,20 @@ async fn require_auth(State(state): State<AppState>, request: Request, next: Nex
             next => format!("/user/login?next={}", paths::url_encode(next)),
         };
         return Redirect::to(&login).into_response();
+    }
+    // A page's own requests (fetch, EventSource) must not make the browser open its
+    // username and password window: they are told to send the person to the login page
+    let from_page = request
+        .headers()
+        .get("sec-fetch-dest")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == "empty");
+    if from_page {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "Sign in again", "code": "login" })),
+        )
+            .into_response();
     }
     (
         StatusCode::UNAUTHORIZED,
@@ -1661,6 +1689,8 @@ async fn logout(State(state): State<AppState>, Form(form): Form<CsrfForm>) -> Re
     if !state.auth.check_csrf(&form.csrf) {
         return (StatusCode::FORBIDDEN, "Invalid CSRF token").into_response();
     }
+    // A copy of the cookie stops working too
+    state.auth.revoke_sessions();
     (
         [(header::SET_COOKIE, Auth::clear_cookie())],
         Redirect::to("/user/login"),

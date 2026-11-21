@@ -225,6 +225,7 @@
       if (!$('allHlExport').contains(e.target)) { $('allHlMenu').hidden = true; $('allHlExportBtn').setAttribute('aria-expanded', 'false'); }
     });
     document.addEventListener('pagechange', (e) => { if (e.detail.page === 'highlights') load(); });
+    document.addEventListener('liveresync', () => { if (visible() || loaded) load(); });
     document.addEventListener('remoteannotations', () => {
       if (!visible() && !loaded) return;
       clearTimeout(pending);

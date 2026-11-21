@@ -285,6 +285,7 @@
       clearTimeout(pending);
       pending = setTimeout(() => load(e.detail.document), 400);
     });
+    document.addEventListener('liveresync', () => load());
     document.addEventListener('pagechange', (e) => { if (e.detail.page === 'sync') load(); });
     document.addEventListener('livechange', (e) => { live = e.detail.live === 'on'; if (visible()) renderStats(); });
     $('syncRefresh').addEventListener('click', () => load());

@@ -275,13 +275,17 @@ impl Annotations {
             }
             tidy_list(list, now);
             books.retain(|_, l| !l.is_empty());
+            if !changed.is_empty() {
+                // Sent while the highlights are locked, so listeners get the changes
+                // in the order they were made. Nobody listening is fine
+                let _ = self.changes.send(Change {
+                    document: document.to_string(),
+                    annotations: changed.clone(),
+                });
+            }
         }
         if !changed.is_empty() {
             self.save()?;
-            let _ = self.changes.send(Change {
-                document: document.to_string(),
-                annotations: changed.clone(),
-            });
         }
         Ok(changed)
     }

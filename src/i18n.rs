@@ -257,6 +257,12 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("Sort by {column}", "Ordenar por {column}"),
     ("Live", "En vivo"),
     ("Connecting…", "Conectando…"),
+    ("The library changed on another device.", "La biblioteca ha cambiado en otro dispositivo."),
+    ("Reload", "Recargar"),
+    (
+        "Your session has expired. Sign in again to keep your changes in sync.",
+        "La sesión ha caducado. Entra de nuevo para que tus cambios sigan sincronizándose.",
+    ),
     ("Refresh", "Actualizar"),
     ("Server", "Servidor"),
     ("Online", "Conectado"),

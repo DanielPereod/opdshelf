@@ -2592,17 +2592,35 @@
       let source = null;
       let retry = 1000;
       let pending = null;
+      let connectedBefore = false;
+      let libraryToast = null;
+      // Everything the panel shows may have changed while the connection was down
+      function catchUp() {
+        loadProgress();
+        if (panelNotes) panelNotes.load();
+        document.dispatchEvent(new CustomEvent('liveresync'));
+      }
       function setLive(live) {
         document.querySelectorAll('[data-live-state]').forEach((el) => { el.dataset.liveState = live; });
         $('navLive').dataset.on = live === 'on';
         $('navLive').title = live === 'on' ? t('Live: changes arrive at once') : t('Connecting…');
         document.dispatchEvent(new CustomEvent('livechange', { detail: { live } }));
       }
+      function libraryChanged() {
+        clearTimeout(libraryToast);
+        libraryToast = setTimeout(() => {
+          libraryToast = null;
+          // Nothing is reloaded under the hands of someone who is editing
+          showToast(t('The library changed on another device.'), { label: t('Reload'), run: () => location.reload() });
+        }, 1500);
+      }
       function connect() {
         source = new EventSource('/api/progress/events');
         source.addEventListener('hello', (e) => {
           retry = 1000;
           setLive('on');
+          if (connectedBefore) { catchUp(); libraryChanged(); }
+          connectedBefore = true;
           try { window.serverOffset = JSON.parse(e.data).server_time - Date.now() / 1000; } catch { }
         });
         source.addEventListener('progress', (e) => {
@@ -2619,7 +2637,9 @@
           clearTimeout(pending);
           pending = setTimeout(loadProgress, 300);
         });
-        source.addEventListener('resync', () => { loadProgress(); if (panelNotes) panelNotes.load(); });
+        // Books added, moved, edited or removed by another client: the list on this page is old
+        source.addEventListener('library', libraryChanged);
+        source.addEventListener('resync', catchUp);
         source.onerror = () => {
           source.close();
           setLive('off');

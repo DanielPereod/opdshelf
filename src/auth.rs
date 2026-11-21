@@ -2,6 +2,9 @@ use axum::http::{header, HeaderMap};
 use base64::Engine;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use subtle::ConstantTimeEq;
 
 use crate::config::Config;
@@ -14,6 +17,10 @@ pub const SESSION_MAX_AGE: u64 = 15 * 24 * 60 * 60;
 pub struct Auth {
     credentials: Option<(String, String)>,
     secret: Vec<u8>,
+    /// Signing out raises it, which revokes every session made before. Kept in
+    /// DATA_DIR so it survives restarts.
+    generation: Arc<AtomicU64>,
+    generation_file: Option<PathBuf>,
 }
 
 impl Auth {
@@ -26,7 +33,52 @@ impl Auth {
             Some((user, pass)) => hmac(pass.as_bytes(), format!("opdshelf-secret:{user}").as_bytes()),
             None => rand::random::<[u8; 32]>().to_vec(),
         };
-        Self { credentials, secret }
+        Self {
+            credentials,
+            secret,
+            generation: Arc::default(),
+            generation_file: None,
+        }
+    }
+
+    /// Like `new`, but keeps what has to outlive a restart in `dir`: the secret that signs the
+    /// forms' tokens when there are no credentials (so a page left open keeps working after an
+    /// update) and the count of sign-outs.
+    pub fn open(config: &Config, dir: &std::path::Path) -> Self {
+        let mut auth = Self::new(config);
+        if auth.credentials.is_none() {
+            let file = dir.join("session-secret");
+            let saved = std::fs::read_to_string(&file)
+                .ok()
+                .map(|text| text.trim().to_string())
+                .filter(|text| text.len() >= 32);
+            auth.secret = match saved {
+                Some(text) => text.into_bytes(),
+                None => {
+                    let fresh = hex(&rand::random::<[u8; 32]>());
+                    let _ = std::fs::create_dir_all(dir);
+                    // Without a place to keep it the secret lasts as long as the process
+                    let _ = std::fs::write(&file, &fresh);
+                    fresh.into_bytes()
+                }
+            };
+        }
+        let file = dir.join("session-generation");
+        let saved = std::fs::read_to_string(&file)
+            .ok()
+            .and_then(|text| text.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        auth.generation.store(saved, Ordering::SeqCst);
+        auth.generation_file = Some(file);
+        auth
+    }
+
+    /// Makes every session made so far stop working (signing out).
+    pub fn revoke_sessions(&self) {
+        let next = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        if let Some(file) = &self.generation_file {
+            let _ = std::fs::write(file, next.to_string());
+        }
     }
 
     pub fn enabled(&self) -> bool {
@@ -58,7 +110,8 @@ impl Auth {
     }
 
     pub fn session_token(&self) -> String {
-        hex(&hmac(&self.secret, b"session"))
+        let generation = self.generation.load(Ordering::SeqCst);
+        hex(&hmac(&self.secret, format!("session:{generation}").as_bytes()))
     }
 
     pub fn csrf_token(&self) -> String {
@@ -180,6 +233,31 @@ mod tests {
         assert!(!a.check_hashed_password("a", "secret"));
         assert!(!a.check_hashed_password("b", "5ebe2294ecd0e0f08eab7690d2a6ee69"));
         assert!(auth(None, None).check_hashed_password("", ""));
+    }
+
+    #[test]
+    fn signing_out_revokes_the_sessions_made_before() {
+        let a = auth(Some("a"), Some("b"));
+        let good = format!("{SESSION_COOKIE}={}", a.session_token());
+        assert!(a.is_authorized(&headers(header::COOKIE, &good)));
+        a.revoke_sessions();
+        assert!(!a.is_authorized(&headers(header::COOKIE, &good)));
+        let again = format!("{SESSION_COOKIE}={}", a.session_token());
+        assert!(a.is_authorized(&headers(header::COOKIE, &again)));
+    }
+
+    #[test]
+    fn the_secret_and_the_sign_outs_outlive_a_restart() {
+        let dir = std::env::temp_dir().join(format!("opdshelf-auth-{}", rand::random::<u32>()));
+        let config = Config::from_lookup(|_| None);
+        let first = Auth::open(&config, &dir);
+        let second = Auth::open(&config, &dir);
+        assert_eq!(first.csrf_token(), second.csrf_token());
+        first.revoke_sessions();
+        let third = Auth::open(&config, &dir);
+        assert_eq!(third.session_token(), first.session_token());
+        assert_ne!(third.session_token(), second.session_token());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

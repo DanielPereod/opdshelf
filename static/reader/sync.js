@@ -158,6 +158,8 @@
       const query = new URLSearchParams({ documents: documentId, device_id: me, device });
       const catchUp = async () => {
         if (extra.resync) extra.resync();
+        // The bookmarks and anything else of the page that follows the book
+        document.dispatchEvent(new CustomEvent('readerresync'));
         try {
           const record = (await request('GET')).current;
           if (record && record.device_id !== me) onRemote(record);
@@ -188,6 +190,11 @@
         source.addEventListener('annotations', (e) => {
           const change = JSON.parse(e.data);
           if (extra.annotations && change.document === documentId) extra.annotations(change.annotations || []);
+        });
+        source.addEventListener('bookmarks', (e) => {
+          const change = JSON.parse(e.data);
+          if (change.document !== documentId) return;
+          document.dispatchEvent(new CustomEvent('readerbookmarks', { detail: change.annotations || [] }));
         });
         source.addEventListener('resync', catchUp);
         source.onerror = () => {

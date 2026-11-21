@@ -127,7 +127,7 @@ impl Marks {
         let result: Vec<_> = {
             let mut marks = self.marks.lock().unwrap();
             let mut cleared = self.cleared.lock().unwrap();
-            documents
+            let result = documents
                 .iter()
                 .map(|document| {
                     let before = marks.get(document).copied();
@@ -158,17 +158,20 @@ impl Marks {
                     }
                     (document.clone(), after)
                 })
-                .collect()
+                .collect::<Vec<_>>();
+            // Sent while the marks are locked, so listeners get the changes in the
+            // order they were made
+            for change in &changed {
+                // Nobody listening is fine
+                let _ = self.changes.send(change.clone());
+            }
+            result
         };
         if tombstones_changed {
             self.save_cleared()?;
         }
         if !changed.is_empty() {
             self.save()?;
-            for change in changed {
-                // Nobody listening is fine
-                let _ = self.changes.send(change);
-            }
         }
         Ok(result)
     }

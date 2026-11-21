@@ -165,8 +165,11 @@ fn short(value: Option<String>) -> String {
 /// event (`{document, current}`) per change of position, an `annotations`
 /// event (`{document, annotations}`) with the highlights that changed, a
 /// `marks` event (`{document, mark}`) when a book is marked as read or
-/// unread (`mark` is null when cleared), and `resync` when changes were missed and the client should fetch its books'
-/// positions and highlights again.
+/// unread (`mark` is null when cleared), a `bookmarks` event (`{document, annotations}`)
+/// when a web reader's bookmarks changed, a `library` event when books or folders
+/// were added, moved, edited or removed (only to clients that listen to every
+/// book, like the panel), and `resync` when changes were missed and the client
+/// should fetch its books' positions and highlights again.
 pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQuery>) -> Response {
     let wanted: Option<HashSet<String>> = query.documents.map(|list| {
         list.split(',')
@@ -181,13 +184,18 @@ pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQue
     let changes = state.progress.subscribe();
     let notes = state.annotations.subscribe();
     let marks = state.marks.subscribe();
+    let bookmarks = state.bookmarks.subscribe();
+    let library = state.library.subscribe();
     let device_id = short(query.device_id);
     let guard = (!device_id.is_empty()).then(|| state.presence.join(&device_id, &short(query.device)));
     let stream = futures_util::stream::unfold(
-        (Some(hello), changes, notes, marks, wanted, guard),
-        |(first, mut changes, mut notes, mut marks, wanted, guard)| async move {
+        (Some(hello), changes, notes, marks, bookmarks, library, wanted, guard),
+        |(first, mut changes, mut notes, mut marks, mut bookmarks, mut library, wanted, guard)| async move {
             if let Some(event) = first {
-                return Some((Ok::<_, Infallible>(event), (None, changes, notes, marks, wanted, guard)));
+                return Some((
+                    Ok::<_, Infallible>(event),
+                    (None, changes, notes, marks, bookmarks, library, wanted, guard),
+                ));
             }
             loop {
                 let event = tokio::select! {
@@ -227,8 +235,33 @@ pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQue
                         Err(RecvError::Lagged(_)) => Event::default().event("resync").data("{}"),
                         Err(RecvError::Closed) => return None,
                     },
+                    change = bookmarks.recv() => match change {
+                        Ok(change) => {
+                            if wanted.as_ref().is_some_and(|w| !w.contains(&change.document)) {
+                                continue;
+                            }
+                            Event::default()
+                                .event("bookmarks")
+                                .data(serde_json::to_string(&change).unwrap_or_default())
+                        }
+                        Err(RecvError::Lagged(_)) => Event::default().event("resync").data("{}"),
+                        Err(RecvError::Closed) => return None,
+                    },
+                    change = library.recv() => match change {
+                        // Only the web panel (which asks for no documents) lists books
+                        Ok(()) | Err(RecvError::Lagged(_)) => {
+                            if wanted.is_some() {
+                                continue;
+                            }
+                            Event::default().event("library").data("{}")
+                        }
+                        Err(RecvError::Closed) => return None,
+                    },
                 };
-                return Some((Ok(event), (None, changes, notes, marks, wanted, guard)));
+                return Some((
+                    Ok(event),
+                    (None, changes, notes, marks, bookmarks, library, wanted, guard),
+                ));
             }
         },
     );

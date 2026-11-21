@@ -55,6 +55,34 @@ local dechunk = Stream.dechunker()
 local out = dechunk("5\r\nhel") .. dechunk("lo\r\n3\r") .. dechunk("\nabc\r\n0\r\n\r\n")
 check(out == "helloabc", "decodes chunked bodies fed in pieces")
 
+-- A connection that dies without closing is given up after a while
+do
+    local clock = 100
+    local pieces = { "HTTP/1.0 200 OK\r\nContent-Type: text/event-stream\r\n\r\n", "event: hello\ndata: {}\n\n" }
+    local fake = { tcp = function()
+        return {
+            settimeout = function() end,
+            connect = function() return true end,
+            send = function(_, request) return #request end,
+            -- Two pieces arrive, then nothing, forever, with no error
+            receive = function() return nil, "timeout", table.remove(pieces, 1) end,
+            close = function() end,
+        }
+    end }
+    local got, opened = {}, false
+    local stream = Stream.new{ url = "http://books.example/events", socket = fake, idle = 60,
+        time = function() return clock end,
+        on_open = function() opened = true end,
+        on_event = function(name) got[#got + 1] = name end }
+    check(stream:step() and opened, "opens the stream")
+    check(stream:step() and got[1] == "hello", "reads what arrived")
+    clock = 150
+    check(stream:step(), "quiet for a while is fine")
+    clock = 161
+    local alive, err = stream:step()
+    check(alive == false and err == "timeout", "nothing for over a minute: the connection is given up")
+end
+
 -- Conflicts
 local now = 1000
 local function r(device, ts, extra)

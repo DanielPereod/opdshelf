@@ -130,6 +130,25 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// A number that changes when a book or folder is added, removed, renamed or edited.
+    pub fn signature(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for book in &self.books {
+            (
+                &book.path,
+                book.size,
+                book.modified,
+                &book.title,
+                book.edited,
+                book.has_cover,
+            )
+                .hash(&mut hasher);
+        }
+        self.folders.hash(&mut hasher);
+        hasher.finish()
+    }
+
     pub fn search(&self, query: &str) -> Vec<&Book> {
         let terms: Vec<String> = query.to_lowercase().split_whitespace().map(str::to_string).collect();
         self.books.iter().filter(|b| b.matches(&terms)).collect()
@@ -212,6 +231,10 @@ pub struct Library {
     /// Without a watcher every request rescans the folder.
     watching: Arc<AtomicBool>,
     scan_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Tells listeners (the live events) that the books or folders changed.
+    changes: tokio::sync::broadcast::Sender<()>,
+    /// What the last scan found, to tell whether the next one changed anything.
+    signature: Arc<Mutex<u64>>,
 }
 
 impl Library {
@@ -225,7 +248,14 @@ impl Library {
             dirty: Arc::new(AtomicBool::new(true)),
             watching: Arc::default(),
             scan_lock: Arc::default(),
+            changes: tokio::sync::broadcast::channel(16).0,
+            signature: Arc::default(),
         }
+    }
+
+    /// A message each time a scan finds the library different from the one before.
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<()> {
+        self.changes.subscribe()
     }
 
     pub fn store(&self) -> &Store {
@@ -269,6 +299,12 @@ impl Library {
                 .unwrap_or_default(),
         );
         *self.snapshot.lock().unwrap() = Some(snapshot.clone());
+        let signature = snapshot.signature();
+        let changed = std::mem::replace(&mut *self.signature.lock().unwrap(), signature) != signature;
+        if changed {
+            // Nobody listening is fine
+            let _ = self.changes.send(());
+        }
         snapshot
     }
 

@@ -14,9 +14,23 @@ env:
   IMAGE: koalilla/opds-server
 
 jobs:
+  # Published only from a commit whose CI passed
+  ci:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for the CI of this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/wait-for-ci.sh
+
   # Each architecture builds on a runner of its own kind: arm64 under QEMU
   # took about six times as long as amd64
   build:
+    needs: ci
     strategy:
       fail-fast: true
       matrix:

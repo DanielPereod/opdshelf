@@ -72,7 +72,7 @@
 
 <script src="/static/vendor/epubjs/jszip.min.js"></script>
 <script src="/static/vendor/epubjs/epub.min.js"></script>
-<script src="/static/reader/xpointer.js"></script>
+<script src="/static/reader/xpointer.js?v={{v}}"></script>
 <script src="/static/reader/typography.js?v={{v}}"></script>
 <script src="/static/app/notes.js?v={{v}}"></script>
 <script src="/static/reader/highlights.js?v={{v}}"></script>
@@ -202,12 +202,16 @@
 
     // Positions are only saved once the reader moves, so opening a book does
     // not replace a point set on another device with the start of its page
-    let moved = false;
+    // A position is only saved for a change the reader made (a page turn, the contents, a
+    // search hit, a bookmark, a note): epub.js also reports "relocated" after every
+    // resize or display(), and that must not become a new reading with today's time
+    let movedUntil = 0;
+    const markMoved = () => { movedUntil = Date.now() + 2500; };
     // After going to a chapter, bookmark or highlight from a list, the arrow
     // keys turn pages again (they do nothing while the list has the focus)
     const readHere = () => document.getElementById('stage').focus({ preventScroll: true });
-    const prev = () => { moved = true; rendition.prev(); };
-    const next = () => { moved = true; rendition.next(); };
+    const prev = () => { markMoved(); rendition.prev(); };
+    const next = () => { markMoved(); rendition.next(); };
     document.getElementById('prev').onclick = prev;
     document.getElementById('next').onclick = next;
     const onKey = (e) => {
@@ -244,7 +248,7 @@
         button.style.setProperty('--depth', depth);
         button.dataset.href = item.href;
         button.onclick = () => {
-          moved = true;
+          markMoved();
           rendition.display(item.href);
           if (!wide.matches) showToc(false);
           readHere();
@@ -329,7 +333,7 @@
       atEnd = Boolean(location.atEnd);
       showProgress(location.start.cfi);
       markChapter(location.start.href);
-      if (!moved) return;
+      if (Date.now() > movedUntil) return;
       const contents = rendition.getContents().find((c) => c.sectionIndex === location.start.index);
       if (!contents) return;
       try {
@@ -343,7 +347,7 @@
     const highlights = ReaderHighlights.mount({
       book, rendition, notes, chapterOf,
       percentageOf: (cfi, index) => { try { return percentage(cfi, index); } catch { return index / Math.max(1, book.spine.length); } },
-      onJump: () => { moved = true; readHere(); },
+      onJump: () => { markMoved(); readHere(); },
     });
     // Search in the book and bookmarks (static/reader/tools.js)
     let hitCfi = null;
@@ -403,7 +407,7 @@
       },
       async showHit(hit) {
         clearHit();
-        moved = true;
+        markMoved();
         await rendition.display(hit.cfi);
         hitCfi = hit.cfi;
         rendition.annotations.highlight(hit.cfi, {}, null, 'search-mark', { fill: '#ff9800', 'fill-opacity': 0.5, 'mix-blend-mode': 'multiply' });
@@ -435,7 +439,7 @@
         }
       },
       goTo(b) {
-        moved = true;
+        markMoved();
         readHere();
         rendition.display(b.cfi || (locationsReady ? book.locations.cfiFromPercentage(b.percentage || 0) : undefined));
       },

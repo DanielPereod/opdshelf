@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older. The server's address, login and this device's id stay on this device:
+     a copy restored on another phone would take the same id and the two would overwrite each
+     other's positions, and the password would travel in the clear. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="settings.xml" />
+</full-backup-content>

@@ -185,22 +185,24 @@ impl Progress {
         let (device_id, progress) = (record.device_id.clone(), record.progress.clone());
         self.stats
             .record(&device_id, document, &progress, record.percentage, record.timestamp);
-        let (before, current) = {
+        let current = {
             let mut books = self.books.lock().unwrap();
             let history = books.entry(document.to_string()).or_default();
             let before = current(history).cloned();
             add(history, record);
-            (before, current(history).cloned().expect("a position was just added"))
+            let current = current(history).cloned().expect("a position was just added");
+            if before.as_ref() != Some(&current) {
+                // Sent while the positions are locked, so listeners get the changes
+                // in the order they were made. Nobody listening is fine
+                let _ = self.changes.send(Change {
+                    document: document.to_string(),
+                    current: current.clone(),
+                });
+            }
+            current
         };
         self.save()?;
         let accepted = current.device_id == device_id && current.progress == progress;
-        if before.as_ref() != Some(&current) {
-            // Nobody listening is fine
-            let _ = self.changes.send(Change {
-                document: document.to_string(),
-                current: current.clone(),
-            });
-        }
         Ok(Saved { current, accepted })
     }
 
@@ -368,6 +370,9 @@ pub fn partial_md5(path: &Path) -> std::io::Result<String> {
     Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// How many books' ids are kept in memory (they are also kept in `document-ids.json`).
+const ID_CACHE_LIMIT: usize = 16384;
+
 type IdCache = Mutex<HashMap<PathBuf, (u64, i64, String)>>;
 
 /// The document id of a book, cached while the file does not change.
@@ -381,8 +386,13 @@ pub fn document_id(path: &Path, size: u64, modified: i64) -> Option<String> {
     }
     let id = partial_md5(path).ok()?;
     let mut cache = cache.lock().unwrap();
-    if cache.len() > 4096 {
-        cache.clear();
+    if cache.len() >= ID_CACHE_LIMIT {
+        // Room for new ones without forgetting them all: reading them again is slow on a network share
+        let mut drop = ID_CACHE_LIMIT / 4;
+        cache.retain(|_, _| {
+            drop = drop.saturating_sub(1);
+            drop == 0
+        });
     }
     cache.insert(path.to_path_buf(), (size, modified, id.clone()));
     Some(id)

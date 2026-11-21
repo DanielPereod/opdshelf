@@ -22,6 +22,7 @@ cargo fmt --check
 cargo clippy --all-targets --locked -- -D warnings
 cargo test --locked
 for t in plugin library browser; do luajit koreader/test/${t}_test.lua koreader/opdshelf.koplugin; done
+for t in tests/web/*_test.js; do node "$t"; done
 (cd android && ./gradlew testDebugUnitTest assembleRelease)
 ```
 

@@ -13,6 +13,8 @@
     <string name="device_name">Device name</string>
     <string name="device_name_help">Shown on other devices when they continue from here</string>
     <string name="cannot_connect">Cannot connect: %1$s</string>
+    <string name="sync_dropped">The server refused some changes waiting to be sent, and they were discarded</string>
+    <string name="file_damaged">A saved file was damaged (%1$s). A copy was kept next to it</string>
     <string name="checking">Checking…</string>
     <string name="save">Save</string>
     <string name="cannot_open_book">This book cannot be opened</string>
@@ -28,6 +30,7 @@
     <string name="error_refused">Nothing answers at that address and port. Check that the server is running.</string>
     <string name="error_timeout">The server takes too long to answer.</string>
     <string name="error_login">Wrong username or password.</string>
+    <string name="error_server">The server answered with an error (%1$d). Try again in a moment.</string>
     <string name="view_list">List</string>
     <string name="view_grid">Grid</string>
     <string name="cancel">Cancel</string>

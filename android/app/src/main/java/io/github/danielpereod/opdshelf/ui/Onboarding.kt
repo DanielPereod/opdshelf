@@ -139,6 +139,8 @@ fun ConnectForm(
             badLogin = false
         } else if (!checking && server.isNotBlank()) {
             focus.clearFocus()
+            // Kept to go back to them if the new ones do not work
+            val before = Triple(settings.serverUrl, settings.username, settings.password)
             settings.serverUrl = server
             settings.username = username
             settings.password = password
@@ -150,9 +152,18 @@ fun ConnectForm(
             scope.launch {
                 try {
                     context.app.api.check()
+                    // Another server: what was waiting for the old one must not be sent to it
+                    if (before.first.isNotEmpty() && before.first != settings.serverUrl) context.app.store.discardPending()
                     context.app.sync.schedule()
                     onConnected()
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    // Not saved: the app keeps working with the server it had
+                    if (before.first.isNotEmpty()) {
+                        settings.serverUrl = before.first
+                        settings.username = before.second
+                        settings.password = before.third
+                    }
                     error = context.getString(R.string.cannot_connect, context.describe(e))
                     badLogin = e is io.github.danielpereod.opdshelf.data.HttpError && e.code == 401
                     badServer = !badLogin

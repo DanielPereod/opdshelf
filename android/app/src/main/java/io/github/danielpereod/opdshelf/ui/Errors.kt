@@ -22,6 +22,8 @@ fun Context.describe(e: Throwable): String = when (e) {
         e.reason == "invalid_name" -> getString(R.string.error_invalid_name)
         e.reason == "into_itself" -> getString(R.string.error_into_itself)
         e.reason == "not_found" -> getString(R.string.error_not_found)
+        // The status line of a response ("503 Service Unavailable") is the server's English: say it in the app's language
+        e.message.isNullOrBlank() || e.message!!.startsWith("${e.code} ") -> getString(R.string.error_server, e.code)
         else -> e.message ?: e.code.toString()
     }
     // OkHttp refuses an address it cannot read with an English message

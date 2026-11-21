@@ -130,6 +130,25 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// A number that changes when a book or folder is added, removed, renamed or edited.
+    pub fn signature(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for book in &self.books {
+            (
+                &book.path,
+                book.size,
+                book.modified,
+                &book.title,
+                book.edited,
+                book.has_cover,
+            )
+                .hash(&mut hasher);
+        }
+        self.folders.hash(&mut hasher);
+        hasher.finish()
+    }
+
     pub fn search(&self, query: &str) -> Vec<&Book> {
         let terms: Vec<String> = query.to_lowercase().split_whitespace().map(str::to_string).collect();
         self.books.iter().filter(|b| b.matches(&terms)).collect()
@@ -212,7 +231,20 @@ pub struct Library {
     /// Without a watcher every request rescans the folder.
     watching: Arc<AtomicBool>,
     scan_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Tells listeners (the live events) that the books or folders changed.
+    changes: tokio::sync::broadcast::Sender<()>,
+    /// What the last scan found, to tell whether the next one changed anything.
+    signature: Arc<Mutex<u64>>,
+    /// Scans finished so far, and when the last one ended and how long it took.
+    scans: Arc<std::sync::atomic::AtomicU64>,
+    last_scan: Arc<Mutex<Option<(std::time::Instant, std::time::Duration)>>>,
 }
+
+/// A scan that took longer than this is not repeated for a while: on a network share a scan can
+/// take many seconds, and every request waiting for the library would otherwise start its own.
+const SLOW_SCAN: std::time::Duration = std::time::Duration::from_millis(500);
+/// The longest a slow scan is reused.
+const MAX_REUSE: std::time::Duration = std::time::Duration::from_secs(30);
 
 impl Library {
     pub fn new(root: PathBuf, allowed_extensions: HashSet<String>, store: Store) -> Self {
@@ -225,11 +257,24 @@ impl Library {
             dirty: Arc::new(AtomicBool::new(true)),
             watching: Arc::default(),
             scan_lock: Arc::default(),
+            changes: tokio::sync::broadcast::channel(16).0,
+            signature: Arc::default(),
+            scans: Arc::default(),
+            last_scan: Arc::default(),
         }
+    }
+
+    /// A message each time a scan finds the library different from the one before.
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<()> {
+        self.changes.subscribe()
     }
 
     pub fn store(&self) -> &Store {
         &self.store
+    }
+
+    pub fn watching(&self) -> bool {
+        self.watching.load(Ordering::SeqCst)
     }
 
     pub fn set_watching(&self, watching: bool) {
@@ -241,8 +286,19 @@ impl Library {
         self.dirty.store(true, Ordering::SeqCst);
     }
 
+    /// Whether the last scan was slow and ended recently enough to be used again (for twice as long
+    /// as it took, up to half a minute). Without a watcher this is what keeps many requests from
+    /// each walking the whole folder one after the other.
+    fn recent_slow_scan(&self) -> bool {
+        self.last_scan
+            .lock()
+            .unwrap()
+            .is_some_and(|(ended, took)| took >= SLOW_SCAN && ended.elapsed() < (took * 2).min(MAX_REUSE))
+    }
+
     fn cached_snapshot(&self) -> Option<Arc<Snapshot>> {
-        let fresh = self.watching.load(Ordering::SeqCst) && !self.dirty.load(Ordering::SeqCst);
+        let fresh =
+            !self.dirty.load(Ordering::SeqCst) && (self.watching.load(Ordering::SeqCst) || self.recent_slow_scan());
         fresh.then(|| self.snapshot.lock().unwrap().clone()).flatten()
     }
 
@@ -256,12 +312,20 @@ impl Library {
 
     /// Rescans the books folder.
     pub async fn refresh(&self) -> Arc<Snapshot> {
+        let seen = self.scans.load(Ordering::SeqCst);
         let _guard = self.scan_lock.lock().await;
-        // Another request may have finished a scan while this one waited
+        // Another request may have finished a scan while this one waited: that one is used, unless
+        // something was changed since it began (which marks the library as dirty)
         if let Some(snapshot) = self.cached_snapshot() {
             return snapshot;
         }
+        if self.scans.load(Ordering::SeqCst) != seen && !self.dirty.load(Ordering::SeqCst) {
+            if let Some(snapshot) = self.snapshot.lock().unwrap().clone() {
+                return snapshot;
+            }
+        }
         self.dirty.store(false, Ordering::SeqCst);
+        let started = std::time::Instant::now();
         let lib = self.clone();
         let snapshot = Arc::new(
             tokio::task::spawn_blocking(move || lib.scan_blocking())
@@ -269,6 +333,14 @@ impl Library {
                 .unwrap_or_default(),
         );
         *self.snapshot.lock().unwrap() = Some(snapshot.clone());
+        *self.last_scan.lock().unwrap() = Some((std::time::Instant::now(), started.elapsed()));
+        self.scans.fetch_add(1, Ordering::SeqCst);
+        let signature = snapshot.signature();
+        let changed = std::mem::replace(&mut *self.signature.lock().unwrap(), signature) != signature;
+        if changed {
+            // Nobody listening is fine
+            let _ = self.changes.send(());
+        }
         snapshot
     }
 
@@ -361,7 +433,7 @@ impl Library {
             .follow_links(true)
             .min_depth(1)
             .into_iter()
-            .filter_entry(|e| !e.file_name().to_string_lossy().starts_with('.'));
+            .filter_entry(|e| !paths::is_ignored(&e.file_name().to_string_lossy()));
 
         for entry in walker {
             let entry = match entry {
@@ -551,6 +623,58 @@ mod tests {
         assert_eq!(snapshot.subfolders(""), vec!["Saga"]);
         assert_eq!(snapshot.count_under("Saga"), 1);
         assert_eq!(snapshot.in_folder("").len(), 1);
+    }
+
+    #[tokio::test]
+    async fn the_folders_a_nas_adds_are_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("@eaDir/book.epub")).unwrap();
+        std::fs::create_dir_all(dir.path().join("#recycle")).unwrap();
+        std::fs::create_dir_all(dir.path().join("Saga/@eaDir")).unwrap();
+        std::fs::write(dir.path().join("#recycle/deleted.epub"), b"x").unwrap();
+        std::fs::write(dir.path().join("Saga/@eaDir/thumb.epub"), b"x").unwrap();
+        std::fs::write(dir.path().join("Saga/real.epub"), b"x").unwrap();
+        let snapshot = library(dir.path()).scan().await;
+        assert_eq!(snapshot.folders, vec!["Saga"]);
+        assert_eq!(
+            snapshot.books.iter().map(|b| b.path.as_str()).collect::<Vec<_>>(),
+            vec!["Saga/real.epub"]
+        );
+    }
+
+    #[tokio::test]
+    async fn without_a_watcher_a_slow_scan_is_reused_and_a_fast_one_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.epub"), b"x").unwrap();
+        let lib = library(dir.path());
+        assert_eq!(lib.snapshot().await.books.len(), 1);
+        // A quick scan (a local disk): every request sees what is there now
+        std::fs::write(dir.path().join("b.epub"), b"x").unwrap();
+        assert_eq!(lib.snapshot().await.books.len(), 2);
+        // A scan that took seconds (a share): requests right after it do not start another one
+        *lib.last_scan.lock().unwrap() = Some((std::time::Instant::now(), std::time::Duration::from_secs(5)));
+        std::fs::write(dir.path().join("c.epub"), b"x").unwrap();
+        assert_eq!(lib.snapshot().await.books.len(), 2);
+        // Unless something was changed in the panel meanwhile
+        lib.invalidate();
+        assert_eq!(lib.snapshot().await.books.len(), 3);
+        // Requests that were waiting while a scan ran take its result: here, with the scan lock held
+        // by someone else, two of them wait, a scan is finished, and neither starts another
+        let guard = lib.scan_lock.lock().await;
+        let seen = lib.scans.load(Ordering::SeqCst);
+        let waiting: Vec<_> = (0..2)
+            .map(|_| {
+                let lib = lib.clone();
+                tokio::spawn(async move { lib.refresh().await })
+            })
+            .collect();
+        tokio::task::yield_now().await;
+        lib.scans.fetch_add(1, Ordering::SeqCst);
+        drop(guard);
+        for task in waiting {
+            assert_eq!(task.await.unwrap().books.len(), 3);
+        }
+        assert_eq!(lib.scans.load(Ordering::SeqCst), seen + 1, "nobody scanned again");
     }
 
     #[tokio::test]

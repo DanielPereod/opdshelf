@@ -49,7 +49,7 @@ pub fn router(config: Config) -> Router {
             config.allowed_extensions.clone(),
             Store::open(&config.data_dir),
         ),
-        auth: Auth::new(&config),
+        auth: Auth::open(&config, &config.data_dir),
         templates: Arc::new(templates::registry()),
         lookup: Lookup::new(&config.openlibrary_url, &config.google_books_url),
         progress: Progress::open(&config.data_dir),
@@ -71,6 +71,11 @@ pub fn router(config: Config) -> Router {
         runtime.spawn(async move {
             if watch {
                 crate::watch::start(library.clone(), interval);
+            }
+            if !watch || !library.watching() {
+                // No watcher (switched off, or the share cannot report changes): look again from
+                // time to time, and clean the thumbnails of books that are gone
+                crate::watch::rescan_periodically(library.clone(), interval);
             }
             let books = library.snapshot().await.books.len();
             tracing::info!("library ready: {books} books");
@@ -224,7 +229,7 @@ async fn refuse_when_read_only(State(state): State<AppState>, request: Request, 
     } else {
         "/admin"
     };
-    Redirect::to(&format!("{back}?error={}", paths::url_encode(READ_ONLY))).into_response()
+    Redirect::to(&format!("{back}?{}", crate::auth::flash::param("error", READ_ONLY))).into_response()
 }
 
 pub async fn library_writable(state: &AppState) -> bool {
@@ -271,8 +276,22 @@ async fn require_auth(State(state): State<AppState>, request: Request, next: Nex
     // KOReader's sync plugin logs in with its own headers, checked by each /kosync handler
     let public =
         path.starts_with("/static/") || path.starts_with("/kosync/") || path == "/user/login" || path == "/healthz";
-    if public || state.auth.is_authorized(request.headers()) {
+    if public {
         return next.run(request).await;
+    }
+    if state.auth.is_authorized(request.headers()) {
+        // Using the site keeps the session alive, so it only ends after 15 days without use
+        let renew = crate::auth::cookie(request.headers(), crate::auth::SESSION_COOKIE).map(|_| {
+            let secure = is_https(&state, request.headers());
+            state.auth.session_cookie(secure)
+        });
+        let mut response = next.run(request).await;
+        if let Some(cookie) = renew.and_then(|c| HeaderValue::from_str(&c).ok()) {
+            if !response.headers().contains_key(header::SET_COOKIE) {
+                response.headers_mut().append(header::SET_COOKIE, cookie);
+            }
+        }
+        return response;
     }
     let wants_html = request
         .headers()
@@ -287,6 +306,20 @@ async fn require_auth(State(state): State<AppState>, request: Request, next: Nex
             next => format!("/user/login?next={}", paths::url_encode(next)),
         };
         return Redirect::to(&login).into_response();
+    }
+    // A page's own requests (fetch, EventSource) must not make the browser open its
+    // username and password window: they are told to send the person to the login page
+    let from_page = request
+        .headers()
+        .get("sec-fetch-dest")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == "empty");
+    if from_page {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "Sign in again", "code": "login" })),
+        )
+            .into_response();
     }
     (
         StatusCode::UNAUTHORIZED,
@@ -378,10 +411,10 @@ pub fn admin_redirect(folder: &str, notice: Option<&str>, error: Option<&str>) -
         params.push(format!("folder={}", paths::url_encode(folder)));
     }
     if let Some(n) = notice {
-        params.push(format!("notice={}", paths::url_encode(n)));
+        params.push(crate::auth::flash::param("notice", n));
     }
     if let Some(e) = error {
-        params.push(format!("error={}", paths::url_encode(e)));
+        params.push(crate::auth::flash::param("error", e));
     }
     if !params.is_empty() {
         url = format!("{url}?{}", params.join("&"));
@@ -457,6 +490,9 @@ pub struct AdminQuery {
     folder: Option<String>,
     notice: Option<String>,
     error: Option<String>,
+    /// Prove that this server wrote the notice or error (see `auth::flash`).
+    notice_sig: Option<String>,
+    error_sig: Option<String>,
     /// Set when the inspector asks for just its own HTML.
     panel: Option<String>,
     /// The inspector's tab: `notes` for the highlights and notes of the book.
@@ -533,8 +569,8 @@ pub async fn library_data(state: &AppState, query: &AdminQuery) -> serde_json::V
         "sortMode": sort.as_str(),
         "accept": extensions.join(","),
         "formats": extensions.iter().map(|e| e.trim_start_matches('.').to_uppercase()).collect::<Vec<_>>().join(", "),
-        "notice": query.notice,
-        "error": query.error,
+        "notice": crate::auth::flash::verified(query.notice.as_deref(), query.notice_sig.as_deref()),
+        "error": crate::auth::flash::verified(query.error.as_deref(), query.error_sig.as_deref()),
         "readOnly": !library_writable(state).await,
         "apkLocal": apps::is_local(state, &apps::ANDROID),
         "pluginLocal": apps::is_local(state, &apps::KOREADER),
@@ -658,23 +694,40 @@ async fn admin_stats(State(state): State<AppState>, headers: HeaderMap, Query(qu
     page(&state, &headers, "admin", "Statistics - OPDShelf", data)
 }
 
-fn unique_destination(dir: &std::path::Path, name: &str) -> PathBuf {
-    let candidate = dir.join(name);
-    if !candidate.exists() {
-        return candidate;
-    }
+/// Takes a free name in `dir` for `name` (or `name (1)`, `name (2)`…) by creating the file, empty,
+/// so two uploads at once cannot choose the same one and one replace the other.
+async fn reserve_destination(dir: &std::path::Path, name: &str) -> std::io::Result<PathBuf> {
     let stem = paths::stem(name);
     let ext = paths::extension(name);
-    (1..)
-        .map(|i| {
-            dir.join(if ext.is_empty() {
-                format!("{stem} ({i})")
-            } else {
-                format!("{stem} ({i}).{ext}")
-            })
-        })
-        .find(|p| !p.exists())
-        .expect("some name is free")
+    for attempt in 0.. {
+        let candidate = dir.join(match (attempt, ext.is_empty()) {
+            (0, _) => name.to_string(),
+            (i, true) => format!("{stem} ({i})"),
+            (i, false) => format!("{stem} ({i}).{ext}"),
+        });
+        match tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+            .await
+        {
+            Ok(_) => return Ok(candidate),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(err),
+        }
+    }
+    unreachable!("some name is free")
+}
+
+/// Moves a file to a path nothing is at, failing if something is there by now (a plain rename
+/// would replace it). Shares that cannot make hard links get the plain check and rename.
+async fn rename_without_replacing(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    match tokio::fs::hard_link(from, to).await {
+        Ok(()) => tokio::fs::remove_file(from).await,
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => Err(err),
+        Err(_) if to.exists() => Err(std::io::ErrorKind::AlreadyExists.into()),
+        Err(_) => tokio::fs::rename(from, to).await,
+    }
 }
 
 /// Saves an uploaded book in `folder` (already sanitized) under a free name, answering where it went.
@@ -696,8 +749,12 @@ async fn save_book(
             file.write_all(&chunk?).await?;
         }
         file.flush().await?;
-        let dest = unique_destination(&dir, name);
-        tokio::fs::rename(&tmp, &dest).await?;
+        let dest = reserve_destination(&dir, name).await?;
+        // Over the empty file that holds the name
+        if let Err(err) = tokio::fs::rename(&tmp, &dest).await {
+            let _ = tokio::fs::remove_file(&dest).await;
+            return Err(err);
+        }
         Ok::<_, std::io::Error>(dest)
     }
     .await;
@@ -865,10 +922,22 @@ async fn move_book(state: &AppState, rel: &str, old_path: &std::path::Path, new_
         if let Some(parent) = new_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        tokio::fs::rename(old_path, &new_path).await
+        if new_path.exists() {
+            // Only the case of the name changes, on a disk that ignores it
+            tokio::fs::rename(old_path, &new_path).await
+        } else {
+            // Not over a file that appeared since the check above
+            rename_without_replacing(old_path, &new_path).await
+        }
     }
     .await;
-    result.map_err(|err| err.to_string())?;
+    result.map_err(|err| {
+        if err.kind() == std::io::ErrorKind::AlreadyExists {
+            format!("{new_rel} already exists")
+        } else {
+            err.to_string()
+        }
+    })?;
     carry_over(state, book.as_slice(), rel, new_rel);
     tracing::info!("renamed {rel} to {new_rel}");
     Ok(())
@@ -1661,6 +1730,8 @@ async fn logout(State(state): State<AppState>, Form(form): Form<CsrfForm>) -> Re
     if !state.auth.check_csrf(&form.csrf) {
         return (StatusCode::FORBIDDEN, "Invalid CSRF token").into_response();
     }
+    // A copy of the cookie stops working too
+    state.auth.revoke_sessions();
     (
         [(header::SET_COOKIE, Auth::clear_cookie())],
         Redirect::to("/user/login"),
@@ -1671,7 +1742,27 @@ async fn logout(State(state): State<AppState>, Form(form): Form<CsrfForm>) -> Re
 // ---------------------------------------------------------------------------
 // Static files embedded in the binary
 
-async fn static_file(Path(path): Path<String>) -> Response {
+/// How long a static file may be kept. The pages ask for the app's own scripts and styles with
+/// `?v=<version of this build>`, so those never change under one address and are kept for good;
+/// the vendored libraries and images change only with an update, so a day is fine; anything else
+/// of ours asked for without a version is checked every time, so a new build is never hidden
+/// behind a day-old copy.
+fn static_cache(path: &str, versioned: bool) -> &'static str {
+    if versioned {
+        "public, max-age=31536000, immutable"
+    } else if path.starts_with("vendor/")
+        || !(path.ends_with(".js") || path.ends_with(".css") || path.ends_with(".mjs"))
+    {
+        "public, max-age=86400"
+    } else {
+        "no-cache"
+    }
+}
+
+async fn static_file(
+    Path(path): Path<String>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> Response {
     match Static::get(&path) {
         Some(file) => {
             let mime = match paths::extension(&path).as_str() {
@@ -1681,7 +1772,10 @@ async fn static_file(Path(path): Path<String>) -> Response {
             (
                 [
                     (header::CONTENT_TYPE, mime.to_string()),
-                    (header::CACHE_CONTROL, "public, max-age=86400".to_string()),
+                    (
+                        header::CACHE_CONTROL,
+                        static_cache(&path, query.contains_key("v")).to_string(),
+                    ),
                 ],
                 file.data,
             )
@@ -1693,7 +1787,22 @@ async fn static_file(Path(path): Path<String>) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use super::is_isbn;
+    use super::{is_isbn, static_cache};
+
+    #[test]
+    fn a_new_build_is_never_hidden_behind_a_cached_script() {
+        // Asked for by version: kept for good
+        assert!(static_cache("app/notes.js", true).contains("immutable"));
+        // Ours without a version: checked every time
+        assert_eq!(static_cache("reader/xpointer.js", false), "no-cache");
+        assert_eq!(static_cache("styles/app.css", false), "no-cache");
+        // Libraries and images: a day
+        assert_eq!(
+            static_cache("vendor/epubjs/epub.min.js", false),
+            "public, max-age=86400"
+        );
+        assert_eq!(static_cache("icon.png", false), "public, max-age=86400");
+    }
 
     #[test]
     fn tells_isbns_from_other_identifiers() {

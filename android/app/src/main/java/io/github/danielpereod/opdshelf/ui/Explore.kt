@@ -95,6 +95,7 @@ import coil.ImageLoader
 import io.github.danielpereod.opdshelf.R
 import io.github.danielpereod.opdshelf.data.Entry
 import io.github.danielpereod.opdshelf.data.LocalBook
+import io.github.danielpereod.opdshelf.data.localFor
 import io.github.danielpereod.opdshelf.data.serverPath
 
 /** The web's list/grid switch: two icons in a hairline box. */
@@ -235,7 +236,7 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
         val hasBooks = entries.any { it.acquisition != null }
         val atRoot = stack.size <= 1
         if (selecting) {
-            val toDownload = pickedEntries.filter { e -> books.none { it.id == e.id } && !downloads.containsKey(e.id) }
+            val toDownload = pickedEntries.filter { e -> books.localFor(e) == null && !downloads.containsKey(e.id) }
             Header(
                 pluralStringResource(R.plurals.selected_count, selection.size, selection.size),
                 onBack = { clearSelection() },
@@ -393,7 +394,7 @@ fun ExploreScreen(library: LibraryViewModel, openBook: (LocalBook) -> Unit, modi
                         entries, key = { it.id + it.feedUrl },
                         span = { if (useGrid && it.feedUrl != null) GridItemSpan(maxLineSpan) else GridItemSpan(1) },
                     ) { entry ->
-                        val local = books.firstOrNull { it.id == entry.id }
+                        val local = books.localFor(entry)
                         val progress = downloads[entry.id]
                         val feed = entry.feedUrl
                         // How far it was read: on this device, or on any device for books not downloaded

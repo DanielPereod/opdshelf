@@ -2,6 +2,9 @@ use axum::http::{header, HeaderMap};
 use base64::Engine;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use subtle::ConstantTimeEq;
 
 use crate::config::Config;
@@ -14,6 +17,10 @@ pub const SESSION_MAX_AGE: u64 = 15 * 24 * 60 * 60;
 pub struct Auth {
     credentials: Option<(String, String)>,
     secret: Vec<u8>,
+    /// Signing out raises it, which revokes every session made before. Kept in
+    /// DATA_DIR so it survives restarts.
+    generation: Arc<AtomicU64>,
+    generation_file: Option<PathBuf>,
 }
 
 impl Auth {
@@ -26,7 +33,52 @@ impl Auth {
             Some((user, pass)) => hmac(pass.as_bytes(), format!("opdshelf-secret:{user}").as_bytes()),
             None => rand::random::<[u8; 32]>().to_vec(),
         };
-        Self { credentials, secret }
+        Self {
+            credentials,
+            secret,
+            generation: Arc::default(),
+            generation_file: None,
+        }
+    }
+
+    /// Like `new`, but keeps what has to outlive a restart in `dir`: the secret that signs the
+    /// forms' tokens when there are no credentials (so a page left open keeps working after an
+    /// update) and the count of sign-outs.
+    pub fn open(config: &Config, dir: &std::path::Path) -> Self {
+        let mut auth = Self::new(config);
+        if auth.credentials.is_none() {
+            let file = dir.join("session-secret");
+            let saved = std::fs::read_to_string(&file)
+                .ok()
+                .map(|text| text.trim().to_string())
+                .filter(|text| text.len() >= 32);
+            auth.secret = match saved {
+                Some(text) => text.into_bytes(),
+                None => {
+                    let fresh = hex(&rand::random::<[u8; 32]>());
+                    let _ = std::fs::create_dir_all(dir);
+                    // Without a place to keep it the secret lasts as long as the process
+                    let _ = std::fs::write(&file, &fresh);
+                    fresh.into_bytes()
+                }
+            };
+        }
+        let file = dir.join("session-generation");
+        let saved = std::fs::read_to_string(&file)
+            .ok()
+            .and_then(|text| text.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        auth.generation.store(saved, Ordering::SeqCst);
+        auth.generation_file = Some(file);
+        auth
+    }
+
+    /// Makes every session made so far stop working (signing out).
+    pub fn revoke_sessions(&self) {
+        let next = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        if let Some(file) = &self.generation_file {
+            let _ = std::fs::write(file, next.to_string());
+        }
     }
 
     pub fn enabled(&self) -> bool {
@@ -58,7 +110,8 @@ impl Auth {
     }
 
     pub fn session_token(&self) -> String {
-        hex(&hmac(&self.secret, b"session"))
+        let generation = self.generation.load(Ordering::SeqCst);
+        hex(&hmac(&self.secret, format!("session:{generation}").as_bytes()))
     }
 
     pub fn csrf_token(&self) -> String {
@@ -89,6 +142,33 @@ impl Auth {
 
     pub fn clear_cookie() -> String {
         format!("{SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0")
+    }
+}
+
+/// Messages in an address (`?notice=…`, `?error=…`) are shown on the panel only if this server wrote
+/// them: they carry a signature made with a key that exists only in this process. A link made by
+/// someone else cannot put its own words on the page.
+pub mod flash {
+    use super::{hex, hmac};
+    use std::sync::LazyLock;
+    use subtle::ConstantTimeEq;
+
+    static KEY: LazyLock<[u8; 32]> = LazyLock::new(rand::random);
+
+    fn sign(text: &str) -> String {
+        hex(&hmac(&*KEY, format!("flash:{text}").as_bytes()))[..32].to_string()
+    }
+
+    /// `kind=<text>&<kind>_sig=<signature>`, for the address of a page that shows the message.
+    pub fn param(kind: &str, text: &str) -> String {
+        format!("{kind}={}&{kind}_sig={}", crate::paths::url_encode(text), sign(text))
+    }
+
+    /// The message, if the signature in the address is the one this server gave it.
+    pub fn verified(text: Option<&str>, signature: Option<&str>) -> Option<String> {
+        let (text, signature) = (text?, signature?);
+        let genuine: bool = sign(text).as_bytes().ct_eq(signature.as_bytes()).into();
+        genuine.then(|| text.to_string())
     }
 }
 
@@ -180,6 +260,49 @@ mod tests {
         assert!(!a.check_hashed_password("a", "secret"));
         assert!(!a.check_hashed_password("b", "5ebe2294ecd0e0f08eab7690d2a6ee69"));
         assert!(auth(None, None).check_hashed_password("", ""));
+    }
+
+    #[test]
+    fn signing_out_revokes_the_sessions_made_before() {
+        let a = auth(Some("a"), Some("b"));
+        let good = format!("{SESSION_COOKIE}={}", a.session_token());
+        assert!(a.is_authorized(&headers(header::COOKIE, &good)));
+        a.revoke_sessions();
+        assert!(!a.is_authorized(&headers(header::COOKIE, &good)));
+        let again = format!("{SESSION_COOKIE}={}", a.session_token());
+        assert!(a.is_authorized(&headers(header::COOKIE, &again)));
+    }
+
+    #[test]
+    fn the_secret_and_the_sign_outs_outlive_a_restart() {
+        let dir = std::env::temp_dir().join(format!("opdshelf-auth-{}", rand::random::<u32>()));
+        let config = Config::from_lookup(|_| None);
+        let first = Auth::open(&config, &dir);
+        let second = Auth::open(&config, &dir);
+        assert_eq!(first.csrf_token(), second.csrf_token());
+        first.revoke_sessions();
+        let third = Auth::open(&config, &dir);
+        assert_eq!(third.session_token(), first.session_token());
+        assert_ne!(third.session_token(), second.session_token());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_messages_this_server_wrote_are_shown() {
+        let written = flash::param("notice", "Saved");
+        let signature = written.rsplit("notice_sig=").next().unwrap();
+        assert_eq!(
+            flash::verified(Some("Saved"), Some(signature)).as_deref(),
+            Some("Saved")
+        );
+        // A link someone else made, or one changed on the way
+        assert_eq!(
+            flash::verified(Some("Call 555-0100 to restore your account"), Some(signature)),
+            None
+        );
+        assert_eq!(flash::verified(Some("Saved"), Some("abc")), None);
+        assert_eq!(flash::verified(Some("Saved"), None), None);
+        assert_eq!(flash::verified(None, Some(signature)), None);
     }
 
     #[test]

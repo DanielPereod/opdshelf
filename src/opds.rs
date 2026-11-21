@@ -32,13 +32,37 @@ pub struct FeedQuery {
 /// Where a book is at, worked out as the web panel does: from its newest
 /// position, unless it was marked as read or unread in the panel.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Status {
+pub enum Status {
     Reading,
     Finished,
 }
 
-/// The same threshold as the web panel: the last page often starts before 100 %.
-const FINISHED: f64 = 0.98;
+impl Status {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Status::Reading => "reading",
+            Status::Finished => "finished",
+        }
+    }
+}
+
+/// Read this far, a book counts as finished: the last page often starts before
+/// 100 %. The one threshold of the server, the panel, the statistics and the
+/// apps (they get it as `finished_at` from `GET /api/progress`).
+pub const FINISHED: f64 = 0.99;
+
+/// Where a book is at, from its newest position and its mark, with when: null
+/// when it was never started, or was marked as unread after its last position.
+pub fn effective_status(record: &crate::progress::Record, mark: Option<&crate::marks::Mark>) -> Option<(Status, i64)> {
+    use crate::marks::State as Mark;
+    match mark {
+        Some(m) if m.state == Mark::Read => Some((Status::Finished, m.at.max(record.timestamp))),
+        Some(m) if m.state == Mark::Unread && record.timestamp <= m.at => None,
+        _ if record.percentage >= FINISHED => Some((Status::Finished, record.timestamp)),
+        _ if record.percentage > 0.0 => Some((Status::Reading, record.timestamp)),
+        _ => None,
+    }
+}
 
 /// The status of every started or finished book (by path), with when it was last read.
 async fn statuses(state: &AppState) -> HashMap<String, (Status, i64)> {
@@ -48,12 +72,8 @@ async fn statuses(state: &AppState) -> HashMap<String, (Status, i64)> {
     let mut out = HashMap::new();
     for (document, record) in state.progress.all_current() {
         let Some(path) = index.get(&document) else { continue };
-        let status = match marks.get(&document) {
-            Some(m) if m.state == Mark::Read => (Status::Finished, m.at.max(record.timestamp)),
-            Some(m) if m.state == Mark::Unread && record.timestamp <= m.at => continue,
-            _ if record.percentage >= FINISHED => (Status::Finished, record.timestamp),
-            _ if record.percentage > 0.0 => (Status::Reading, record.timestamp),
-            _ => continue,
+        let Some(status) = effective_status(&record, marks.get(&document)) else {
+            continue;
         };
         out.insert(path.clone(), status);
     }
@@ -198,7 +218,12 @@ async fn count_pages(state: &AppState, feed: &mut Feed, books: &[&Book], page: u
         .copied()
         .filter(|b| crate::reader::is_comic(b))
         .collect();
-    let counts = futures_util::future::join_all(comics.iter().map(|b| crate::reader::page_list(state, b))).await;
+    feed.documents = state.documents.ids_by_path();
+    // A few at a time: each CBR, CB7 or CBT is a `bsdtar` process, and a page can hold fifty
+    let mut counts = Vec::with_capacity(comics.len());
+    for group in comics.chunks(4) {
+        counts.extend(futures_util::future::join_all(group.iter().map(|b| crate::reader::page_list(state, b))).await);
+    }
     for (book, pages) in comics.into_iter().zip(counts) {
         if let Some(pages) = pages.filter(|p| !p.is_empty()) {
             feed.pages.insert(book.path.clone(), pages.len());
@@ -254,6 +279,9 @@ struct Feed {
     entries: Vec<String>,
     /// Page counts of the comics in the feed, for OPDS-PSE.
     pages: HashMap<String, usize>,
+    /// Book path → its document id (KOReader's partial MD5), so the apps can tell
+    /// which downloaded file is which book even after it is renamed or moved.
+    documents: HashMap<String, String>,
 }
 
 impl Feed {
@@ -268,6 +296,7 @@ impl Feed {
             extra: Vec::new(),
             entries: Vec::new(),
             pages: HashMap::new(),
+            documents: HashMap::new(),
         }
     }
 
@@ -319,6 +348,9 @@ impl Feed {
         let _ = write!(e, "<title>{}</title>", escape(&book.title));
         let _ = write!(e, "<id>urn:opdshelf:book:{}</id>", escape(&url));
         let _ = write!(e, "<updated>{}</updated>", date(book.modified));
+        if let Some(document) = self.documents.get(&book.path) {
+            let _ = write!(e, "<opdshelf:document>{}</opdshelf:document>", escape(document));
+        }
         for author in &book.authors {
             let _ = write!(e, "<author><name>{}</name></author>", escape(author));
         }
@@ -402,6 +434,8 @@ impl Feed {
                 self.link("next", &page_href(page + 1), self.kind);
             }
         }
+        // The feed's own address names the page it is, not the first one
+        self.path_and_query = page_href(page);
         self.extra.push(format!(
             "<opensearch:totalResults>{}</opensearch:totalResults>",
             books.len()
@@ -428,7 +462,7 @@ impl Feed {
         self.link("search", "/opds/search?q={searchTerms}", ACQ);
 
         let mut xml = String::from(r#"<?xml version="1.0" encoding="UTF-8"?>"#);
-        xml.push_str(r#"<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:opds="http://opds-spec.org/2010/catalog" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:calibre="http://calibre.kovidgoyal.net/2009/metadata" xmlns:thr="http://purl.org/syndication/thread/1.0" xmlns:pse="http://vaemendis.net/opds-pse/ns">"#);
+        xml.push_str(r#"<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:opds="http://opds-spec.org/2010/catalog" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:calibre="http://calibre.kovidgoyal.net/2009/metadata" xmlns:thr="http://purl.org/syndication/thread/1.0" xmlns:pse="http://vaemendis.net/opds-pse/ns" xmlns:opdshelf="https://github.com/danielpereod/opdshelf/ns">"#);
         let _ = write!(
             xml,
             "<id>{}</id><title>{}</title><updated>{}</updated>",

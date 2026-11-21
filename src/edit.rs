@@ -45,10 +45,10 @@ pub async fn edit_page(
             "title": book.title,
             "authors": meta.authors.join("; "),
             "description": meta.description,
-            "language": meta.language,
+            "language": meta.language.as_deref().map(crate::metadata::form_language),
             "publisher": meta.publisher,
             "subjects": meta.subjects.join(", "),
-            "date": meta.date,
+            "date": meta.date.as_deref().map(crate::metadata::form_date),
             "identifier": meta.identifier,
             "series": meta.series,
             "seriesIndex": meta.series_index,
@@ -93,6 +93,7 @@ fn diff(form: &HashMap<String, String>, file: &BookMeta, file_title: &str) -> Me
         series: changed("series", &file.series),
         series_index: changed("series_index", &file.series_index),
         cover: None,
+        document: None,
     }
 }
 
@@ -129,7 +130,6 @@ pub async fn save(State(state): State<AppState>, mut multipart: Multipart) -> Re
     };
     let file_title = file_meta.title.clone().unwrap_or_else(|| paths::stem(&rel));
     let store = state.library.store().clone();
-    let previous = store.get(&rel).unwrap_or_default();
 
     let mut edit = diff(&form, &file_meta, &file_title);
     let cover_url = form.get("cover_url").map(|u| u.trim()).unwrap_or_default();
@@ -140,20 +140,33 @@ pub async fn save(State(state): State<AppState>, mut multipart: Multipart) -> Re
             Ok(image) => Some(image),
             Err(err) => {
                 let error = format!("Cannot download the cover: {err}");
-                return Redirect::to(&format!("{}?error={}", edit_url(&rel), paths::url_encode(&error)))
-                    .into_response();
+                return Redirect::to(&format!(
+                    "{}?{}",
+                    edit_url(&rel),
+                    crate::auth::flash::param("error", &error)
+                ))
+                .into_response();
             }
         }
     } else {
         None
     };
+    // One save at a time: two at once of the same book would each take the other's cover for the
+    // old one and delete it, leaving the edit pointing at a cover that is gone
+    static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _one_at_a_time = ONE_AT_A_TIME.lock().await;
+    let previous = store.get(&rel).unwrap_or_default();
     edit.cover = match new_cover {
         Some(image) => match store.save_cover(&image) {
             Ok(file) => Some(file),
             Err(err) => {
                 let error = format!("Cannot save the cover: {err}");
-                return Redirect::to(&format!("{}?error={}", edit_url(&rel), paths::url_encode(&error)))
-                    .into_response();
+                return Redirect::to(&format!(
+                    "{}?{}",
+                    edit_url(&rel),
+                    crate::auth::flash::param("error", &error)
+                ))
+                .into_response();
             }
         },
         None if form.get("remove_cover").is_some_and(|v| v == "1") => None,
@@ -163,15 +176,27 @@ pub async fn save(State(state): State<AppState>, mut multipart: Multipart) -> Re
     let result = if edit == MetaOverride::default() {
         store.remove(&rel)
     } else {
+        // Which book it is stays noted, so it follows the file if it is renamed outside the panel
+        edit.document = previous.document;
         store.set(&rel, edit)
     };
     if let Err(err) = result {
         let error = format!("Cannot save: {err}");
-        return Redirect::to(&format!("{}?error={}", edit_url(&rel), paths::url_encode(&error))).into_response();
+        return Redirect::to(&format!(
+            "{}?{}",
+            edit_url(&rel),
+            crate::auth::flash::param("error", &error)
+        ))
+        .into_response();
     }
     state.library.invalidate();
     tracing::info!("edited metadata of {rel}");
-    Redirect::to(&format!("{}?notice=Saved", edit_url(&rel))).into_response()
+    Redirect::to(&format!(
+        "{}?{}",
+        edit_url(&rel),
+        crate::auth::flash::param("notice", "Saved")
+    ))
+    .into_response()
 }
 
 #[derive(Deserialize)]
@@ -192,9 +217,9 @@ pub async fn reset(State(state): State<AppState>, Form(form): Form<ResetForm>) -
     }
     state.library.invalidate();
     Redirect::to(&format!(
-        "{}?notice={}",
+        "{}?{}",
         edit_url(&rel),
-        paths::url_encode("Restored the file's metadata")
+        crate::auth::flash::param("notice", "Restored the file's metadata")
     ))
     .into_response()
 }

@@ -88,6 +88,11 @@ Returns a new table; `stats` stays the server's.
 function LocalStats.combine(stats, here, today, yesterday)
     local out = {}
     for k, v in pairs(type(stats) == "table" and stats or {}) do out[k] = v end
+    -- A streak the server gave before yesterday is over, even if nothing was read here today
+    -- (offline for days, the home screen still showed "12 days")
+    if yesterday and type(out.date) == "string" and out.date ~= today and out.date ~= yesterday and tonumber(out.streak) then
+        out.streak = 0
+    end
     here = tonumber(here)
     if not here or here <= 0 then return out end
     local server_today = out.date == today and tonumber(out.today_seconds) or nil

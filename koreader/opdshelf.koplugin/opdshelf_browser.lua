@@ -405,12 +405,41 @@ function Browser:cachedCover(entry)
     return nil
 end
 
+-- The id of the file at `path` as KOReader syncs it: the one its settings keep or, without
+-- them, the partial MD5 of the file. Nil when it cannot be told.
+local function fileDocument(path)
+    local ok, id = pcall(function()
+        local DocSettings = require("docsettings")
+        if DocSettings:hasSidecarFile(path) then
+            local id = DocSettings:open(path):readSetting("partial_md5_checksum")
+            if id then return id end
+        end
+        return require("util").partialMD5(path)
+    end)
+    return ok and type(id) == "string" and id or nil
+end
+
 --- Where a book is (or would be) downloaded, and whether it is already there.
+-- A file of the same name that is another book (two books of the library with one file name,
+-- as `Saga A/Book 1.epub` and `Saga B/Book 1.epub`) does not count: the book goes beside it,
+-- with its id in the name.
 function Browser:localFile(entry)
     local acquisition = OPDS.bestAcquisition(entry)
     if not acquisition then return nil end
-    local path = self.plugin:downloadDir() .. "/" .. OPDS.fileName(entry, acquisition)
-    return path, lfs.attributes(path, "mode") == "file", acquisition
+    local dir = self.plugin:downloadDir()
+    local name = OPDS.fileName(entry, acquisition)
+    local path = dir .. "/" .. name
+    local present = lfs.attributes(path, "mode") == "file"
+    if present and entry.document then
+        local here = fileDocument(path)
+        if here and here ~= entry.document then
+            local suffixed = name:gsub("(%.%w+)$", function(ext) return " [" .. entry.document:sub(1, 8) .. "]" .. ext end)
+            if suffixed == name then suffixed = name .. " [" .. entry.document:sub(1, 8) .. "]" end
+            path = dir .. "/" .. suffixed
+            present = lfs.attributes(path, "mode") == "file"
+        end
+    end
+    return path, present, acquisition
 end
 
 -- How far a downloaded book was read here, and whether it is finished, from its KOReader settings

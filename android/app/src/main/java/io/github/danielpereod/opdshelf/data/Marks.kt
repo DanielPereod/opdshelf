@@ -10,12 +10,17 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class ReadMark(val state: String, val at: Long) {
     val finished: Boolean get() = state == READ
+    val cleared: Boolean get() = state == CLEAR
 
     companion object {
         const val READ = "read"
         const val UNREAD = "unread"
+        /** Only here, never on the server: the mark is removed (sent as null). */
+        const val CLEAR = "clear"
 
         fun of(finished: Boolean, at: Long) = ReadMark(if (finished) READ else UNREAD, at)
+
+        fun clear(at: Long) = ReadMark(CLEAR, at)
     }
 }
 
@@ -29,12 +34,28 @@ fun LocalBook.withMark(server: ReadMark?, pending: Boolean): LocalBook {
     return copy(finishedByHand = server.finished, markedAt = server.at)
 }
 
+/**
+ * The marks to queue for books marked by hand before marks were synced: those with
+ * [LocalBook.finishedByHand] set, no [LocalBook.markedAt] and nothing queued. Their time is
+ * when an old build says it was marked, or [fallback] (when the list of books was last
+ * saved), never "now": that would hide readings made on other devices since.
+ */
+fun marksToMigrate(books: List<LocalBook>, pending: Map<String, ReadMark>, fallback: Long): Map<String, ReadMark> =
+    books
+        .filter { it.finishedByHand != null && it.markedAt == 0L && it.document !in pending }
+        .associate { it.document to ReadMark.of(it.finishedByHand == true, it.legacyFinishedAt.takeIf { at -> at > 0 } ?: fallback) }
+
 /** Every book's position and mark on the server (`GET /api/progress`). */
 @Serializable
 data class LibraryProgress(
     val books: List<BookProgress> = emptyList(),
     val marks: List<MarkEntry> = emptyList(),
+    /** Marks that were cleared, and when (newer servers only). */
+    val cleared: List<ClearedEntry> = emptyList(),
 )
+
+@Serializable
+data class ClearedEntry(val document: String = "", val at: Long = 0)
 
 @Serializable
 data class BookProgress(
@@ -54,6 +75,9 @@ data class MarkEntry(
 
 /** How far a book of the library was read, as every device sees it. */
 data class RemoteReading(val percentage: Double, val finished: Boolean)
+
+fun LibraryProgress.clearedByDocument(): Map<String, Long> =
+    cleared.filter { it.document.isNotEmpty() }.associate { it.document to it.at }
 
 fun LibraryProgress.marksByDocument(): Map<String, ReadMark> =
     marks.filter { it.document.isNotEmpty() }.associate { it.document to ReadMark(it.state, it.at) }

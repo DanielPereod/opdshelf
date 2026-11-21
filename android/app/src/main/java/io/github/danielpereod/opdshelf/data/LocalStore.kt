@@ -3,6 +3,7 @@ package io.github.danielpereod.opdshelf.data
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
@@ -34,13 +35,26 @@ data class LocalBook(
     val finishedByHand: Boolean? = null,
     /** When [finishedByHand] was set, here or on another device, in Unix seconds (server time once synced). */
     val markedAt: Long = 0,
+    /** When [percentage] was read, in Unix seconds (server time once synced); 0 if unknown. */
+    val positionAt: Long = 0,
+    /** Left by an older build (the one of PR #54) that kept when a book was marked; only read, to migrate. */
+    @SerialName("finishedAt") val legacyFinishedAt: Long = 0,
     val meta: BookMeta = BookMeta(),
 ) {
-    /** Finished, as the web counts it: read to 98 %, unless marked otherwise. */
-    val finished: Boolean get() = finishedByHand ?: (percentage >= FINISHED_AT)
+    /**
+     * Finished, as the server counts it: marked as finished, or read to [FINISHED_AT];
+     * a mark of "not finished" only counts for what was read before it.
+     */
+    val finished: Boolean
+        get() = when (finishedByHand) {
+            true -> true
+            false -> percentage >= FINISHED_AT && positionAt > markedAt
+            null -> percentage >= FINISHED_AT
+        }
 
     companion object {
-        const val FINISHED_AT = 0.98
+        /** The server's threshold, which it also sends as `finished_at`. */
+        const val FINISHED_AT = 0.99
     }
 }
 
@@ -58,6 +72,11 @@ data class Bookmark(
 
 /** Downloaded books and reading positions, kept as JSON files in the app's storage. */
 class LocalStore(private val dir: File) {
+    // Declared first: the files are read below
+    private val damagedFiles = mutableListOf<String>()
+    /** Names of the files that could not be read at start (a copy of each is kept as `.bad`). */
+    val damaged: List<String> get() = damagedFiles.toList()
+
     val booksDir = File(dir, "books").apply { mkdirs() }
     private val booksFile = File(dir, "books.json")
     private val positionsFile = File(dir, "positions.json")
@@ -83,6 +102,27 @@ class LocalStore(private val dir: File) {
 
     private val statsFile = File(dir, "stats.json")
 
+    init {
+        migrateMarks()
+    }
+
+    /**
+     * Books marked as finished (or not) by an older version never had their mark
+     * queued, so the server and the other devices never heard of it. Queues those
+     * marks once: the book gets a [LocalBook.markedAt] that no longer matches.
+     */
+    private fun migrateMarks() {
+        val fallback = booksFile.lastModified().takeIf { it > 0 }?.div(1000) ?: return
+        val migrated = marksToMigrate(_books.value, pendingMarks, fallback)
+        if (migrated.isEmpty()) return
+        _books.value = _books.value.map { book ->
+            migrated[book.document]?.let { book.copy(markedAt = it.at) } ?: book
+        }
+        write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
+        pendingMarks = pendingMarks + migrated
+        write(marksFile, marksSerializer, pendingMarks)
+    }
+
     fun book(id: String): LocalBook? = _books.value.firstOrNull { it.id == id }
 
     fun file(book: LocalBook): File = File(booksDir, book.fileName)
@@ -97,7 +137,7 @@ class LocalStore(private val dir: File) {
     fun removeBook(book: LocalBook) {
         file(book).delete()
         book.coverFile?.let { File(booksDir, it).delete() }
-        if (bookmarks.containsKey(book.id)) setBookmarks(book.id, emptyList())
+        // The bookmarks stay: the book can be downloaded again at any time, and they come back with it
         _books.value = _books.value.filterNot { it.id == book.id }
         write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
     }
@@ -115,9 +155,29 @@ class LocalStore(private val dir: File) {
     }
 
     @Synchronized
-    fun setPercentage(document: String, percentage: Double) {
-        _books.value = _books.value.map { if (it.document == document) it.copy(percentage = percentage) else it }
+    fun setPercentage(document: String, percentage: Double, at: Long = System.currentTimeMillis() / 1000) {
+        _books.value = _books.value.map {
+            if (it.document == document) it.copy(percentage = percentage, positionAt = at) else it
+        }
         write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
+    }
+
+    /**
+     * Takes the positions of the server ([current], by document id) for the books on this
+     * device, so what was read elsewhere shows here: unless this device has a position
+     * not sent yet, or the server's is not newer.
+     */
+    @Synchronized
+    fun adoptPositions(current: Map<String, Position>) {
+        val next = _books.value.map { book ->
+            val server = current[book.document] ?: return@map book
+            if (positions[book.document]?.pending == true || server.timestamp <= book.positionAt) book
+            else book.copy(percentage = server.percentage, positionAt = server.timestamp)
+        }
+        if (next != _books.value) {
+            _books.value = next
+            write(booksFile, ListSerializer(LocalBook.serializer()), next)
+        }
     }
 
     @Synchronized
@@ -126,15 +186,21 @@ class LocalStore(private val dir: File) {
         write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
     }
 
-    /** Marks a book as finished or not, to be sent to the server ([pendingMarks]). */
+    /**
+     * Marks a book as finished or not, to be sent to the server ([pendingMarks]). "Not
+     * finished" below the threshold removes the mark, so the book shows how far it was
+     * read; above it, it is marked as unread.
+     */
     @Synchronized
     fun setFinished(id: String, finished: Boolean, at: Long = System.currentTimeMillis() / 1000) {
         val book = book(id) ?: return
+        val clear = !finished && book.percentage < LocalBook.FINISHED_AT
+        val mark = if (clear) ReadMark.clear(at) else ReadMark.of(finished, at)
         _books.value = _books.value.map {
-            if (it.document == book.document) it.copy(finishedByHand = finished, markedAt = at) else it
+            if (it.document == book.document) it.copy(finishedByHand = if (clear) null else finished, markedAt = at) else it
         }
         write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
-        pendingMarks = pendingMarks + (book.document to ReadMark.of(finished, at))
+        pendingMarks = pendingMarks + (book.document to mark)
         write(marksFile, marksSerializer, pendingMarks)
     }
 
@@ -162,6 +228,21 @@ class LocalStore(private val dir: File) {
     @Synchronized
     fun adoptMarks(marks: Map<String, ReadMark>) {
         val next = _books.value.map { it.withMark(marks[it.document], it.document in pendingMarks) }
+        if (next != _books.value) {
+            _books.value = next
+            write(booksFile, ListSerializer(LocalBook.serializer()), next)
+        }
+    }
+
+    /** Drops the marks the server says were cleared, if that is newer than the book's own. */
+    @Synchronized
+    fun adoptCleared(cleared: Map<String, Long>) {
+        val next = _books.value.map {
+            val at = cleared[it.document]
+            if (at != null && it.finishedByHand != null && it.document !in pendingMarks && at > it.markedAt) {
+                it.copy(finishedByHand = null, markedAt = at)
+            } else it
+        }
         if (next != _books.value) {
             _books.value = next
             write(booksFile, ListSerializer(LocalBook.serializer()), next)
@@ -221,17 +302,51 @@ class LocalStore(private val dir: File) {
         write(annotationsFile, annotationsSerializer, _annotations.value)
     }
 
+    /**
+     * Forgets everything waiting to be sent (positions, marks, highlights). For when the app is
+     * connected to another server: those changes are of the old one and must not reach the new.
+     * The books and highlights shown stay.
+     */
+    @Synchronized
+    fun discardPending() {
+        positions = positions.mapValues { it.value.copy(pending = false) }
+        write(positionsFile, positionsSerializer, positions)
+        pendingMarks = emptyMap()
+        write(marksFile, marksSerializer, pendingMarks)
+        _annotations.value.keys.toList().forEach { document ->
+            updateAnnotations(document) { it.copy(pending = emptyMap()) }
+        }
+    }
+
     /** Highlight changes not sent yet, by book. */
     @Synchronized
     fun pendingAnnotations(): Map<String, List<Annotation>> =
         _annotations.value.mapValues { it.value.pending.values.toList() }.filterValues { it.isNotEmpty() }
 
-    private fun <T> read(file: File, serializer: kotlinx.serialization.KSerializer<T>): T? =
-        runCatching { json.decodeFromString(serializer, file.readText()) }.getOrNull()
+    /**
+     * The file's content, or null if there is none. A file that exists but cannot be read
+     * (a power cut while it was written, a bad update) is copied aside as `.bad` before the
+     * next write replaces it, instead of being taken for an empty list and overwritten.
+     */
+    private fun <T> read(file: File, serializer: kotlinx.serialization.KSerializer<T>): T? {
+        if (!file.exists()) return null
+        return runCatching { json.decodeFromString(serializer, file.readText()) }.getOrElse {
+            runCatching { file.copyTo(File(file.parentFile, file.name + ".bad"), overwrite = true) }
+            damagedFiles += file.name
+            null
+        }
+    }
 
+    /** Writes to a temporary file, makes sure it reached the disk, and only then replaces the real one. */
     private fun <T> write(file: File, serializer: kotlinx.serialization.KSerializer<T>, value: T) {
         val tmp = File(file.parentFile, file.name + ".tmp")
-        tmp.writeText(json.encodeToString(serializer, value))
-        tmp.renameTo(file)
+        java.io.FileOutputStream(tmp).use { out ->
+            out.write(json.encodeToString(serializer, value).toByteArray())
+            out.fd.sync()
+        }
+        if (!tmp.renameTo(file)) {
+            tmp.copyTo(file, overwrite = true)
+            tmp.delete()
+        }
     }
 }

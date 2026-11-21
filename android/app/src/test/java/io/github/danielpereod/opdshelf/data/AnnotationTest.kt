@@ -21,6 +21,28 @@ class AnnotationTest {
     }
 
     @Test
+    fun aChangeMadeWhileSendingIsNotTakenForTheOneThatWasSent() {
+        // The server stamped the first version later than the second edit (the request took a while)
+        val local = LocalAnnotations(list = emptyList(), pending = mapOf("h1" to a("h1", 101, "second", device = "phone")))
+        val adopted = local.adopt(listOf(a("h1", 103, "first", device = "phone")), deviceId = "phone")
+        assertEquals("second", adopted.visible().single().note)
+        assertEquals(1, adopted.pending.size)
+        // One of another device that is newer still wins
+        assertTrue(local.adopt(listOf(a("h1", 103, "web", device = "web")), deviceId = "phone").pending.isEmpty())
+    }
+
+    @Test
+    fun timesAreKeptInTheServersClockAndSentInTheDevicesOwn() {
+        ServerClock.learn(serverTime = 10_300, deviceNow = 10_000)
+        try {
+            assertEquals(5_300, ServerClock.now(deviceNow = 5_000))
+            assertEquals(5_000, ServerClock.toDevice(5_300))
+        } finally {
+            ServerClock.forget()
+        }
+    }
+
+    @Test
     fun deletedOnesAreHiddenAndOrderFollowsTheBook() {
         val local = LocalAnnotations(listOf(a("b", 1, percentage = 0.9), a("a", 1, percentage = 0.1), a("c", 1).copy(deleted = true)))
         assertEquals(listOf("a", "b"), local.visible().map { it.id })

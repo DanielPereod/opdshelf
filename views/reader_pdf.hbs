@@ -124,6 +124,9 @@
   }
 
   function currentPage() {
+    // At the end the last page is the one being read, even when the pages before it
+    // are shorter than the screen (a landscape PDF on a phone)
+    if (container.scrollTop + container.clientHeight >= container.scrollHeight - 2) return pdf.numPages;
     const middle = container.scrollTop + container.clientHeight / 3;
     const pages = container.querySelectorAll('[data-page]');
     for (const el of pages) {

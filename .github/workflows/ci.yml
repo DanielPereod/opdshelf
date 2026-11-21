@@ -23,6 +23,9 @@ jobs:
           luajit koreader/test/library_test.lua koreader/opdshelf.koplugin
           luajit koreader/test/browser_test.lua koreader/opdshelf.koplugin
 
+      - name: Web scripts
+        run: for t in tests/web/*_test.js; do node "$t"; done
+
       - name: Build front-end assets
         run: |
           npm ci --no-audit --no-fund

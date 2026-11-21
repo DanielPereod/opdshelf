@@ -9,13 +9,19 @@
 //!
 //! The Android app marks books as finished or not finished here too, by
 //! document id and with the time it was marked on the device, so the newest
-//! mark wins whichever device sent it last.
+//! mark wins whichever device sent it last. A mark that is cleared leaves a
+//! tombstone (when it was cleared, in DATA_DIR/marks-cleared.json) for
+//! [`TOMBSTONE_DAYS`] days, so an older mark sent late by a device that was
+//! offline does not bring it back, and the apps can learn it was cleared.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
+
+/// How long the time a mark was cleared is remembered.
+const TOMBSTONE_DAYS: i64 = 400;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -38,12 +44,18 @@ pub struct Mark {
 pub struct Change {
     pub document: String,
     pub mark: Option<Mark>,
+    /// When the mark was cleared, if it was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cleared_at: Option<i64>,
 }
 
 #[derive(Clone)]
 pub struct Marks {
     file: PathBuf,
+    cleared_file: PathBuf,
     marks: Arc<Mutex<HashMap<String, Mark>>>,
+    /// When each cleared mark was cleared (by document id).
+    cleared: Arc<Mutex<HashMap<String, i64>>>,
     changes: broadcast::Sender<Change>,
 }
 
@@ -57,9 +69,21 @@ impl Marks {
             }),
             Err(_) => HashMap::new(),
         };
+        let cleared_file = dir.join("marks-cleared.json");
+        let mut cleared: HashMap<String, i64> = match std::fs::read(&cleared_file) {
+            Ok(json) => serde_json::from_slice(&json).unwrap_or_else(|err| {
+                tracing::error!("ignoring unreadable {}: {err}", cleared_file.display());
+                HashMap::new()
+            }),
+            Err(_) => HashMap::new(),
+        };
+        let oldest = chrono::Utc::now().timestamp() - TOMBSTONE_DAYS * 86_400;
+        cleared.retain(|_, at| *at >= oldest);
         Self {
             file,
+            cleared_file,
             marks: Arc::new(Mutex::new(marks)),
+            cleared: Arc::new(Mutex::new(cleared)),
             changes: broadcast::channel(256).0,
         }
     }
@@ -75,6 +99,11 @@ impl Marks {
 
     pub fn all(&self) -> HashMap<String, Mark> {
         self.marks.lock().unwrap().clone()
+    }
+
+    /// When each mark that was cleared (and not set again) was cleared.
+    pub fn cleared(&self) -> HashMap<String, i64> {
+        self.cleared.lock().unwrap().clone()
     }
 
     /// Marks the documents, or clears their mark with `None`.
@@ -94,36 +123,55 @@ impl Marks {
         force: bool,
     ) -> std::io::Result<Vec<(String, Option<Mark>)>> {
         let mut changed = Vec::new();
+        let mut tombstones_changed = false;
         let result: Vec<_> = {
             let mut marks = self.marks.lock().unwrap();
-            documents
+            let mut cleared = self.cleared.lock().unwrap();
+            let result = documents
                 .iter()
                 .map(|document| {
                     let before = marks.get(document).copied();
-                    let newer = before.is_some_and(|m| m.at > at);
+                    let before_cleared = cleared.get(document).copied();
+                    // A mark made after this one, or a clear after it, wins
+                    let newer = before.is_some_and(|m| m.at > at) || before_cleared.is_some_and(|c| c > at);
                     if force || !newer {
                         match state {
-                            Some(state) => marks.insert(document.clone(), Mark { state, at }),
-                            None => marks.remove(document),
+                            Some(state) => {
+                                marks.insert(document.clone(), Mark { state, at });
+                                cleared.remove(document);
+                            }
+                            None => {
+                                marks.remove(document);
+                                cleared.insert(document.clone(), at);
+                            }
                         };
                     }
                     let after = marks.get(document).copied();
-                    if after != before {
+                    let after_cleared = cleared.get(document).copied();
+                    tombstones_changed |= after_cleared != before_cleared;
+                    if after != before || (after.is_none() && after_cleared != before_cleared) {
                         changed.push(Change {
                             document: document.clone(),
                             mark: after,
+                            cleared_at: if after.is_none() { after_cleared } else { None },
                         });
                     }
                     (document.clone(), after)
                 })
-                .collect()
+                .collect::<Vec<_>>();
+            // Sent while the marks are locked, so listeners get the changes in the
+            // order they were made
+            for change in &changed {
+                // Nobody listening is fine
+                let _ = self.changes.send(change.clone());
+            }
+            result
         };
+        if tombstones_changed {
+            self.save_cleared()?;
+        }
         if !changed.is_empty() {
             self.save()?;
-            for change in changed {
-                // Nobody listening is fine
-                let _ = self.changes.send(change);
-            }
         }
         Ok(result)
     }
@@ -144,7 +192,23 @@ impl Marks {
         if removed > 0 && !dry_run {
             self.save()?;
         }
+        if !dry_run {
+            let mut cleared = self.cleared.lock().unwrap();
+            let before = cleared.len();
+            cleared.retain(|document, _| keep(document));
+            let changed = cleared.len() != before;
+            drop(cleared);
+            if changed {
+                self.save_cleared()?;
+            }
+        }
         Ok(removed)
+    }
+
+    fn save_cleared(&self) -> std::io::Result<()> {
+        let cleared = self.cleared.lock().unwrap();
+        let json = serde_json::to_vec(&*cleared).map_err(std::io::Error::other)?;
+        crate::store::write_atomic(&self.cleared_file, &json)
     }
 
     fn save(&self) -> std::io::Result<()> {
@@ -181,8 +245,10 @@ mod tests {
                 at: 20
             })
         );
-        reopened.set(&["a".into()], None, 30).unwrap();
+        let now = chrono::Utc::now().timestamp();
+        reopened.set(&["a".into()], None, now).unwrap();
         assert_eq!(Marks::open(&dir).get("a"), None);
+        assert_eq!(Marks::open(&dir).cleared()["a"], now, "a cleared mark is remembered");
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -211,6 +277,16 @@ mod tests {
             })
         );
         assert_eq!(changes.try_recv().unwrap().mark.unwrap().at, 150);
+        // A mark older than the clear cannot bring it back
+        marks.set_at(&doc, None, 200, false).unwrap();
+        let _ = changes.try_recv();
+        let answer = marks.set_at(&doc, Some(State::Read), 180, false).unwrap();
+        assert!(answer[0].1.is_none());
+        // A newer one can
+        let answer = marks.set_at(&doc, Some(State::Read), 250, false).unwrap();
+        assert_eq!(answer[0].1.unwrap().at, 250);
+        assert!(marks.cleared().is_empty());
+        let _ = changes.try_recv();
         // The panel's marks are always the newest
         marks.set(&doc, None, 10).unwrap();
         assert_eq!(marks.get("doc"), None);

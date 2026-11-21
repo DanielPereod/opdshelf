@@ -222,6 +222,7 @@ class ReaderActivity : AppCompatActivity() {
         showBars(false)
         ui.reflowable = kind == Kind.EPUB
         ui.toc = flatten(pub.tableOfContents)
+        ui.readingOrder = pub.readingOrder.map { it.href.toString() }
         ui.searchable = pub.isSearchable
         val positions = pub.positions()
         positionsCache = positions
@@ -410,16 +411,36 @@ class ReaderActivity : AppCompatActivity() {
         }
     }
 
+    /** The page on screen now, and the last one saved: the debounce below can still be waiting when the reader closes. */
+    private var latestLocator: Locator? = null
+    private var savedLocator: Locator? = null
+
     @OptIn(FlowPreview::class)
     private fun watchPosition(nav: VisualNavigator) {
+        lifecycleScope.launch { nav.currentLocator.collect { latestLocator = it } }
         lifecycleScope.launch {
             nav.currentLocator.debounce(700).collect { locator ->
-                if (ready && !sameSpot(locator, baseline)) {
+                if (ready && !sameSpot(locator, baseline) && !sameSpot(locator, savedLocator)) {
                     baseline = null
+                    savedLocator = locator
                     save(locator)
                 }
             }
         }
+    }
+
+    /** Saves the page on screen now, if it was not yet: leaving right after turning a page, or on the last page, must not lose it. */
+    private fun savePendingPosition() {
+        val locator = latestLocator ?: return
+        if (!ready || sameSpot(locator, baseline) || sameSpot(locator, savedLocator)) return
+        baseline = null
+        savedLocator = locator
+        lifecycleScope.launch { save(locator) }
+    }
+
+    override fun onPause() {
+        savePendingPosition()
+        super.onPause()
     }
 
     private fun sameSpot(a: Locator, b: Locator?): Boolean =

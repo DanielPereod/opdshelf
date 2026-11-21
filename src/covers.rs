@@ -43,9 +43,13 @@ fn cached(path: &Path, generate: impl FnOnce() -> Option<Vec<u8>>) -> Option<Vec
     let data = generate()?;
     let write = || -> std::io::Result<()> {
         std::fs::create_dir_all(path.parent().expect("cache files have a parent"))?;
-        let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, &data)?;
-        std::fs::rename(tmp, path)
+        // Its own temporary file: two requests for the same cover at once must not write into one
+        let tmp = path.with_extension(format!("tmp-{:016x}", rand::random::<u64>()));
+        let result = std::fs::write(&tmp, &data).and_then(|()| std::fs::rename(&tmp, path));
+        if result.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        result
     };
     if let Err(err) = write() {
         tracing::debug!("cannot cache {}: {err}", path.display());
@@ -122,6 +126,11 @@ pub fn rename_cached(store: &Store, book: &Book, new_path: &str) {
 
 /// Deletes cached images of books that changed or no longer exist.
 pub fn prune(store: &Store, snapshot: &Snapshot) {
+    // An empty library is more likely a share that is down than a library with no books: keep
+    // the images, or they would all have to be made again
+    if snapshot.books.is_empty() {
+        return;
+    }
     let keep: HashSet<String> = snapshot.books.iter().map(|b| format!("{}.jpg", cache_key(b))).collect();
     for dir in ["covers", "thumbs"] {
         let Ok(entries) = std::fs::read_dir(store.cache_dir().join(dir)) else {
@@ -138,6 +147,26 @@ pub fn prune(store: &Store, snapshot: &Snapshot) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn requests_for_the_same_cover_at_once_do_not_share_a_temporary_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("thumbs/a.jpg");
+        let handles: Vec<_> = (0..8u8)
+            .map(|i| {
+                let path = path.clone();
+                std::thread::spawn(move || cached(&path, || Some(vec![i; 300_000])).unwrap())
+            })
+            .collect();
+        for handle in handles {
+            let data = handle.join().unwrap();
+            assert!(data.iter().all(|b| *b == data[0]), "a cover is never a mix of two");
+        }
+        let saved = std::fs::read(&path).unwrap();
+        assert!(saved.iter().all(|b| *b == saved[0]) && saved.len() == 300_000);
+        let left: Vec<_> = std::fs::read_dir(path.parent().unwrap()).unwrap().flatten().collect();
+        assert_eq!(left.len(), 1, "no temporary files are left");
+    }
 
     #[test]
     fn resizes_to_jpeg() {

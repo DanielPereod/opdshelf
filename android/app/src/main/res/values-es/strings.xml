@@ -12,6 +12,8 @@
     <string name="device_name">Nombre del dispositivo</string>
     <string name="device_name_help">Se muestra en otros dispositivos cuando continúan desde aquí</string>
     <string name="cannot_connect">No se puede conectar: %1$s</string>
+    <string name="sync_dropped">El servidor rechazó algunos cambios pendientes de enviar y se descartaron</string>
+    <string name="file_damaged">Un archivo guardado estaba dañado (%1$s). Se ha guardado una copia junto a él</string>
     <string name="checking">Comprobando…</string>
     <string name="save">Guardar</string>
     <string name="cannot_open_book">No se puede abrir este libro</string>
@@ -27,6 +29,7 @@
     <string name="error_refused">Nadie responde en esa dirección y puerto. Comprueba que el servidor está en marcha.</string>
     <string name="error_timeout">El servidor tarda demasiado en responder.</string>
     <string name="error_login">Usuario o contraseña incorrectos.</string>
+    <string name="error_server">El servidor ha respondido con un error (%1$d). Inténtalo de nuevo en un momento.</string>
     <string name="view_list">Lista</string>
     <string name="view_grid">Cuadrícula</string>
     <string name="cancel">Cancelar</string>

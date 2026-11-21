@@ -154,7 +154,8 @@ function Notes.track(items, snapshot, now, newId)
         end
     end
     for id, kept in pairs(snapshot) do
-        if not present[id] and not kept.deleted then
+        -- (An entry marked `missing` is a highlight of another device that is not in this book)
+        if not present[id] and not kept.deleted and not kept.missing then
             kept.deleted = true
             kept.deleted_at = math.max(now, kept.updated or 0)
             changed = true
@@ -192,14 +193,28 @@ Works out what to do with the server's highlights of the book.
 @param items KOReader's annotations
 @param list the server's highlights (tombstones included)
 @param snapshot id -> { sig, updated } (changed in place to the new agreement)
+@param complete whether `list` is all the server has for the book (not just what changed): a
+  highlight agreed on that the server no longer has (another server, a lost file) is forgotten
+  so that it is sent again
 @return actions: { add = {server…}, update = {{item, server}…}, remove = {item…} }
 --]]
-function Notes.merge(items, list, snapshot)
+function Notes.merge(items, list, snapshot, complete)
     local by_id = {}
     for _, item in ipairs(items) do
         if Notes.isHighlight(item) and item.opdshelf_id then by_id[item.opdshelf_id] = item end
     end
     local actions = { add = {}, update = {}, remove = {} }
+    if complete then
+        local on_server = {}
+        for _, s in ipairs(list or {}) do
+            if type(s) == "table" and type(s.id) == "string" then on_server[s.id] = true end
+        end
+        for id, kept in pairs(snapshot) do
+            if by_id[id] and not kept.deleted and not kept.missing and not on_server[id] then
+                snapshot[id] = nil
+            end
+        end
+    end
     for _, s in ipairs(list or {}) do
         if type(s) == "table" and type(s.id) == "string" then
             local item = by_id[s.id]
@@ -215,7 +230,9 @@ function Notes.merge(items, list, snapshot)
                     snapshot[s.id] = nil
                 end
             elseif not item then
-                if kept and kept.deleted and (kept.deleted_at or 0) >= (s.updated or 0) then
+                if kept and kept.missing and kept.sig == sig then
+                    -- Already tried: its text is not in this copy of the book
+                elseif kept and kept.deleted and (kept.deleted_at or 0) >= (s.updated or 0) then
                     -- Deleted here after its last change elsewhere: the deletion goes out
                     kept.sent = nil
                 elseif type(s.pos0) == "string" and s.pos0:sub(1, 1) == "/" then

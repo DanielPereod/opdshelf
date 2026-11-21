@@ -58,4 +58,15 @@ class LocalStoreTest {
         assertEquals(null, local.localFor(entry("urn:opdshelf:book:Other/B.epub", "other")))
         assertEquals(null, local.localFor(entry("urn:opdshelf:book:Other/B.epub", null)))
     }
+
+    @Test
+    fun removingABookKeepsItsBookmarks() = withDir { dir ->
+        val store = LocalStore(dir)
+        store.addBook(book)
+        store.setBookmarks("b", listOf(Bookmark(locator = "{}")))
+        store.removeBook(book)
+        assertEquals(1, store.bookmarks("b").size)
+        // They are there after a restart, and when the book is downloaded again
+        assertEquals(1, LocalStore(dir).bookmarks("b").size)
+    }
 }

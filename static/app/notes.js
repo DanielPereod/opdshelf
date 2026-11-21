@@ -137,7 +137,8 @@
         color: 'yellow', style: 'lighten', text: '', note: '', pos0: '', pos1: '', chapter: '', percentage: 0,
         ...before, ...annotation,
         id: annotation.id || newId(),
-        updated: Math.max(now(), (before && before.updated) || 0),
+        // Bringing back a deleted one must be newer than the deletion, even within the same second
+        updated: Math.max(now(), ((before && before.updated) || 0) + (before && before.deleted && !annotation.deleted ? 1 : 0)),
         device: me.name,
         device_id: me.id,
       };

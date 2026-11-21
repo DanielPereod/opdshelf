@@ -137,7 +137,7 @@ class LocalStore(private val dir: File) {
     fun removeBook(book: LocalBook) {
         file(book).delete()
         book.coverFile?.let { File(booksDir, it).delete() }
-        if (bookmarks.containsKey(book.id)) setBookmarks(book.id, emptyList())
+        // The bookmarks stay: the book can be downloaded again at any time, and they come back with it
         _books.value = _books.value.filterNot { it.id == book.id }
         write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
     }

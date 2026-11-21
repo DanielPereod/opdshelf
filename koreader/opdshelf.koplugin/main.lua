@@ -1274,15 +1274,17 @@ end
 function OPDShelf:receiveNotes(list, live)
     if type(list) ~= "table" or not self:hasBook() or not self:notesEnabled() then return end
     local doc = self.ui.document
-    if doc.info.has_pages then
-        -- Highlights of PDFs and comics go to the server, but are drawn only where they were made
-        self:trackNotes()
-        Notes.merge({}, {}, self:notesSnapshot())
-        return
-    end
     self:trackNotes()
     local items = self.ui.annotation.annotations
-    local actions = Notes.merge(items, list, self:notesSnapshot())
+    local snapshot = self:notesSnapshot()
+    local actions = Notes.merge(items, list, snapshot, not live)
+    if doc.info.has_pages then
+        -- Highlights made in other readers are not drawn in a PDF or a comic, but the changes and
+        -- deletions the server has of the ones made here are applied (or the next change made here
+        -- would undo them everywhere)
+        for _i, server in ipairs(actions.add) do snapshot[server.id] = nil end
+        actions.add = {}
+    end
     local count = #actions.add + #actions.update + #actions.remove
     if count == 0 then
         self:saveNotesSnapshot()
@@ -1311,11 +1313,15 @@ function OPDShelf:receiveNotes(list, live)
             end
             item.datetime = datetime
             item.opdshelf_sig = Notes.signature(item)
+            -- Placed by its text, so its xpointers are not the server's: what is agreed is this
+            -- copy, or it would be sent again on every sync
+            self:notesSnapshot()[server.id] = { sig = item.opdshelf_sig, updated = server.updated }
             added = added + 1
             self.ui:handleEvent(Event:new("AnnotationsModified", { item, nb_highlights_added = 1, index_modified = index }))
         else
-            -- Its text is not in this copy of the book: forget it here, keep it on the server
-            self:notesSnapshot()[server.id] = nil
+            -- Its text is not in this copy of the book: remember that, so it is not searched for
+            -- again on every sync (until the server's version of it changes)
+            self:notesSnapshot()[server.id] = { sig = Notes.signature(server), updated = server.updated, missing = true }
         end
     end
     for _, pair in ipairs(actions.update) do
@@ -1327,6 +1333,7 @@ function OPDShelf:receiveNotes(list, live)
         item.opdshelf_updated = server.updated
         item.opdshelf_server = fresh.opdshelf_server
         item.opdshelf_sig = Notes.signature(item)
+        self:notesSnapshot()[server.id] = { sig = item.opdshelf_sig, updated = server.updated }
         local has_note = item.note ~= nil
         self.ui:handleEvent(Event:new("AnnotationsModified", { item,
             nb_notes_added = (has_note and not had_note) and 1 or ((had_note and not has_note) and -1 or nil) }))

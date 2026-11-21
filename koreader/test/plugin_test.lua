@@ -615,6 +615,35 @@ p:onCloseDocument()
 util_lib.partialMD5 = nil
 doc_settings:saveSetting("partial_md5_checksum", "DOCHASH")
 
+-- 16. Highlights: what is agreed on, what the server lost, what cannot be placed
+do
+    local Notes = dofile(plugin_dir .. "/opdshelf_notes.lua")
+    local function item(id, note)
+        return { opdshelf_id = id, text = "text of " .. id, note = note, color = "yellow", drawer = "lighten",
+            pos0 = xp(1), pos1 = xp(2), datetime = "2026-11-01 10:00:00" }
+    end
+    local extra = function() return { device = "Kobo", device_id = "KOBO-ID" } end
+    -- A highlight agreed on that the server no longer has (another server, a lost file) goes out again
+    local mine = item("h1")
+    local snapshot = { h1 = { sig = Notes.signature(mine), updated = 10 } }
+    check(#Notes.outgoing({ mine }, snapshot, extra) == 0, "an agreed highlight is not sent")
+    Notes.merge({ mine }, {}, snapshot, false)
+    check(#Notes.outgoing({ mine }, snapshot, extra) == 0, "a partial list (a live event) does not make it forget")
+    Notes.merge({ mine }, {}, snapshot, true)
+    local out = Notes.outgoing({ mine }, snapshot, extra)
+    check(#out == 1 and out[1].id == "h1", "the server's full list without it makes it go out again")
+    -- One of another device that is not in this book is not searched for again, until it changes
+    local theirs = { id = "w9", text = "elsewhere", color = "green", style = "lighten", pos0 = "/body/x", pos1 = "/body/y", updated = 20 }
+    snapshot = {}
+    local actions = Notes.merge({}, { theirs }, snapshot, true)
+    check(#actions.add == 1, "a new highlight of another device is offered to place")
+    snapshot[theirs.id] = { sig = Notes.signature(theirs), updated = theirs.updated, missing = true }
+    check(#Notes.merge({}, { theirs }, snapshot, true).add == 0, "once it could not be placed it is not offered again")
+    check(not Notes.track({}, snapshot, 30, function() return "x" end) and not snapshot.w9.deleted, "nor deleted for not being in the book")
+    local changed = { id = "w9", text = "elsewhere", color = "red", style = "lighten", pos0 = "/body/x", pos1 = "/body/y", updated = 40 }
+    check(#Notes.merge({}, { changed }, snapshot, true).add == 1, "but it is when the server's version changes")
+end
+
 -- Every text of the plugin speaks Spanish
 local missing = {}
 -- 13. Finished books: KOReader's "Finished" status is synced as a mark

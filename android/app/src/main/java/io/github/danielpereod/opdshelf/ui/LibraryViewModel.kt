@@ -148,6 +148,22 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
     private val text get() = getApplication<Application>()
 
+    init {
+        // Said once when it happens: something waiting to be sent was refused by the server, or a
+        // saved file was damaged and a copy of it was kept
+        val damaged = app.store.damaged
+        if (damaged.isNotEmpty()) {
+            _messages.value = Notice(text.getString(R.string.file_damaged, damaged.joinToString(", ")))
+        }
+        viewModelScope.launch {
+            var seen = app.sync.dropped.value
+            app.sync.dropped.collect { count ->
+                if (count > seen) _messages.value = Notice(text.getString(R.string.sync_dropped))
+                seen = count
+            }
+        }
+    }
+
     fun openRoot() {
         selectSection(_section.value)
         refreshLibrary()

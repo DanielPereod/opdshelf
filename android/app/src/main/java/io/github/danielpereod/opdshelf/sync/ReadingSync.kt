@@ -54,6 +54,10 @@ class ReadingSync(
         store.pending().size + store.pendingAnnotations().values.sumOf { it.size } + store.pendingMarks().size
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
 
+    private val _dropped = MutableStateFlow(0)
+    /** How many queued changes the server refused for good (and were discarded) since the app started. */
+    val dropped: StateFlow<Int> = _dropped.asStateFlow()
+
     private val _library = MutableStateFlow<LibraryProgress?>(null)
     /** Every book's position and finished mark on the server, as last fetched; null until then. */
     val library: StateFlow<LibraryProgress?> = _library.asStateFlow()
@@ -159,6 +163,7 @@ class ReadingSync(
             } catch (e: HttpError) {
                 if (e.rejected) {
                     store.updateAnnotations(document) { it.sent(batch) }
+                    _dropped.update { it + 1 }
                 } else {
                     ok = false
                 }
@@ -174,6 +179,7 @@ class ReadingSync(
             } catch (e: HttpError) {
                 if (e.rejected) {
                     store.markSent(document, mark, null)
+                    _dropped.update { it + 1 }
                 } else {
                     ok = false
                 }
@@ -191,6 +197,7 @@ class ReadingSync(
                 // Only OPDShelf's own refusal (a bad request) is final; anything else is tried again
                 if (e.rejected) {
                     store.markSent(document, position)
+                    _dropped.update { it + 1 }
                 } else {
                     ok = false
                 }

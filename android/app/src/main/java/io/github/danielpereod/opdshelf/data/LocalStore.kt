@@ -72,6 +72,11 @@ data class Bookmark(
 
 /** Downloaded books and reading positions, kept as JSON files in the app's storage. */
 class LocalStore(private val dir: File) {
+    // Declared first: the files are read below
+    private val damagedFiles = mutableListOf<String>()
+    /** Names of the files that could not be read at start (a copy of each is kept as `.bad`). */
+    val damaged: List<String> get() = damagedFiles.toList()
+
     val booksDir = File(dir, "books").apply { mkdirs() }
     private val booksFile = File(dir, "books.json")
     private val positionsFile = File(dir, "positions.json")
@@ -327,6 +332,7 @@ class LocalStore(private val dir: File) {
         if (!file.exists()) return null
         return runCatching { json.decodeFromString(serializer, file.readText()) }.getOrElse {
             runCatching { file.copyTo(File(file.parentFile, file.name + ".bad"), overwrite = true) }
+            damagedFiles += file.name
             null
         }
     }

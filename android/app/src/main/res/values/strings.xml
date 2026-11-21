@@ -13,6 +13,8 @@
     <string name="device_name">Device name</string>
     <string name="device_name_help">Shown on other devices when they continue from here</string>
     <string name="cannot_connect">Cannot connect: %1$s</string>
+    <string name="sync_dropped">The server refused some changes waiting to be sent, and they were discarded</string>
+    <string name="file_damaged">A saved file was damaged (%1$s). A copy was kept next to it</string>
     <string name="checking">Checking…</string>
     <string name="save">Save</string>
     <string name="cannot_open_book">This book cannot be opened</string>

@@ -125,8 +125,8 @@ All settings are environment variables.
 | `APPS_CHANNEL` | `latest` (`beta` in the `:beta` image) | Which releases those downloads use: `latest` (from `main`) or `beta` |
 | `DATA_DIR` | `BOOKS_DIR/.opdshelf` | Where edited metadata, custom covers and the thumbnail cache are stored |
 | `TZ` | `UTC` | Time zone the reading statistics count days in, e.g. `Europe/Madrid` |
-| `WATCH` | `true` | Watch the books folder for changes. Set to `false` on network shares that do not report changes; the library is then rescanned on each request |
-| `SCAN_INTERVAL` | `600` | Seconds between full rescans while watching, as a safety net for missed events |
+| `WATCH` | `true` | Watch the books folder for changes. Set to `false` on network shares that do not report changes; the library is then rescanned when it is opened (a slow share is not scanned again for a few seconds, so many requests at once do not each walk the whole folder) and every `SCAN_INTERVAL` seconds |
+| `SCAN_INTERVAL` | `600` | Seconds between full rescans, as a safety net for missed events (and the only periodic scan without `WATCH`) |
 | `RUST_LOG` | `info` | Log level (`debug`, `info`, `warn`...) |
 
 Default extensions: `epub kepub pdf fb2 fbz mobi azw azw3 azw4 cbz cbr cb7 cbt djvu rtf txt html htm doc docx odt zip` (plus `.fb2.zip`).

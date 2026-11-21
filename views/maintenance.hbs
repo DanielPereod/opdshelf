@@ -58,6 +58,9 @@
   {{#if maint.emptyLibrary}}
   <div class="notice error"><i class="fas fa-circle-exclamation"></i>{{t "The library is empty: nothing can be cleaned until the books folder is back."}}</div>
   {{/if}}
+  {{#if maint.someUnreadable}}
+  <div class="notice error"><i class="fas fa-circle-exclamation"></i>{{#if maint.oneUnreadable}}{{t "One book could not be read just now, so positions, highlights, bookmarks and marks are not cleaned. Try again in a moment."}}{{else}}{{t "{n} books could not be read just now, so positions, highlights, bookmarks and marks are not cleaned. Try again in a moment." n=maint.unreadable}}{{/if}}</div>
+  {{/if}}
   <div class="maint-group">
     {{#each maint.orphans}}
     <div class="maint-row">

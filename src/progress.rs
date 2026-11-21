@@ -370,6 +370,9 @@ pub fn partial_md5(path: &Path) -> std::io::Result<String> {
     Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// How many books' ids are kept in memory (they are also kept in `document-ids.json`).
+const ID_CACHE_LIMIT: usize = 16384;
+
 type IdCache = Mutex<HashMap<PathBuf, (u64, i64, String)>>;
 
 /// The document id of a book, cached while the file does not change.
@@ -383,8 +386,13 @@ pub fn document_id(path: &Path, size: u64, modified: i64) -> Option<String> {
     }
     let id = partial_md5(path).ok()?;
     let mut cache = cache.lock().unwrap();
-    if cache.len() > 4096 {
-        cache.clear();
+    if cache.len() >= ID_CACHE_LIMIT {
+        // Room for new ones without forgetting them all: reading them again is slow on a network share
+        let mut drop = ID_CACHE_LIMIT / 4;
+        cache.retain(|_, _| {
+            drop = drop.saturating_sub(1);
+            drop == 0
+        });
     }
     cache.insert(path.to_path_buf(), (size, modified, id.clone()));
     Some(id)

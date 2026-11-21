@@ -72,6 +72,11 @@ pub fn router(config: Config) -> Router {
             if watch {
                 crate::watch::start(library.clone(), interval);
             }
+            if !watch || !library.watching() {
+                // No watcher (switched off, or the share cannot report changes): look again from
+                // time to time, and clean the thumbnails of books that are gone
+                crate::watch::rescan_periodically(library.clone(), interval);
+            }
             let books = library.snapshot().await.books.len();
             tracing::info!("library ready: {books} books");
             // Work out which book each synced position belongs to ahead of time
@@ -686,23 +691,40 @@ async fn admin_stats(State(state): State<AppState>, headers: HeaderMap, Query(qu
     page(&state, &headers, "admin", "Statistics - OPDShelf", data)
 }
 
-fn unique_destination(dir: &std::path::Path, name: &str) -> PathBuf {
-    let candidate = dir.join(name);
-    if !candidate.exists() {
-        return candidate;
-    }
+/// Takes a free name in `dir` for `name` (or `name (1)`, `name (2)`…) by creating the file, empty,
+/// so two uploads at once cannot choose the same one and one replace the other.
+async fn reserve_destination(dir: &std::path::Path, name: &str) -> std::io::Result<PathBuf> {
     let stem = paths::stem(name);
     let ext = paths::extension(name);
-    (1..)
-        .map(|i| {
-            dir.join(if ext.is_empty() {
-                format!("{stem} ({i})")
-            } else {
-                format!("{stem} ({i}).{ext}")
-            })
-        })
-        .find(|p| !p.exists())
-        .expect("some name is free")
+    for attempt in 0.. {
+        let candidate = dir.join(match (attempt, ext.is_empty()) {
+            (0, _) => name.to_string(),
+            (i, true) => format!("{stem} ({i})"),
+            (i, false) => format!("{stem} ({i}).{ext}"),
+        });
+        match tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+            .await
+        {
+            Ok(_) => return Ok(candidate),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(err),
+        }
+    }
+    unreachable!("some name is free")
+}
+
+/// Moves a file to a path nothing is at, failing if something is there by now (a plain rename
+/// would replace it). Shares that cannot make hard links get the plain check and rename.
+async fn rename_without_replacing(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    match tokio::fs::hard_link(from, to).await {
+        Ok(()) => tokio::fs::remove_file(from).await,
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => Err(err),
+        Err(_) if to.exists() => Err(std::io::ErrorKind::AlreadyExists.into()),
+        Err(_) => tokio::fs::rename(from, to).await,
+    }
 }
 
 /// Saves an uploaded book in `folder` (already sanitized) under a free name, answering where it went.
@@ -724,8 +746,12 @@ async fn save_book(
             file.write_all(&chunk?).await?;
         }
         file.flush().await?;
-        let dest = unique_destination(&dir, name);
-        tokio::fs::rename(&tmp, &dest).await?;
+        let dest = reserve_destination(&dir, name).await?;
+        // Over the empty file that holds the name
+        if let Err(err) = tokio::fs::rename(&tmp, &dest).await {
+            let _ = tokio::fs::remove_file(&dest).await;
+            return Err(err);
+        }
         Ok::<_, std::io::Error>(dest)
     }
     .await;
@@ -893,10 +919,22 @@ async fn move_book(state: &AppState, rel: &str, old_path: &std::path::Path, new_
         if let Some(parent) = new_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        tokio::fs::rename(old_path, &new_path).await
+        if new_path.exists() {
+            // Only the case of the name changes, on a disk that ignores it
+            tokio::fs::rename(old_path, &new_path).await
+        } else {
+            // Not over a file that appeared since the check above
+            rename_without_replacing(old_path, &new_path).await
+        }
     }
     .await;
-    result.map_err(|err| err.to_string())?;
+    result.map_err(|err| {
+        if err.kind() == std::io::ErrorKind::AlreadyExists {
+            format!("{new_rel} already exists")
+        } else {
+            err.to_string()
+        }
+    })?;
     carry_over(state, book.as_slice(), rel, new_rel);
     tracing::info!("renamed {rel} to {new_rel}");
     Ok(())

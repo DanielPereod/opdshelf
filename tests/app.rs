@@ -377,6 +377,23 @@ async fn upload_rename_delete_flow() {
 }
 
 #[tokio::test]
+async fn two_uploads_of_the_same_name_at_once_do_not_replace_each_other() {
+    let t = app();
+    let csrf = t.csrf().await;
+    let first = vec![b'a'; 200_000];
+    let second = vec![b'b'; 200_000];
+    let (files_one, files_two) = ([("same.epub", first.as_slice())], [("same.epub", second.as_slice())]);
+    let (one, two) = tokio::join!(t.upload(&csrf, "", &files_one), t.upload(&csrf, "", &files_two));
+    assert_eq!((one.0, two.0), (StatusCode::SEE_OTHER, StatusCode::SEE_OTHER));
+    let mut kept = vec![
+        std::fs::read(t.books().join("same.epub")).unwrap(),
+        std::fs::read(t.books().join("same (1).epub")).unwrap(),
+    ];
+    kept.sort();
+    assert_eq!(kept, vec![first, second], "both books are there, whole");
+}
+
+#[tokio::test]
 async fn opds_catalog() {
     let t = app();
     write_epub(&t.books().join("quijote.epub"), "Don Quijote", "Cervantes");

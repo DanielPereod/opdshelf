@@ -131,15 +131,19 @@ fn save_dismissed(dir: &Path, keys: &HashSet<String>) -> std::io::Result<()> {
     let mut list: Vec<&String> = keys.iter().collect();
     list.sort();
     std::fs::create_dir_all(dir)?;
-    let file = dismissed_file(dir);
-    let tmp = file.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(&list).map_err(std::io::Error::other)?)?;
-    std::fs::rename(tmp, file)
+    crate::store::write_atomic(
+        &dismissed_file(dir),
+        &serde_json::to_vec_pretty(&list).map_err(std::io::Error::other)?,
+    )
 }
+
+/// One change at a time to the file of dismissed groups: each reads it, changes it and writes it.
+static DISMISSED_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Keeps the groups marked as "not duplicates" when a book, or a folder with
 /// books in it, moves: their keys name the books by path.
 pub fn rename_dismissed(dir: &Path, from: &str, to: &str) {
+    let _one_at_a_time = DISMISSED_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let keys = dismissed(dir);
     let mut changed = false;
     let renamed: HashSet<String> = keys
@@ -174,6 +178,9 @@ pub struct Orphans {
     pub highlights: usize,
     pub bookmarks: usize,
     pub marks: usize,
+    /// Books whose id could not be read just now (a share that failed, a locked file). While there
+    /// are any, the data kept by id is neither counted nor removed: it may belong to them.
+    pub unreadable: usize,
 }
 
 /// Counts what is left of books that are gone, or removes it: only the parts
@@ -186,17 +193,23 @@ async fn orphans(state: &AppState, clean: &[&str]) -> std::io::Result<Orphans> {
     let snapshot = state.library.snapshot().await;
     let paths: HashSet<&str> = snapshot.books.iter().map(|b| b.path.as_str()).collect();
     let safe = !snapshot.books.is_empty();
+    let known = state.documents.ids_by_path();
+    let unreadable = snapshot.books.iter().filter(|b| !known.contains_key(&b.path)).count();
     let dry = |what: &str| !(safe && clean.contains(&what));
+    // The data kept by id is only judged when every book's id is known
+    let dry_by_id = |what: &str| dry(what) || unreadable > 0;
     let present = |doc: &str| index.contains_key(doc);
     let store = state.library.store();
     let metadata = store.retain_books(|p| paths.contains(p), dry("metadata"))?;
+    let by_id = |count: usize| if unreadable > 0 { 0 } else { count };
     Ok(Orphans {
         metadata,
         covers: store.unused_covers(dry("covers")),
-        progress: state.progress.retain_documents(present, dry("progress"))?,
-        highlights: state.annotations.retain_documents(present, dry("highlights"))?,
-        bookmarks: state.bookmarks.retain_documents(present, dry("bookmarks"))?,
-        marks: state.marks.retain_documents(present, dry("marks"))?,
+        progress: by_id(state.progress.retain_documents(present, dry_by_id("progress"))?),
+        highlights: by_id(state.annotations.retain_documents(present, dry_by_id("highlights"))?),
+        bookmarks: by_id(state.bookmarks.retain_documents(present, dry_by_id("bookmarks"))?),
+        marks: by_id(state.marks.retain_documents(present, dry_by_id("marks"))?),
+        unreadable,
     })
 }
 
@@ -261,6 +274,9 @@ pub async fn tab_data(state: &AppState) -> std::io::Result<serde_json::Value> {
         "orphanTotal": orphan_total,
         "oneOrphan": orphan_total == 1,
         "emptyLibrary": snapshot.books.is_empty(),
+        "unreadable": counts.unreadable,
+        "someUnreadable": counts.unreadable > 0,
+        "oneUnreadable": counts.unreadable == 1,
     }))
 }
 
@@ -314,19 +330,27 @@ pub async fn dismiss(State(state): State<AppState>, Form(form): Form<DismissForm
         return (StatusCode::FORBIDDEN, "Invalid CSRF token").into_response();
     }
     let dir = state.library.store().dir().to_path_buf();
+    // Every book's id is needed to know which groups there are
+    state.documents.index(&state.library).await;
+    let snapshot = state.library.snapshot().await;
+    let ids = state.documents.ids_by_path();
+    let complete = !snapshot.books.is_empty() && snapshot.books.iter().all(|b| ids.contains_key(&b.path));
+    let current: HashSet<String> = find_duplicates(&snapshot.books, &ids)
+        .into_iter()
+        .map(|g| g.key)
+        .collect();
+    let _one_at_a_time = DISMISSED_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut keys = dismissed(&dir);
     if form.key.len() < 100_000 {
         // The key lists the paths one per line, and browsers send the line
         // breaks of a form field as CRLF
         keys.insert(form.key.replace("\r\n", "\n"));
     }
-    // Forget groups that no longer exist, so the file does not grow forever
-    let snapshot = state.library.snapshot().await;
-    let current: HashSet<String> = find_duplicates(&snapshot.books, &state.documents.ids_by_path())
-        .into_iter()
-        .map(|g| g.key)
-        .collect();
-    keys.retain(|k| current.contains(k));
+    // Forget groups that no longer exist, so the file does not grow forever. Not while a book's
+    // id could not be read: its group is missing from the list for that reason only
+    if complete {
+        keys.retain(|k| current.contains(k));
+    }
     match save_dismissed(&dir, &keys) {
         Ok(()) => redirect(Some("Marked as not duplicates"), None),
         Err(err) => redirect(None, Some(&format!("Cannot save: {err}"))),
@@ -338,6 +362,7 @@ pub async fn undismiss(State(state): State<AppState>, Form(form): Form<CsrfForm>
     if !state.auth.check_csrf(&form.csrf) {
         return (StatusCode::FORBIDDEN, "Invalid CSRF token").into_response();
     }
+    let _one_at_a_time = DISMISSED_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _ = std::fs::remove_file(dismissed_file(state.library.store().dir()));
     redirect(None, None)
 }

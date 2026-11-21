@@ -257,6 +257,14 @@ pub const SPANISH: &[(&str, &str)] = &[
     ("Sort by {column}", "Ordenar por {column}"),
     ("Live", "En vivo"),
     ("Connecting…", "Conectando…"),
+    (
+        "One book could not be read just now, so positions, highlights, bookmarks and marks are not cleaned. Try again in a moment.",
+        "Un libro no se ha podido leer ahora mismo, así que no se limpian posiciones, subrayados, marcadores ni marcas. Inténtalo de nuevo en un momento.",
+    ),
+    (
+        "{n} books could not be read just now, so positions, highlights, bookmarks and marks are not cleaned. Try again in a moment.",
+        "{n} libros no se han podido leer ahora mismo, así que no se limpian posiciones, subrayados, marcadores ni marcas. Inténtalo de nuevo en un momento.",
+    ),
     ("The library changed on another device.", "La biblioteca ha cambiado en otro dispositivo."),
     ("Reload", "Recargar"),
     (
@@ -726,8 +734,8 @@ pub const SPANISH: &[(&str, &str)] = &[
         "Activada: los cambios aparecen al momento, con una revisión completa cada {n} min",
     ),
     (
-        "Off: the books folder is read again each time the library is opened",
-        "Desactivada: la carpeta de libros se vuelve a leer cada vez que se abre la biblioteca",
+        "Off: the books folder is read again when the library is opened (a slow share is not read more often than every few seconds) and every {n} min",
+        "Desactivada: la carpeta de libros se vuelve a leer al abrir la biblioteca (una carpeta de red lenta no se lee más a menudo que cada pocos segundos) y cada {n} min",
     ),
     ("Project on GitHub", "Proyecto en GitHub"),
     ("Documentation", "Documentación"),

@@ -93,6 +93,7 @@ fn diff(form: &HashMap<String, String>, file: &BookMeta, file_title: &str) -> Me
         series: changed("series", &file.series),
         series_index: changed("series_index", &file.series_index),
         cover: None,
+        document: None,
     }
 }
 
@@ -129,7 +130,6 @@ pub async fn save(State(state): State<AppState>, mut multipart: Multipart) -> Re
     };
     let file_title = file_meta.title.clone().unwrap_or_else(|| paths::stem(&rel));
     let store = state.library.store().clone();
-    let previous = store.get(&rel).unwrap_or_default();
 
     let mut edit = diff(&form, &file_meta, &file_title);
     let cover_url = form.get("cover_url").map(|u| u.trim()).unwrap_or_default();
@@ -147,6 +147,11 @@ pub async fn save(State(state): State<AppState>, mut multipart: Multipart) -> Re
     } else {
         None
     };
+    // One save at a time: two at once of the same book would each take the other's cover for the
+    // old one and delete it, leaving the edit pointing at a cover that is gone
+    static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _one_at_a_time = ONE_AT_A_TIME.lock().await;
+    let previous = store.get(&rel).unwrap_or_default();
     edit.cover = match new_cover {
         Some(image) => match store.save_cover(&image) {
             Ok(file) => Some(file),
@@ -163,6 +168,8 @@ pub async fn save(State(state): State<AppState>, mut multipart: Multipart) -> Re
     let result = if edit == MetaOverride::default() {
         store.remove(&rel)
     } else {
+        // Which book it is stays noted, so it follows the file if it is renamed outside the panel
+        edit.document = previous.document;
         store.set(&rel, edit)
     };
     if let Err(err) = result {

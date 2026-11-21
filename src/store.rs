@@ -34,6 +34,10 @@ pub struct MetaOverride {
     /// File name inside DATA_DIR/covers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cover: Option<String>,
+    /// The book's document id, noted by `Store::relink`: the edit follows the book when the file
+    /// is renamed or moved outside the panel (in the NAS, in Calibre).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document: Option<String>,
 }
 
 impl MetaOverride {
@@ -155,6 +159,47 @@ impl Store {
         }
     }
 
+    /// Keeps the edits with their books: notes which book (by document id) each edit belongs to,
+    /// and moves an edit whose file is gone to the new path of the book with that id, when it has
+    /// none of its own there. `index` is document id → path, `ids` path → document id, of the
+    /// books there are now. Returns whether anything changed.
+    pub fn relink(&self, index: &HashMap<String, String>, ids: &HashMap<String, String>) -> std::io::Result<bool> {
+        let changed = {
+            let mut map = self.overrides.lock().unwrap();
+            let mut changed = false;
+            let paths: Vec<String> = map.keys().cloned().collect();
+            for path in paths {
+                if let Some(id) = ids.get(&path) {
+                    // The book is there: note which one it is
+                    let edit = map.get_mut(&path).expect("the key was just listed");
+                    if edit.document.as_ref() != Some(id) {
+                        edit.document = Some(id.clone());
+                        changed = true;
+                    }
+                    continue;
+                }
+                // Not found by its path: the file was renamed or moved, or is only unreadable now
+                let Some(document) = map.get(&path).and_then(|e| e.document.clone()) else {
+                    continue;
+                };
+                let Some(now) = index.get(&document) else {
+                    continue;
+                };
+                if now != &path && !map.contains_key(now) {
+                    if let Some(edit) = map.remove(&path) {
+                        map.insert(now.clone(), edit);
+                        changed = true;
+                    }
+                }
+            }
+            changed
+        };
+        if changed {
+            self.save()?;
+        }
+        Ok(changed)
+    }
+
     /// Drops the edits of books `keep` rejects (no longer in the library) and
     /// their covers, or only counts them with `dry_run`. Returns how many.
     pub fn retain_books(&self, keep: impl Fn(&str) -> bool, dry_run: bool) -> std::io::Result<usize> {
@@ -249,10 +294,15 @@ pub(crate) fn write_atomic(file: &Path, data: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir)?;
     }
+    // Its own temporary file, so two saves at once never write into the same one
     let mut tmp = file.as_os_str().to_owned();
-    tmp.push(".tmp");
-    std::fs::write(&tmp, data)?;
-    std::fs::rename(tmp, file)
+    tmp.push(format!(".tmp-{:016x}", rand::random::<u64>()));
+    let tmp = PathBuf::from(tmp);
+    let result = std::fs::write(&tmp, data).and_then(|()| std::fs::rename(&tmp, file));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 #[cfg(test)]

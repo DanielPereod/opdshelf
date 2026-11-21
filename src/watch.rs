@@ -64,19 +64,27 @@ pub fn start(library: Library, scan_interval: Duration) {
         }
     });
 
-    if !scan_interval.is_zero() {
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(scan_interval);
-            ticker.tick().await;
-            loop {
-                ticker.tick().await;
-                library.invalidate();
-                let snapshot = library.refresh().await;
-                let store = library.store().clone();
-                let _ = tokio::task::spawn_blocking(move || covers::prune(&store, &snapshot)).await;
-            }
-        });
+    rescan_periodically(library, scan_interval);
+}
+
+/// Rescans the library every `interval` and removes the thumbnails of books that are gone. With a
+/// watcher it is a safety net for missed events; without one (network shares) it is also what
+/// keeps the cache of thumbnails from growing.
+pub fn rescan_periodically(library: Library, interval: Duration) {
+    if interval.is_zero() {
+        return;
     }
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(interval);
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            library.invalidate();
+            let snapshot = library.refresh().await;
+            let store = library.store().clone();
+            let _ = tokio::task::spawn_blocking(move || covers::prune(&store, &snapshot)).await;
+        }
+    });
 }
 
 /// Changes inside hidden folders (like DATA_DIR's default `.opdshelf`) are ignored.
@@ -84,7 +92,7 @@ fn is_hidden(root: &Path, path: &Path) -> bool {
     path.strip_prefix(root)
         .map(|rel| {
             rel.components()
-                .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+                .any(|c| crate::paths::is_ignored(&c.as_os_str().to_string_lossy()))
         })
         .unwrap_or(true)
 }

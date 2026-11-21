@@ -233,8 +233,10 @@
         ? (liveCount === 1 ? t('1 connected now') : t('{n} connected now', { n: liveCount }))
         : active === 1 ? t('1 active in the last minutes')
           : active ? t('{n} active in the last minutes', { n: active }) : t('None connected now');
-      $('statBooks').textContent = books.length;
-      const reading = books.filter((b) => b.current.percentage > 0 && b.current.percentage < 0.98).length;
+      // Only books still in the library; where each one is at comes from the server
+      const inLibrary = books.filter((b) => b.path);
+      $('statBooks').textContent = inLibrary.length;
+      const reading = inLibrary.filter((b) => b.status === 'reading').length;
       $('statReading').textContent = t('{n} in progress', { n: reading });
       const last = books[0];
       $('statLast').textContent = last ? timeAgo(last.current.timestamp) : '—';

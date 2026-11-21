@@ -32,13 +32,37 @@ pub struct FeedQuery {
 /// Where a book is at, worked out as the web panel does: from its newest
 /// position, unless it was marked as read or unread in the panel.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Status {
+pub enum Status {
     Reading,
     Finished,
 }
 
-/// The same threshold as the web panel: the last page often starts before 100 %.
-const FINISHED: f64 = 0.98;
+impl Status {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Status::Reading => "reading",
+            Status::Finished => "finished",
+        }
+    }
+}
+
+/// Read this far, a book counts as finished: the last page often starts before
+/// 100 %. The one threshold of the server, the panel, the statistics and the
+/// apps (they get it as `finished_at` from `GET /api/progress`).
+pub const FINISHED: f64 = 0.99;
+
+/// Where a book is at, from its newest position and its mark, with when: null
+/// when it was never started, or was marked as unread after its last position.
+pub fn effective_status(record: &crate::progress::Record, mark: Option<&crate::marks::Mark>) -> Option<(Status, i64)> {
+    use crate::marks::State as Mark;
+    match mark {
+        Some(m) if m.state == Mark::Read => Some((Status::Finished, m.at.max(record.timestamp))),
+        Some(m) if m.state == Mark::Unread && record.timestamp <= m.at => None,
+        _ if record.percentage >= FINISHED => Some((Status::Finished, record.timestamp)),
+        _ if record.percentage > 0.0 => Some((Status::Reading, record.timestamp)),
+        _ => None,
+    }
+}
 
 /// The status of every started or finished book (by path), with when it was last read.
 async fn statuses(state: &AppState) -> HashMap<String, (Status, i64)> {
@@ -48,12 +72,8 @@ async fn statuses(state: &AppState) -> HashMap<String, (Status, i64)> {
     let mut out = HashMap::new();
     for (document, record) in state.progress.all_current() {
         let Some(path) = index.get(&document) else { continue };
-        let status = match marks.get(&document) {
-            Some(m) if m.state == Mark::Read => (Status::Finished, m.at.max(record.timestamp)),
-            Some(m) if m.state == Mark::Unread && record.timestamp <= m.at => continue,
-            _ if record.percentage >= FINISHED => (Status::Finished, record.timestamp),
-            _ if record.percentage > 0.0 => (Status::Reading, record.timestamp),
-            _ => continue,
+        let Some(status) = effective_status(&record, marks.get(&document)) else {
+            continue;
         };
         out.insert(path.clone(), status);
     }

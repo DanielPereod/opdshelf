@@ -19,8 +19,7 @@ use crate::web::AppState;
 
 /// A longer pause between two positions ends a reading session.
 pub const GAP: i64 = 10 * 60;
-/// Read this far, a book counts as finished.
-const FINISHED: f64 = 0.99;
+use crate::opds::FINISHED;
 /// A day with at least this much reading keeps a streak going and counts as
 /// a reading day. The panel and the apps write durations in whole minutes read
 /// (33 s are "0 min"), so a day shown with "1 min" always counts.

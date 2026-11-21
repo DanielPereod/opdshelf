@@ -35,15 +35,26 @@ data class LocalBook(
     val finishedByHand: Boolean? = null,
     /** When [finishedByHand] was set, here or on another device, in Unix seconds (server time once synced). */
     val markedAt: Long = 0,
+    /** When [percentage] was read, in Unix seconds (server time once synced); 0 if unknown. */
+    val positionAt: Long = 0,
     /** Left by an older build (the one of PR #54) that kept when a book was marked; only read, to migrate. */
     @SerialName("finishedAt") val legacyFinishedAt: Long = 0,
     val meta: BookMeta = BookMeta(),
 ) {
-    /** Finished, as the web counts it: read to 98 %, unless marked otherwise. */
-    val finished: Boolean get() = finishedByHand ?: (percentage >= FINISHED_AT)
+    /**
+     * Finished, as the server counts it: marked as finished, or read to [FINISHED_AT];
+     * a mark of "not finished" only counts for what was read before it.
+     */
+    val finished: Boolean
+        get() = when (finishedByHand) {
+            true -> true
+            false -> percentage >= FINISHED_AT && positionAt > markedAt
+            null -> percentage >= FINISHED_AT
+        }
 
     companion object {
-        const val FINISHED_AT = 0.98
+        /** The server's threshold, which it also sends as `finished_at`. */
+        const val FINISHED_AT = 0.99
     }
 }
 
@@ -139,9 +150,29 @@ class LocalStore(private val dir: File) {
     }
 
     @Synchronized
-    fun setPercentage(document: String, percentage: Double) {
-        _books.value = _books.value.map { if (it.document == document) it.copy(percentage = percentage) else it }
+    fun setPercentage(document: String, percentage: Double, at: Long = System.currentTimeMillis() / 1000) {
+        _books.value = _books.value.map {
+            if (it.document == document) it.copy(percentage = percentage, positionAt = at) else it
+        }
         write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
+    }
+
+    /**
+     * Takes the positions of the server ([current], by document id) for the books on this
+     * device, so what was read elsewhere shows here: unless this device has a position
+     * not sent yet, or the server's is not newer.
+     */
+    @Synchronized
+    fun adoptPositions(current: Map<String, Position>) {
+        val next = _books.value.map { book ->
+            val server = current[book.document] ?: return@map book
+            if (positions[book.document]?.pending == true || server.timestamp <= book.positionAt) book
+            else book.copy(percentage = server.percentage, positionAt = server.timestamp)
+        }
+        if (next != _books.value) {
+            _books.value = next
+            write(booksFile, ListSerializer(LocalBook.serializer()), next)
+        }
     }
 
     @Synchronized
@@ -150,15 +181,21 @@ class LocalStore(private val dir: File) {
         write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
     }
 
-    /** Marks a book as finished or not, to be sent to the server ([pendingMarks]). */
+    /**
+     * Marks a book as finished or not, to be sent to the server ([pendingMarks]). "Not
+     * finished" below the threshold removes the mark, so the book shows how far it was
+     * read; above it, it is marked as unread.
+     */
     @Synchronized
     fun setFinished(id: String, finished: Boolean, at: Long = System.currentTimeMillis() / 1000) {
         val book = book(id) ?: return
+        val clear = !finished && book.percentage < LocalBook.FINISHED_AT
+        val mark = if (clear) ReadMark.clear(at) else ReadMark.of(finished, at)
         _books.value = _books.value.map {
-            if (it.document == book.document) it.copy(finishedByHand = finished, markedAt = at) else it
+            if (it.document == book.document) it.copy(finishedByHand = if (clear) null else finished, markedAt = at) else it
         }
         write(booksFile, ListSerializer(LocalBook.serializer()), _books.value)
-        pendingMarks = pendingMarks + (book.document to ReadMark.of(finished, at))
+        pendingMarks = pendingMarks + (book.document to mark)
         write(marksFile, marksSerializer, pendingMarks)
     }
 
@@ -186,6 +223,21 @@ class LocalStore(private val dir: File) {
     @Synchronized
     fun adoptMarks(marks: Map<String, ReadMark>) {
         val next = _books.value.map { it.withMark(marks[it.document], it.document in pendingMarks) }
+        if (next != _books.value) {
+            _books.value = next
+            write(booksFile, ListSerializer(LocalBook.serializer()), next)
+        }
+    }
+
+    /** Drops the marks the server says were cleared, if that is newer than the book's own. */
+    @Synchronized
+    fun adoptCleared(cleared: Map<String, Long>) {
+        val next = _books.value.map {
+            val at = cleared[it.document]
+            if (at != null && it.finishedByHand != null && it.document !in pendingMarks && at > it.markedAt) {
+                it.copy(finishedByHand = null, markedAt = at)
+            } else it
+        }
         if (next != _books.value) {
             _books.value = next
             write(booksFile, ListSerializer(LocalBook.serializer()), next)

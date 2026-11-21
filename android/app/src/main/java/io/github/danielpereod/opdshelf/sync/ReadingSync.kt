@@ -63,6 +63,8 @@ class ReadingSync(
     suspend fun refreshLibrary(): Boolean = runCatching {
         val progress = api.libraryProgress()
         store.adoptMarks(progress.marksByDocument())
+        store.adoptCleared(progress.clearedByDocument())
+        store.adoptPositions(progress.books.mapNotNull { b -> b.current?.let { b.document to it } }.toMap())
         _library.value = progress
         true
     }.getOrDefault(false)
@@ -86,7 +88,7 @@ class ReadingSync(
         val start = chooseStart(local, server, settings.deviceId)
         if (start.position != null && start.position == server) {
             store.savePosition(document, LocalPosition(server, pending = false, locator = start.locator))
-            store.setPercentage(document, server.percentage)
+            store.setPercentage(document, server.percentage, server.timestamp)
         }
         return start
     }

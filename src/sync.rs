@@ -42,11 +42,19 @@ pub async fn get_progress(State(state): State<AppState>, Path(document): Path<St
     if !progress::valid_document(&document) {
         return bad_document();
     }
+    let current = state.progress.current(&document);
+    let mark = state.marks.get(&document);
+    let status = current
+        .as_ref()
+        .and_then(|c| crate::opds::effective_status(c, mark.as_ref()));
     Json(json!({
         "document": document,
-        "current": state.progress.current(&document),
+        "current": current,
         "history": state.progress.history(&document),
-        "mark": state.marks.get(&document),
+        "mark": mark,
+        "status": status.map(|(s, _)| s.as_str()),
+        "status_at": status.map(|(_, at)| at),
+        "finished_at": crate::opds::FINISHED,
         "server_time": now(),
     }))
     .into_response()
@@ -269,10 +277,16 @@ pub async fn list_progress(State(state): State<AppState>) -> Response {
     let books = books_by_document(&state).await;
     let mut current = state.progress.all_current();
     current.sort_by_key(|c| std::cmp::Reverse(c.1.timestamp));
+    let all_marks = state.marks.all();
     let list: Vec<_> = current
         .into_iter()
         .map(|(document, record)| {
             let mut entry = book_fields(&books, &document);
+            // Where the book is at: finished, reading or null (not started, or
+            // marked as unread since), the same for every client
+            let status = crate::opds::effective_status(&record, all_marks.get(&document));
+            entry["status"] = json!(status.map(|(s, _)| s.as_str()));
+            entry["status_at"] = json!(status.map(|(_, at)| at));
             entry["document"] = json!(document);
             entry["current"] = serde_json::to_value(record).unwrap_or_default();
             entry
@@ -297,7 +311,7 @@ pub async fn list_progress(State(state): State<AppState>) -> Response {
         .into_iter()
         .map(|(document, at)| json!({ "document": document, "at": at }))
         .collect();
-    Json(json!({ "books": list, "marks": marks, "cleared": cleared, "server_time": now() })).into_response()
+    Json(json!({ "books": list, "marks": marks, "cleared": cleared, "finished_at": crate::opds::FINISHED, "server_time": now() })).into_response()
 }
 
 #[derive(Deserialize)]

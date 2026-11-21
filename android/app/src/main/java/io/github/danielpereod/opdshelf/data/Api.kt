@@ -2,6 +2,7 @@ package io.github.danielpereod.opdshelf.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -107,7 +108,7 @@ class Api(private val settings: Settings) {
         val body = JsonObject(
             mapOf(
                 "documents" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive(document))),
-                "state" to JsonPrimitive(mark.state),
+                "state" to if (mark.cleared) JsonNull else JsonPrimitive(mark.state),
                 "at" to JsonPrimitive(mark.at),
                 "sent_at" to JsonPrimitive(System.currentTimeMillis() / 1000),
             )

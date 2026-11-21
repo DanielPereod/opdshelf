@@ -10,12 +10,17 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class ReadMark(val state: String, val at: Long) {
     val finished: Boolean get() = state == READ
+    val cleared: Boolean get() = state == CLEAR
 
     companion object {
         const val READ = "read"
         const val UNREAD = "unread"
+        /** Only here, never on the server: the mark is removed (sent as null). */
+        const val CLEAR = "clear"
 
         fun of(finished: Boolean, at: Long) = ReadMark(if (finished) READ else UNREAD, at)
+
+        fun clear(at: Long) = ReadMark(CLEAR, at)
     }
 }
 
@@ -45,7 +50,12 @@ fun marksToMigrate(books: List<LocalBook>, pending: Map<String, ReadMark>, fallb
 data class LibraryProgress(
     val books: List<BookProgress> = emptyList(),
     val marks: List<MarkEntry> = emptyList(),
+    /** Marks that were cleared, and when (newer servers only). */
+    val cleared: List<ClearedEntry> = emptyList(),
 )
+
+@Serializable
+data class ClearedEntry(val document: String = "", val at: Long = 0)
 
 @Serializable
 data class BookProgress(
@@ -65,6 +75,9 @@ data class MarkEntry(
 
 /** How far a book of the library was read, as every device sees it. */
 data class RemoteReading(val percentage: Double, val finished: Boolean)
+
+fun LibraryProgress.clearedByDocument(): Map<String, Long> =
+    cleared.filter { it.document.isNotEmpty() }.associate { it.document to it.at }
 
 fun LibraryProgress.marksByDocument(): Map<String, ReadMark> =
     marks.filter { it.document.isNotEmpty() }.associate { it.document to ReadMark(it.state, it.at) }

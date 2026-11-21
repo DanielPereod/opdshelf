@@ -154,3 +154,53 @@ async fn a_cleared_mark_does_not_come_back_with_an_older_one() {
     let (_, body) = app.api("GET", "/api/progress", None).await;
     assert!(body["cleared"].as_array().unwrap().is_empty());
 }
+
+/// One threshold everywhere: 98.5 % is not finished for OPDS, the statistics
+/// or the API, and 99 % is.
+#[tokio::test]
+async fn the_finished_threshold_is_the_same_everywhere() {
+    let app = app();
+    let uri = format!("/api/progress/{DOC}");
+    let position =
+        |percentage: f64| json!({ "progress": "p", "percentage": percentage, "device": "Kobo", "device_id": "kobo" });
+    assert_eq!(app.api("PUT", &uri, Some(position(0.985))).await.0, StatusCode::OK);
+    assert!(app.in_opds("reading").await);
+    assert!(!app.in_opds("finished").await);
+    assert_eq!(app.finished_in_stats().await, 0);
+    let (_, body) = app.api("GET", &uri, None).await;
+    assert_eq!(body["status"], "reading");
+    assert_eq!(body["finished_at"], 0.99);
+    assert_eq!(app.api("PUT", &uri, Some(position(0.99))).await.0, StatusCode::OK);
+    assert!(app.in_opds("finished").await);
+    assert_eq!(app.finished_in_stats().await, 1);
+    let (_, body) = app.api("GET", "/api/progress", None).await;
+    assert_eq!(body["books"][0]["status"], "finished");
+    assert_eq!(body["finished_at"], 0.99);
+}
+
+/// "Not finished" below the threshold clears the mark (state null): the book
+/// goes back to showing how far it was read, in the API and in OPDS.
+#[tokio::test]
+async fn clearing_the_mark_shows_the_progress_again() {
+    let app = app();
+    let now = chrono::Utc::now().timestamp();
+    let uri = format!("/api/progress/{DOC}");
+    let position =
+        json!({ "progress": "p", "percentage": 0.4, "device": "Kobo", "device_id": "kobo", "timestamp": now - 600 });
+    assert_eq!(app.api("PUT", &uri, Some(position)).await.0, StatusCode::OK);
+    for (state, at) in [(json!("read"), now - 120), (Value::Null, now - 60)] {
+        let (status, _) = app
+            .api(
+                "PUT",
+                "/api/marks",
+                Some(json!({ "documents": [DOC], "state": state, "at": at, "sent_at": now })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    assert!(app.in_opds("reading").await);
+    assert!(!app.in_opds("unread").await);
+    let (_, body) = app.api("GET", &uri, None).await;
+    assert_eq!(body["status"], "reading");
+    assert_eq!(body["current"]["percentage"], 0.4);
+}

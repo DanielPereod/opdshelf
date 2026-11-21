@@ -496,7 +496,8 @@
     const libraryRoot = t('the library root');
     // Book path → its current position, from /api/progress
     const progress = new Map();
-    const FINISHED = 0.98;
+    // The server says where a book is at and from how far on it counts as finished
+    let FINISHED = 0.99;
     const isReading = (p) => p && p.percentage > 0 && p.percentage < FINISHED;
     const isFinished = (p) => p && p.percentage >= FINISHED;
     const isNotStarted = (p) => !p || !(p.percentage > 0);
@@ -970,17 +971,14 @@
         if (!response.ok) throw new Error(response.statusText);
         const data = await response.json();
         progress.clear();
-        data.books.forEach((b) => { if (b.path) progress.set(b.path, b.current); });
-        // Marks made in the panel: "read" shows the book finished, "unread"
-        // hides the positions saved before it
+        if (data.finished_at) FINISHED = data.finished_at;
+        // A book marked as unread after its last position (status null) has no progress
+        data.books.forEach((b) => { if (b.path && b.status) progress.set(b.path, b.current); });
+        // Books marked as read in the panel or an app: finished, whatever was read
         (data.marks || []).forEach((m) => {
-          if (!m.path) return;
+          if (!m.path || m.state !== 'read') return;
           const p = progress.get(m.path);
-          if (m.state === 'read') {
-            progress.set(m.path, { ...(p || {}), percentage: 1, timestamp: Math.max(m.at, (p && p.timestamp) || 0), device: t('Marked as read'), marked: true });
-          } else if (p && p.timestamp <= m.at) {
-            progress.delete(m.path);
-          }
+          progress.set(m.path, { ...(p || {}), percentage: Math.max((p && p.percentage) || 0, 1), timestamp: Math.max(m.at, (p && p.timestamp) || 0), device: t('Marked as read'), marked: true });
         });
         paintProgress();
         refresh(true);

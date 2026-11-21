@@ -42,6 +42,77 @@ class MarksTest {
     }
 
     @Test
+    fun aNotFinishedMarkOnlyCountsForWhatWasReadBeforeIt() {
+        val unmarked = book.copy(percentage = 1.0, finishedByHand = false, markedAt = 200, positionAt = 100)
+        assertFalse(unmarked.finished)
+        // Finished again elsewhere after the mark
+        assertTrue(unmarked.copy(positionAt = 300).finished)
+        // Read a bit more after the mark, not to the end
+        assertFalse(unmarked.copy(percentage = 0.5, positionAt = 300).finished)
+        // No mark: how far it was read, with the server's threshold
+        assertFalse(book.copy(percentage = 0.985).finished)
+        assertTrue(book.copy(percentage = 0.99).finished)
+    }
+
+    @Test
+    fun notFinishedBelowTheThresholdClearsTheMark() {
+        val dir = kotlin.io.path.createTempDirectory("opdshelf-store").toFile()
+        try {
+            val store = LocalStore(dir)
+            store.addBook(book.copy(percentage = 0.4))
+            store.setFinished("b", true, at = 100)
+            assertEquals(ReadMark.READ, store.pendingMarks()["doc"]?.state)
+            assertTrue(store.book("b")!!.finished)
+            store.setFinished("b", false, at = 200)
+            // The mark is removed: the book shows how far it was read
+            assertEquals(ReadMark.clear(200), store.pendingMarks()["doc"])
+            assertNull(store.book("b")!!.finishedByHand)
+            assertFalse(store.book("b")!!.finished)
+            assertEquals(0.4, store.book("b")!!.percentage, 0.0)
+            // Above the threshold it is marked as unread
+            store.addBook(book.copy(id = "c", document = "doc2", percentage = 1.0))
+            store.setFinished("c", false, at = 300)
+            assertEquals(ReadMark.UNREAD, store.pendingMarks()["doc2"]?.state)
+            assertFalse(store.book("c")!!.finished)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun aClearOnTheServerDropsTheLocalMark() {
+        val dir = kotlin.io.path.createTempDirectory("opdshelf-store").toFile()
+        try {
+            val store = LocalStore(dir)
+            store.addBook(book.copy(finishedByHand = true, markedAt = 100))
+            store.adoptCleared(mapOf("doc" to 50L))
+            assertTrue("an older clear changes nothing", store.book("b")!!.finishedByHand == true)
+            store.adoptCleared(mapOf("doc" to 150L))
+            assertNull(store.book("b")!!.finishedByHand)
+            assertEquals(150, store.book("b")!!.markedAt)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun whatWasReadElsewhereShowsOnTheBooksOfThisDevice() {
+        val dir = kotlin.io.path.createTempDirectory("opdshelf-store").toFile()
+        try {
+            val store = LocalStore(dir)
+            store.addBook(book.copy(percentage = 0.3))
+            store.setPercentage("doc", 0.3, at = 100)
+            store.adoptPositions(mapOf("doc" to Position(percentage = 0.8, timestamp = 200)))
+            assertEquals(0.8, store.book("b")!!.percentage, 0.0)
+            // An older one does not take it back
+            store.adoptPositions(mapOf("doc" to Position(percentage = 0.1, timestamp = 150)))
+            assertEquals(0.8, store.book("b")!!.percentage, 0.0)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun aMarkNotSentYetIsKept() {
         // Marked here offline; the server decides when it gets it
         val local = book.copy(finishedByHand = true, markedAt = 100)

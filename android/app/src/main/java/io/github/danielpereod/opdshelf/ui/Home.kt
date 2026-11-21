@@ -194,6 +194,20 @@ fun HomeScreen(
         }
         val counts = remember(books) { Filter.entries.associateWith { f -> books.count(f.test) } }
         val used = remember(books) { formatSize(context.app.store.usedBytes()) }
+        // Pulling down sends what is waiting and reads the server's positions and marks again
+        val pull = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
+        androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+            isRefreshing = status.syncing,
+            onRefresh = { library.syncNow() },
+            state = pull,
+            modifier = Modifier.fillMaxSize(),
+            indicator = {
+                androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator(
+                    state = pull, isRefreshing = status.syncing, modifier = Modifier.align(Alignment.TopCenter),
+                    containerColor = shelf.pane, color = shelf.fg,
+                )
+            },
+        ) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(gridCellWidth),
             contentPadding = PaddingValues(horizontal = edgePadding, vertical = Space.l),
@@ -268,6 +282,7 @@ fun HomeScreen(
                     ),
                 )
             }
+        }
         }
     }
 

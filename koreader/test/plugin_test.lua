@@ -581,6 +581,69 @@ check(heard == "folder", "the home screen hears when a setting it shows changed"
 
 -- Every text of the plugin speaks Spanish
 local missing = {}
+-- 13. Finished books: KOReader's "Finished" status is synced as a mark
+state():saveSetting("live", false)
+doc_settings:delSetting("opdshelf_sync")
+doc_settings:delSetting("summary")
+state():saveSetting("pending", nil)
+state():saveSetting("pending_marks", nil)
+online = true
+page_first = 100
+p = open()
+respond(200, { current = remote("KOBO-ID", 100) })
+runScheduled()
+local before_marks = #requests
+doc_settings:saveSetting("summary", { status = "complete" })
+respond(200, { marks = { DOCHASH = { state = "read", at = os.time() } }, server_time = os.time() })
+p:onCloseDocument()
+local mark_put
+for i = before_marks + 1, #requests do if requests[i].url:match("/api/marks$") then mark_put = requests[i] end end
+check(mark_put and mark_put.method == "PUT" and mark_put.body.documents[1] == "DOCHASH" and mark_put.body.state == "read"
+    and mark_put.body.at and mark_put.body.sent_at, "marking the book Finished in KOReader sends a read mark")
+check(next(state():readSetting("pending_marks")) == nil, "and the queue is empty once the server took it")
+
+-- Not finished any more, read to 25 %: the mark is cleared (no state), not set to unread
+p = open()
+respond(200, { current = remote("KOBO-ID", 100), mark = { state = "read", at = os.time() - 5 } })
+runScheduled()
+doc_settings:saveSetting("summary", { status = "reading" })
+respond(200, { marks = {}, server_time = os.time() })
+p:onCloseDocument()
+mark_put = nil
+for i = #requests, 1, -1 do if requests[i].url:match("/api/marks$") then mark_put = requests[i] break end end
+check(mark_put and mark_put.body.state == nil and mark_put.body.documents[1] == "DOCHASH", "no longer Finished below the threshold clears the mark")
+
+-- A 404 from a proxy (the server is restarting) keeps the mark in the queue
+doc_settings:delSetting("opdshelf_sync")
+doc_settings:saveSetting("summary", { status = "complete" })
+p = open()
+respond(200, { current = remote("KOBO-ID", 100) })
+runScheduled()
+respond(404, "<html>Not found</html>")
+p:onCloseDocument()
+check(state():readSetting("pending_marks").DOCHASH and state():readSetting("pending_marks").DOCHASH.state == "read", "a 404 in HTML keeps the mark to send later")
+respond(200, { marks = { DOCHASH = { state = "read", at = os.time() } }, server_time = os.time() })
+p:flush()
+check(next(state():readSetting("pending_marks")) == nil, "and it is sent when the network is back")
+
+-- The server's marks are applied to the open book
+doc_settings:delSetting("opdshelf_sync")
+doc_settings:saveSetting("summary", { status = "reading" })
+state():saveSetting("pending_marks", nil)
+p = open()
+respond(200, { current = remote("KOBO-ID", 100), mark = { state = "read", at = os.time() } })
+runScheduled()
+check(doc_settings:readSetting("summary").status == "complete", "a book marked as read elsewhere is Finished here")
+p:onStreamEvent("marks", cjson.encode({ document = "DOCHASH", mark = { state = "unread", at = os.time() + 10 } }))
+check(doc_settings:readSetting("summary").status == "reading", "and no longer when it is marked as unread")
+p:onStreamEvent("marks", cjson.encode({ document = "DOCHASH", mark = { state = "read", at = os.time() + 20 } }))
+check(doc_settings:readSetting("summary").status == "complete", "marked as read again")
+p:onStreamEvent("marks", cjson.encode({ document = "DOCHASH", cleared_at = os.time() + 30 }))
+check(doc_settings:readSetting("summary").status == "reading", "a cleared mark also unfinishes it")
+p:onStreamEvent("marks", cjson.encode({ document = "DOCHASH", mark = { state = "read", at = os.time() + 5 } }))
+check(doc_settings:readSetting("summary").status == "reading", "an older mark changes nothing")
+p:onCloseDocument()
+
 local I18n = dofile(plugin_dir .. "/opdshelf_i18n.lua")
 for _i, name in ipairs({ "main", "opdshelf_browser", "opdshelf_home", "opdshelf_menu", "opdshelf_notes", "opdshelf_update", "opdshelf_sync", "opdshelf_client", "opdshelf_stream" }) do
     local f = io.open(plugin_dir .. "/" .. name .. ".lua")

@@ -57,6 +57,8 @@ local HIGHLIGHT_SECONDS = 6
 local PUSH_DELAY = 3
 -- How often the live connection is read while a book is open
 local STREAM_POLL = 2
+-- Read this far, a book counts as finished (the server's threshold)
+local FINISHED_AT = 0.99
 -- Seconds after changing highlights before they are sent
 local NOTES_DELAY = 2
 -- Waits before reconnecting the live connection, in seconds
@@ -608,6 +610,7 @@ end
 function OPDShelf:push(opts)
     opts = opts or {}
     if not self:hasBook() or not self:ready() then return end
+    self:syncStatus()
     local progress, percentage = self:position()
     if not progress then return end
     if not opts.force and progress == self.last_sent then return end
@@ -644,6 +647,7 @@ end
 --- Sends the queued positions (each book keeps only its latest one).
 function OPDShelf:flush(interactive)
     if self.flushing or not self:ready() then return false end
+    self:flushMarks()
     local pending = self.state:readSetting("pending") or {}
     if next(pending) == nil then return false end
     self.flushing = true
@@ -723,6 +727,7 @@ function OPDShelf:pull(reason)
     end
     self:noteServerTime(body)
     self.history = body.history
+    self:applyMark(body.mark)
     self:handleRemote(body.current, reason)
 end
 
@@ -901,10 +906,113 @@ function OPDShelf:onStreamEvent(name, data)
         if ok and type(change) == "table" and change.document == self.document then
             self:receiveNotes(change.annotations, true)
         end
+    elseif name == "marks" then
+        local ok, change = pcall(JSON.decode, data)
+        if ok and type(change) == "table" and change.document == self.document then
+            self:applyMark(change.mark, change.cleared_at)
+        end
     elseif name == "resync" then
         self:pull("live")
         self:pullNotes()
     end
+end
+
+
+-- ---------------------------------------------------------------------------
+-- Finished books
+
+--- Whether KOReader's own status of the open book is "Finished".
+function OPDShelf:isComplete()
+    local summary = self.ui.doc_settings:readSetting("summary")
+    return type(summary) == "table" and summary.status == "complete"
+end
+
+--- Queues a mark when the book's "Finished" status changed since the last mark
+-- this device sent or received. Finished sends "read"; no longer finished sends
+-- "unread" if the book was read to the end, and clears the mark otherwise, so
+-- the server shows how far it was read (the same as the other apps).
+function OPDShelf:syncStatus()
+    if not self:hasBook() or not self:ready() then return end
+    local state = self:docState()
+    local known_read = type(state.finish) == "table" and state.finish.state == "read"
+    local complete = self:isComplete()
+    if complete == known_read then return end
+    local _progress, percentage = self:position()
+    local item
+    if complete then
+        item = { state = "read", at = os.time() }
+    elseif (percentage or 0) >= FINISHED_AT then
+        item = { state = "unread", at = os.time() }
+    else
+        item = { at = os.time() }
+    end
+    local queue = self.state:readSetting("pending_marks") or {}
+    queue[self.document] = item
+    self.state:saveSetting("pending_marks", queue)
+    self.state:flush()
+    state.finish = { state = item.state or "clear", at = item.at }
+    self:saveDocState()
+    if NetworkMgr:isOnline() then self:flushMarks() end
+end
+
+--- Sends the queued marks. Only a rejection by OPDShelf itself (400 or 422 with
+-- its JSON error) drops one; anything else (a proxy, a server being updated) is tried again.
+function OPDShelf:flushMarks()
+    local queue = self.state:readSetting("pending_marks") or {}
+    if next(queue) == nil then return true end
+    local ok = true
+    for document, item in pairs(queue) do
+        local code, body = self.client:putMark(document, item)
+        if code == 200 and type(body) == "table" and type(body.marks) == "table" then
+            queue[document] = nil
+            self:noteServerTime(body)
+            if document == self.document then
+                self.state:saveSetting("pending_marks", queue)
+                self:applyMark(body.marks[document])
+            end
+        elseif (code == 400 or code == 422) and type(body) == "table" and body.error then
+            logger.warn("OPDShelf: mark rejected with", code)
+            queue[document] = nil
+        else
+            ok = false
+            break
+        end
+    end
+    self.state:saveSetting("pending_marks", queue)
+    self.state:flush()
+    return ok
+end
+
+--- Applies the server's mark of the open book (`{ state, at }`), or the time it was
+-- cleared, if it is newer than the last one this device knows and nothing of its own
+-- is waiting to be sent: "read" finishes the book, anything else unfinishes it.
+function OPDShelf:applyMark(mark, cleared_at)
+    if not self:hasBook() then return end
+    local incoming, at
+    if type(mark) == "table" and type(mark.state) == "string" then
+        incoming, at = mark.state, tonumber(mark.at) or 0
+    elseif tonumber(cleared_at) then
+        incoming, at = "clear", tonumber(cleared_at)
+    else
+        return
+    end
+    local queue = self.state:readSetting("pending_marks") or {}
+    if queue[self.document] then return end
+    local state = self:docState()
+    if type(state.finish) == "table" and (tonumber(state.finish.at) or 0) >= at then return end
+    state.finish = { state = incoming, at = at }
+    self:saveDocState()
+    local summary = self.ui.doc_settings:readSetting("summary")
+    if type(summary) ~= "table" then summary = {} end
+    if incoming == "read" and summary.status ~= "complete" then
+        summary.status = "complete"
+    elseif incoming ~= "read" and summary.status == "complete" then
+        summary.status = "reading"
+    else
+        return
+    end
+    summary.modified = os.date("%Y-%m-%d")
+    self.ui.doc_settings:saveSetting("summary", summary)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1006,6 +1114,7 @@ function OPDShelf:onNetworkDisconnecting()
 end
 
 function OPDShelf:onSuspend()
+    self:syncStatus()
     self:pushNow()
     self:stopStream()
 end
@@ -1021,6 +1130,7 @@ function OPDShelf:onResume()
 end
 
 function OPDShelf:onCloseDocument()
+    self:syncStatus()
     self:pushNow()
     if self.notes_task then UIManager:unschedule(self.notes_task) end
     if self:hasBook() and NetworkMgr:isOnline() then self:pushNotes() end

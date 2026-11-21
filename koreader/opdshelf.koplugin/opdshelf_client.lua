@@ -132,6 +132,16 @@ function Client:getToday(date)
     return self:json_request("GET", "/api/stats/today" .. (date and ("?date=" .. date) or ""))
 end
 
+--- Marks a book as read or unread (`item.state`), or clears its mark (no state), as of `item.at`.
+function Client:putMark(document, item)
+    return self:json_request("PUT", "/api/marks", {
+        documents = { document },
+        state = item.state,
+        at = item.at,
+        sent_at = os.time(),
+    })
+end
+
 function Client:putProgress(document, record)
     return self:json_request("PUT", "/api/progress/" .. document, record)
 end

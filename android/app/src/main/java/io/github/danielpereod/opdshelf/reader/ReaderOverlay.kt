@@ -135,6 +135,8 @@ class ReaderUi {
     var chapterMinutes by mutableStateOf<Int?>(null)
     var currentHref by mutableStateOf<String?>(null)
     var toc by mutableStateOf<List<TocItem>>(emptyList())
+    /** The files of the book in reading order, to place each entry of [toc] in it. */
+    var readingOrder by mutableStateOf<List<String>>(emptyList())
     var reflowable by mutableStateOf(false)
     var prefs by mutableStateOf(ReaderPrefs())
     var showHint by mutableStateOf(false)
@@ -271,7 +273,7 @@ private fun TopBar(ui: ReaderUi, actions: ReaderActions) {
 private fun BottomBar(ui: ReaderUi, actions: ReaderActions) {
     var dragging by remember { mutableStateOf<Float?>(null) }
     val shown = dragging ?: ui.progression
-    val current = ui.toc.indexOfLast { it.href.substringBefore('#') == ui.currentHref?.substringBefore('#') }
+    val current = currentTocIndex(ui.toc.map { it.href }, ui.readingOrder, ui.currentHref)
     val previous = ui.toc.getOrNull(current - 1)
     val next = ui.toc.getOrNull(current + 1)
     val progressLabel = stringResource(R.string.book_progress)
@@ -346,7 +348,7 @@ private fun MarkHint(actions: ReaderActions) {
 
 @Composable
 internal fun TocSheet(ui: ReaderUi, showTitle: Boolean = true, onPick: (TocItem) -> Unit) {
-    val current = ui.toc.indexOfLast { it.href.substringBefore('#') == ui.currentHref?.substringBefore('#') }
+    val current = currentTocIndex(ui.toc.map { it.href }, ui.readingOrder, ui.currentHref)
     val list = rememberLazyListState()
     LaunchedEffect(Unit) { if (current > 2) list.scrollToItem(current - 2) }
     Column(Modifier.padding(bottom = 16.dp)) {
@@ -720,3 +722,21 @@ internal fun SearchSheet(ui: ReaderUi, actions: ReaderActions) {
 
 /** Searches stop after this many matches: enough to find a passage. */
 const val SEARCH_LIMIT = 100
+
+/**
+ * The entry of the contents the reader is in: the last one that starts at or before the
+ * current file in reading order. Files that are not in the contents (a chapter split in
+ * several files, as Calibre does) belong to the entry before them, so "next chapter" goes
+ * to the one after and not to the start of the book. -1 before the first entry.
+ */
+fun currentTocIndex(tocHrefs: List<String>, readingOrder: List<String>, current: String?): Int {
+    val file = current?.substringBefore('#') ?: return -1
+    val at = readingOrder.indexOf(file)
+    if (at < 0) return tocHrefs.indexOfLast { it.substringBefore('#') == file }
+    var found = -1
+    tocHrefs.forEachIndexed { index, href ->
+        val position = readingOrder.indexOf(href.substringBefore('#'))
+        if (position in 0..at) found = index
+    }
+    return found
+}

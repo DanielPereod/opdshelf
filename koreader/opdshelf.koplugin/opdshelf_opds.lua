@@ -106,6 +106,8 @@ local function parseEntry(xml, base)
         language = element(xml, "dc:language"),
         publisher = element(xml, "dc:publisher"),
         issued = element(xml, "dc:issued"),
+        -- The book's id for syncing (KOReader's partial MD5 of the file), when the server says
+        document = element(xml, "opdshelf:document"),
         series = element(xml, "calibre:series"),
         series_index = element(xml, "calibre:series_index"),
         categories = {},

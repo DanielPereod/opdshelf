@@ -283,6 +283,9 @@
     function update() { paintButton(); paintList(); }
     marks.load().then(update);
     update();
+    // Bookmarks made on another device appear at once, and are fetched again after a reconnection
+    document.addEventListener('readerbookmarks', (e) => marks.applyRemote(e.detail));
+    document.addEventListener('readerresync', () => marks.load().then(update));
 
     return { update, onKey, showSearch };
   }

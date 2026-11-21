@@ -7,6 +7,26 @@ use std::path::{Component, Path, PathBuf};
 /// Characters left unescaped in a path segment (RFC 3986 unreserved).
 const SEGMENT: &AsciiSet = &NON_ALPHANUMERIC.remove(b'-').remove(b'.').remove(b'_').remove(b'~');
 
+/// Folders and files the NAS and the operating systems keep in a shared folder (Synology's
+/// `@eaDir` and `#recycle`, QNAP's `@Recycle`, Windows' recycle bin…): not books, and not to be
+/// listed as folders either.
+const SYSTEM_NAMES: &[&str] = &[
+    "@eadir",
+    "#recycle",
+    "#snapshot",
+    "@recycle",
+    "@recently-snapshot",
+    "$recycle.bin",
+    "system volume information",
+    "lost+found",
+];
+
+/// Whether a file or folder name is hidden (starts with a dot) or kept by the system, and so
+/// never part of the library.
+pub fn is_ignored(name: &str) -> bool {
+    name.starts_with('.') || SYSTEM_NAMES.contains(&name.to_lowercase().as_str())
+}
+
 /// Normalises a user supplied relative path. Rejects anything that could leave
 /// BOOKS_DIR (`..`, absolute paths, drive prefixes) or reach hidden files.
 pub fn sanitize(input: &str) -> Option<String> {
@@ -16,7 +36,7 @@ pub fn sanitize(input: &str) -> Option<String> {
         match component {
             Component::Normal(part) => {
                 let part = part.to_str()?;
-                if part.starts_with('.') || part.contains('\0') {
+                if is_ignored(part) || part.contains('\0') {
                     return None;
                 }
                 parts.push(part);
@@ -100,6 +120,23 @@ pub fn stem(rel: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn system_folders_of_a_nas_are_not_part_of_the_library() {
+        for name in [
+            "@eaDir",
+            "#recycle",
+            "@Recycle",
+            "$RECYCLE.BIN",
+            "System Volume Information",
+            ".hidden",
+        ] {
+            assert!(is_ignored(name), "{name}");
+            assert_eq!(sanitize(&format!("Saga/{name}/book.epub")), None, "{name}");
+        }
+        assert!(!is_ignored("Saga") && !is_ignored("recycle bin of my books"));
+        assert_eq!(sanitize("Saga/book.epub").as_deref(), Some("Saga/book.epub"));
+    }
 
     #[test]
     fn rejects_traversal() {

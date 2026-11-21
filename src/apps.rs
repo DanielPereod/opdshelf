@@ -94,6 +94,16 @@ const SETUP_FILE: &str = "opdshelf_setup.json";
 const CACHE_FRESH: Duration = Duration::from_secs(10 * 60);
 /// One download of the release at a time.
 static REFRESH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// How long to leave GitHub alone after a download failed (no internet, a firewall): otherwise every
+/// request for the plugin or its version waits for the failure again, up to a minute each.
+const RETRY_AFTER: Duration = Duration::from_secs(5 * 60);
+static LAST_FAILURE: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+fn failed_recently(last: &std::sync::Mutex<Option<std::time::Instant>>, now: std::time::Instant) -> bool {
+    last.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some_and(|at| now.saturating_duration_since(at) < RETRY_AFTER)
+}
 
 fn cached(state: &AppState, app: &App) -> PathBuf {
     state.config.data_dir.join("apps").join("cache").join(app.file)
@@ -134,9 +144,15 @@ async fn plugin_zip(state: &AppState) -> Option<Vec<u8>> {
         None => {
             let path = cached(state, &KOREADER);
             let _guard = REFRESH.lock().await;
-            if !is_fresh(&path) {
-                if let Err(err) = download(&release_url(state, &KOREADER), &path).await {
-                    tracing::warn!("cannot download the KOReader plugin: {err}");
+            if !is_fresh(&path) && !failed_recently(&LAST_FAILURE, std::time::Instant::now()) {
+                match download(&release_url(state, &KOREADER), &path).await {
+                    Ok(()) => *LAST_FAILURE.lock().unwrap_or_else(|e| e.into_inner()) = None,
+                    Err(err) => {
+                        tracing::warn!(
+                            "cannot download the KOReader plugin: {err}; not trying again for a few minutes"
+                        );
+                        *LAST_FAILURE.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
+                    }
                 }
             }
             path
@@ -280,6 +296,17 @@ pub async fn connect_qr(State(state): State<AppState>, headers: HeaderMap) -> Re
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn github_is_left_alone_for_a_while_after_a_failed_download() {
+        use std::time::{Duration, Instant};
+        let last = std::sync::Mutex::new(None);
+        let now = Instant::now();
+        assert!(!super::failed_recently(&last, now), "nothing failed yet");
+        *last.lock().unwrap() = Some(now);
+        assert!(super::failed_recently(&last, now + Duration::from_secs(60)));
+        assert!(!super::failed_recently(&last, now + Duration::from_secs(6 * 60)));
+    }
+
     use super::*;
 
     fn plugin(meta: &str) -> Vec<u8> {

@@ -59,8 +59,12 @@
     slider.style.direction = rtl ? 'rtl' : 'ltr';
     slider.oninput = () => show(Number(slider.value) - 1);
     document.addEventListener('keydown', (e) => {
+      // The page control moves by itself with the arrows (and a button is pressed with Space):
+      // turning the page here too would turn two
+      if (e.target.closest && e.target.closest('input, select, textarea')) return;
       if (e.key === 'ArrowLeft') (rtl ? next : prev)();
-      if (e.key === 'ArrowRight' || e.key === ' ') (rtl ? prev : next)();
+      if (e.key === 'ArrowRight') (rtl ? prev : next)();
+      if (e.key === ' ' && !(e.target.closest && e.target.closest('button, a'))) (rtl ? prev : next)();
     });
 
     let touchX = null;

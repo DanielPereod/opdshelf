@@ -2,6 +2,7 @@ package io.github.danielpereod.opdshelf.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -17,8 +18,22 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
+/** A `.part` file older than this is the leftover of a download that never finished. */
+private const val STALE_PART_MS = 60 * 60 * 1000L
+
 /** [reason] is the server's code for what went wrong, such as `not_empty`, when it gives one. */
-class HttpError(val code: Int, message: String, val reason: String? = null) : IOException(message)
+class HttpError(val code: Int, message: String, val reason: String? = null) : IOException(message) {
+    /**
+     * OPDShelf itself refused what was sent (a 400 or 422 with its JSON error): it never will
+     * take it, so it can be dropped. Any other failure (a proxy answering 403 or 404 while the
+     * server restarts, a server older than the app) is to be tried again.
+     */
+    val rejected: Boolean get() = reason == REJECTED
+
+    companion object {
+        const val REJECTED = "rejected"
+    }
+}
 
 val json = Json { ignoreUnknownKeys = true; encodeDefaults = false; explicitNulls = false }
 
@@ -59,25 +74,35 @@ class Api(private val settings: Settings) {
     /** Downloads to [target], through a temporary file so a cut download never looks complete. */
     suspend fun download(url: String, target: File, onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
         val tmp = File(target.parentFile, target.name + ".part")
-        client.newCall(Request.Builder().url(url).build()).execute().use { response ->
-            if (!response.isSuccessful) throw HttpError(response.code, "${response.code} ${response.message}")
-            val body = response.body!!
-            val total = body.contentLength()
-            tmp.outputStream().use { out ->
-                body.byteStream().use { input ->
-                    val buffer = ByteArray(64 * 1024)
-                    var done = 0L
-                    while (true) {
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        out.write(buffer, 0, n)
-                        done += n
-                        if (total > 0) onProgress(done.toFloat() / total)
+        // What an earlier download left when the app was closed in the middle of it
+        target.parentFile?.listFiles { f -> f.name.endsWith(".part") && f != tmp }
+            ?.filter { System.currentTimeMillis() - it.lastModified() > STALE_PART_MS }
+            ?.forEach { it.delete() }
+        try {
+            client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                if (!response.isSuccessful) throw HttpError(response.code, "${response.code} ${response.message}")
+                val body = response.body!!
+                val total = body.contentLength()
+                tmp.outputStream().use { out ->
+                    body.byteStream().use { input ->
+                        val buffer = ByteArray(64 * 1024)
+                        var done = 0L
+                        while (true) {
+                            val n = input.read(buffer)
+                            if (n < 0) break
+                            out.write(buffer, 0, n)
+                            done += n
+                            if (total > 0) onProgress(done.toFloat() / total)
+                        }
                     }
                 }
             }
+            if (!tmp.renameTo(target)) throw IOException("Cannot save ${target.name}")
+        } catch (e: Throwable) {
+            // A failed or cancelled download leaves nothing behind
+            tmp.delete()
+            throw e
         }
-        if (!tmp.renameTo(target)) throw IOException("Cannot save ${target.name}")
     }
 
     suspend fun getProgress(document: String): Position? = bookProgress(document).current
@@ -107,14 +132,14 @@ class Api(private val settings: Settings) {
         val body = JsonObject(
             mapOf(
                 "documents" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive(document))),
-                "state" to JsonPrimitive(mark.state),
+                "state" to if (mark.cleared) JsonNull else JsonPrimitive(mark.state),
                 "at" to JsonPrimitive(mark.at),
                 "sent_at" to JsonPrimitive(System.currentTimeMillis() / 1000),
             )
         ).toString().toRequestBody("application/json".toMediaType())
         client.newCall(Request.Builder().url(url("/api/marks")).put(body).build()).execute().use {
             val text = it.body?.string().orEmpty()
-            if (!it.isSuccessful) throw HttpError(it.code, serverError(text) ?: "${it.code} ${it.message}")
+            if (!it.isSuccessful) throw failure(it.code, it.message, text)
             json.decodeFromString(MarksResponse.serializer(), text).marks[document]
         }
     }
@@ -133,14 +158,16 @@ class Api(private val settings: Settings) {
             ("sent_at" to JsonPrimitive(System.currentTimeMillis() / 1000))
         val body = JsonObject(fields).toString().toRequestBody("application/json".toMediaType())
         client.newCall(Request.Builder().url(url("/api/progress/$document")).put(body).build()).execute().use {
-            if (!it.isSuccessful) throw HttpError(it.code, "${it.code} ${it.message}")
+            if (!it.isSuccessful) throw failure(it.code, it.message, it.body?.string().orEmpty())
         }
     }
 
     suspend fun getAnnotations(document: String): List<Annotation> = withContext(Dispatchers.IO) {
         client.newCall(Request.Builder().url(url("/api/annotations/$document")).build()).execute().use {
             if (!it.isSuccessful) throw HttpError(it.code, "${it.code} ${it.message}")
-            json.decodeFromString(AnnotationsResponse.serializer(), it.body!!.string()).annotations
+            val answer = json.decodeFromString(AnnotationsResponse.serializer(), it.body!!.string())
+            ServerClock.learn(answer.serverTime)
+            answer.annotations
         }
     }
 
@@ -151,12 +178,19 @@ class Api(private val settings: Settings) {
                 "device" to JsonPrimitive(settings.deviceName),
                 "device_id" to JsonPrimitive(settings.deviceId),
                 "sent_at" to JsonPrimitive(System.currentTimeMillis() / 1000),
-                "annotations" to json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(Annotation.serializer()), list),
+                // In this device's own clock: the server corrects the difference with `sent_at`
+                "annotations" to json.encodeToJsonElement(
+                    kotlinx.serialization.builtins.ListSerializer(Annotation.serializer()),
+                    list.map { it.copy(updated = ServerClock.toDevice(it.updated), created = ServerClock.toDevice(it.created)) },
+                ),
             )
         ).toString().toRequestBody("application/json".toMediaType())
         client.newCall(Request.Builder().url(url("/api/annotations/$document")).put(body).build()).execute().use {
-            if (!it.isSuccessful) throw HttpError(it.code, "${it.code} ${it.message}")
-            json.decodeFromString(AnnotationsResponse.serializer(), it.body!!.string()).annotations
+            val text = it.body?.string().orEmpty()
+            if (!it.isSuccessful) throw failure(it.code, it.message, text)
+            val answer = json.decodeFromString(AnnotationsResponse.serializer(), text)
+            ServerClock.learn(answer.serverTime)
+            answer.annotations
         }
     }
 
@@ -233,6 +267,13 @@ class Api(private val settings: Settings) {
             }
             runCatching { json.decodeFromString(FolderAnswer.serializer(), text) }.getOrDefault(FolderAnswer())
         }
+    }
+
+    /** The error of a failed request that is sent to be kept (positions, marks, highlights). */
+    private fun failure(code: Int, message: String, text: String): HttpError {
+        val error = serverError(text)
+        val rejected = (code == 400 || code == 422) && error != null
+        return HttpError(code, error ?: "$code $message", if (rejected) HttpError.REJECTED else null)
     }
 
     private fun serverError(text: String): String? =

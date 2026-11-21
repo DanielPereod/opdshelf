@@ -123,7 +123,9 @@ impl Lookup {
             }),
             authors: names("authors"),
             publisher: names("publishers").into_iter().next(),
-            date: text(&book["publish_date"]),
+            date: text(&book["publish_date"])
+                .map(|d| crate::metadata::form_date(&d))
+                .filter(|d| !d.is_empty()),
             description,
             language: None,
             subjects: names("subjects").into_iter().take(8).collect(),
@@ -155,9 +157,13 @@ impl Lookup {
             }),
             authors: list("authors"),
             publisher: text(&info["publisher"]),
-            date: text(&info["publishedDate"]),
+            date: text(&info["publishedDate"])
+                .map(|d| crate::metadata::form_date(&d))
+                .filter(|d| !d.is_empty()),
             description: text(&info["description"]).map(|d| crate::metadata::html_to_text(&d)),
-            language: text(&info["language"]),
+            language: text(&info["language"])
+                .map(|l| crate::metadata::form_language(&l))
+                .filter(|l| !l.is_empty()),
             subjects: list("categories"),
             identifier: isbn.to_string(),
             cover_url,

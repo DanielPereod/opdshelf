@@ -148,6 +148,22 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
     private val text get() = getApplication<Application>()
 
+    init {
+        // Said once when it happens: something waiting to be sent was refused by the server, or a
+        // saved file was damaged and a copy of it was kept
+        val damaged = app.store.damaged
+        if (damaged.isNotEmpty()) {
+            _messages.value = Notice(text.getString(R.string.file_damaged, damaged.joinToString(", ")))
+        }
+        viewModelScope.launch {
+            var seen = app.sync.dropped.value
+            app.sync.dropped.collect { count ->
+                if (count > seen) _messages.value = Notice(text.getString(R.string.sync_dropped))
+                seen = count
+            }
+        }
+    }
+
     fun openRoot() {
         selectSection(_section.value)
         refreshLibrary()
@@ -297,6 +313,12 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                     sizeBytes = file.length(),
                     meta = entry.meta,
                 )
+                // The same book already on this device under another id (it was moved or renamed on
+                // the server): it becomes this one, so there are not two copies with two marks
+                app.store.books.value.firstOrNull { it.document == document && it.id != entry.id }?.let { old ->
+                    app.store.changeId(old.id, entry.id)
+                    if (old.fileName != book.fileName) app.store.file(old).delete()
+                }
                 app.store.addBook(book)
                 // Where it was left on other devices
                 runCatching { app.sync.start(document) }

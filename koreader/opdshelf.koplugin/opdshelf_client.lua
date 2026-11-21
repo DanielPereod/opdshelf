@@ -102,6 +102,7 @@ function Client:raw(method, path, body, extra_headers, sink, timeout)
     if type(code) ~= "number" then
         return nil, tostring(status or code)
     end
+    if self.on_code and self:sameOrigin(url) then pcall(self.on_code, code) end
     return code, table.concat(chunks), response_headers or {}
 end
 
@@ -132,6 +133,16 @@ function Client:getToday(date)
     return self:json_request("GET", "/api/stats/today" .. (date and ("?date=" .. date) or ""))
 end
 
+--- Marks a book as read or unread (`item.state`), or clears its mark (no state), as of `item.at`.
+function Client:putMark(document, item)
+    return self:json_request("PUT", "/api/marks", {
+        documents = { document },
+        state = item.state,
+        at = item.at,
+        sent_at = os.time(),
+    })
+end
+
 function Client:putProgress(document, record)
     return self:json_request("PUT", "/api/progress/" .. document, record)
 end
@@ -159,12 +170,22 @@ function Client:download(url, path, timeout)
     -- ltn12.sink.file closes the file at the end; make sure on failures too
     pcall(file.close, file)
     if code == 200 then
-        os.remove(path)
+        -- The book that is there stays until the new one is in place
+        local old
+        local existing = io.open(path, "rb")
+        if existing then
+            existing:close()
+            old = path .. ".old"
+            os.remove(old)
+            if not os.rename(path, old) then old = nil end
+        end
         local ok, rename_err = os.rename(tmp, path)
         if not ok then
             os.remove(tmp)
+            if old then os.rename(old, path) end
             return false, rename_err
         end
+        if old then os.remove(old) end
         return true
     end
     os.remove(tmp)

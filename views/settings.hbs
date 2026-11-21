@@ -189,7 +189,7 @@
               <dt>{{t "Data folder"}}</dt>
               <dd class="mono">{{about.dataDir}}</dd>
               <dt>{{t "Folder watching"}}</dt>
-              <dd>{{#if about.watch}}{{t "On: changes show up at once, with a full scan every {n} min" n=about.scanMinutes}}{{else}}{{t "Off: the books folder is read again each time the library is opened"}}{{/if}}</dd>
+              <dd>{{#if about.watch}}{{t "On: changes show up at once, with a full scan every {n} min" n=about.scanMinutes}}{{else}}{{t "Off: the books folder is read again when the library is opened (a slow share is not read more often than every few seconds) and every {n} min" n=about.scanMinutes}}{{/if}}</dd>
             </dl>
             <div class="link-row about-links">
               <a class="btn" href="https://github.com/DanielPereod/opdshelf" target="_blank" rel="noopener"><i

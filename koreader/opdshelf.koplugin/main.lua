@@ -57,6 +57,8 @@ local HIGHLIGHT_SECONDS = 6
 local PUSH_DELAY = 3
 -- How often the live connection is read while a book is open
 local STREAM_POLL = 2
+-- Read this far, a book counts as finished (the server's threshold)
+local FINISHED_AT = 0.99
 -- Seconds after changing highlights before they are sent
 local NOTES_DELAY = 2
 -- Waits before reconnecting the live connection, in seconds
@@ -177,9 +179,14 @@ function OPDShelf:applySetup()
     os.remove(path)
     local ok, setup = pcall(JSON.decode, text)
     if not ok or type(setup) ~= "table" or type(setup.server) ~= "string" then return end
-    -- An account that is already set up stays
-    if (self.state:readSetting("server") or "") ~= "" and (self.state:readSetting("password") or "") ~= "" then return end
+    -- An account that is already set up stays, unless the server turned it down (the password was
+    -- changed there and this is the plugin downloaded again with the new one)
+    if (self.state:readSetting("server") or "") ~= "" and (self.state:readSetting("password") or "") ~= ""
+        and not self.state:readSetting("auth_rejected") then
+        return
+    end
     local function text_or_nil(v) return type(v) == "string" and v or nil end
+    self.state:saveSetting("auth_rejected", nil)
     self.state:saveSetting("server", setup.server)
     self.state:saveSetting("username", text_or_nil(setup.username))
     self.state:saveSetting("password", text_or_nil(setup.password))
@@ -209,7 +216,21 @@ function OPDShelf:makeClient()
         server = self.state:readSetting("server") or "",
         username = self.state:readSetting("username"),
         password = self.state:readSetting("password"),
+        -- What the server answers to the account, to know when it has been turned down
+        on_code = function(code) self:noteAuthCode(code) end,
     }
+end
+
+-- Remembers whether the server accepts the account: a setup from the panel replaces one it rejects
+function OPDShelf:noteAuthCode(code)
+    local rejected = self.state:readSetting("auth_rejected") and true or false
+    if code == 401 and not rejected then
+        self.state:saveSetting("auth_rejected", true)
+        self.state:flush()
+    elseif code == 200 and rejected then
+        self.state:saveSetting("auth_rejected", nil)
+        self.state:flush()
+    end
 end
 
 function OPDShelf:deviceName()
@@ -314,11 +335,26 @@ function OPDShelf:saveDocState()
 end
 
 function OPDShelf:digest()
-    local id = self.ui.doc_settings:readSetting("partial_md5_checksum")
-    if not id and self.ui.document.file then
-        id = util.partialMD5(self.ui.document.file)
+    local stored = self.ui.doc_settings:readSetting("partial_md5_checksum")
+    local file = self.ui.document and self.ui.document.file
+    if file then
+        -- Worked out from the file, not trusted from the sidecar: a file replaced by another
+        -- edition (or by a book of the same name) keeps the id of the one that was there
+        local ok, actual = pcall(util.partialMD5, file)
+        if ok and type(actual) == "string" and actual ~= "" then
+            if stored and stored ~= actual then
+                -- Another book: nothing of what the plugin knows of the old one applies
+                self.ui.doc_settings:saveSetting("partial_md5_checksum", actual)
+                for _i, key in ipairs({ "opdshelf_sync", "opdshelf_notes", "opdshelf_mark" }) do
+                    self.ui.doc_settings:delSetting(key)
+                end
+                self.doc_state = nil
+                self.notes_snapshot = nil
+            end
+            return actual
+        end
     end
-    return id
+    return stored
 end
 
 function OPDShelf:serverNow()
@@ -328,6 +364,7 @@ end
 function OPDShelf:noteServerTime(body)
     if type(body) == "table" and type(body.server_time) == "number" then
         self.server_offset = body.server_time - os.time()
+        Notes.setOffset(self.server_offset)
     end
 end
 
@@ -608,6 +645,7 @@ end
 function OPDShelf:push(opts)
     opts = opts or {}
     if not self:hasBook() or not self:ready() then return end
+    self:syncStatus()
     local progress, percentage = self:position()
     if not progress then return end
     if not opts.force and progress == self.last_sent then return end
@@ -644,6 +682,7 @@ end
 --- Sends the queued positions (each book keeps only its latest one).
 function OPDShelf:flush(interactive)
     if self.flushing or not self:ready() then return false end
+    self:flushMarks()
     local pending = self.state:readSetting("pending") or {}
     if next(pending) == nil then return false end
     self.flushing = true
@@ -651,7 +690,8 @@ function OPDShelf:flush(interactive)
     for document, item in pairs(pending) do
         item.sent_at = os.time()
         local code, body = self.client:putProgress(document, item)
-        if code == 200 then
+        -- Only an answer from OPDShelf (JSON) counts as sent: a portal or proxy may answer 200 with a page
+        if code == 200 and type(body) == "table" then
             pending[document] = nil
             sent = sent + 1
             self:noteServerTime(body)
@@ -659,8 +699,9 @@ function OPDShelf:flush(interactive)
         elseif code == 401 then
             rejected = true
             break
-        elseif code and code >= 400 and code < 500 then
-            -- The server will never accept it
+        elseif (code == 400 or code == 422) and type(body) == "table" and body.error then
+            -- OPDShelf itself will never accept it. Any other failure (a proxy answering 403 or
+            -- 404 while the server restarts, a server older than the plugin) is tried again
             logger.warn("OPDShelf: position rejected with", code)
             pending[document] = nil
         else
@@ -723,6 +764,7 @@ function OPDShelf:pull(reason)
     end
     self:noteServerTime(body)
     self.history = body.history
+    self:applyMark(body.mark)
     self:handleRemote(body.current, reason)
 end
 
@@ -870,7 +912,7 @@ function OPDShelf:stepStream()
     end
     self.stream = nil
     logger.dbg("OPDShelf: live connection ended:", err)
-    if status == 401 or status == 404 or self.closed then return end
+    if status == 401 or self.closed then return end
     self.stream_failures = (self.stream_failures or 0) + 1
     local wait = RETRY[math.min(self.stream_failures, #RETRY)]
     self.retry_task = self.retry_task or function() self:startStream() end
@@ -901,10 +943,113 @@ function OPDShelf:onStreamEvent(name, data)
         if ok and type(change) == "table" and change.document == self.document then
             self:receiveNotes(change.annotations, true)
         end
+    elseif name == "marks" then
+        local ok, change = pcall(JSON.decode, data)
+        if ok and type(change) == "table" and change.document == self.document then
+            self:applyMark(change.mark, change.cleared_at)
+        end
     elseif name == "resync" then
         self:pull("live")
         self:pullNotes()
     end
+end
+
+
+-- ---------------------------------------------------------------------------
+-- Finished books
+
+--- Whether KOReader's own status of the open book is "Finished".
+function OPDShelf:isComplete()
+    local summary = self.ui.doc_settings:readSetting("summary")
+    return type(summary) == "table" and summary.status == "complete"
+end
+
+--- Queues a mark when the book's "Finished" status changed since the last mark
+-- this device sent or received. Finished sends "read"; no longer finished sends
+-- "unread" if the book was read to the end, and clears the mark otherwise, so
+-- the server shows how far it was read (the same as the other apps).
+function OPDShelf:syncStatus()
+    if not self:hasBook() or not self:ready() then return end
+    local state = self:docState()
+    local known_read = type(state.finish) == "table" and state.finish.state == "read"
+    local complete = self:isComplete()
+    if complete == known_read then return end
+    local _progress, percentage = self:position()
+    local item
+    if complete then
+        item = { state = "read", at = os.time() }
+    elseif (percentage or 0) >= FINISHED_AT then
+        item = { state = "unread", at = os.time() }
+    else
+        item = { at = os.time() }
+    end
+    local queue = self.state:readSetting("pending_marks") or {}
+    queue[self.document] = item
+    self.state:saveSetting("pending_marks", queue)
+    self.state:flush()
+    state.finish = { state = item.state or "clear", at = item.at }
+    self:saveDocState()
+    if NetworkMgr:isOnline() then self:flushMarks() end
+end
+
+--- Sends the queued marks. Only a rejection by OPDShelf itself (400 or 422 with
+-- its JSON error) drops one; anything else (a proxy, a server being updated) is tried again.
+function OPDShelf:flushMarks()
+    local queue = self.state:readSetting("pending_marks") or {}
+    if next(queue) == nil then return true end
+    local ok = true
+    for document, item in pairs(queue) do
+        local code, body = self.client:putMark(document, item)
+        if code == 200 and type(body) == "table" and type(body.marks) == "table" then
+            queue[document] = nil
+            self:noteServerTime(body)
+            if document == self.document then
+                self.state:saveSetting("pending_marks", queue)
+                self:applyMark(body.marks[document])
+            end
+        elseif (code == 400 or code == 422) and type(body) == "table" and body.error then
+            logger.warn("OPDShelf: mark rejected with", code)
+            queue[document] = nil
+        else
+            ok = false
+            break
+        end
+    end
+    self.state:saveSetting("pending_marks", queue)
+    self.state:flush()
+    return ok
+end
+
+--- Applies the server's mark of the open book (`{ state, at }`), or the time it was
+-- cleared, if it is newer than the last one this device knows and nothing of its own
+-- is waiting to be sent: "read" finishes the book, anything else unfinishes it.
+function OPDShelf:applyMark(mark, cleared_at)
+    if not self:hasBook() then return end
+    local incoming, at
+    if type(mark) == "table" and type(mark.state) == "string" then
+        incoming, at = mark.state, tonumber(mark.at) or 0
+    elseif tonumber(cleared_at) then
+        incoming, at = "clear", tonumber(cleared_at)
+    else
+        return
+    end
+    local queue = self.state:readSetting("pending_marks") or {}
+    if queue[self.document] then return end
+    local state = self:docState()
+    if type(state.finish) == "table" and (tonumber(state.finish.at) or 0) >= at then return end
+    state.finish = { state = incoming, at = at }
+    self:saveDocState()
+    local summary = self.ui.doc_settings:readSetting("summary")
+    if type(summary) ~= "table" then summary = {} end
+    if incoming == "read" and summary.status ~= "complete" then
+        summary.status = "complete"
+    elseif incoming ~= "read" and summary.status == "complete" then
+        summary.status = "reading"
+    else
+        return
+    end
+    summary.modified = os.date("%Y-%m-%d")
+    self.ui.doc_settings:saveSetting("summary", summary)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1006,6 +1151,7 @@ function OPDShelf:onNetworkDisconnecting()
 end
 
 function OPDShelf:onSuspend()
+    self:syncStatus()
     self:pushNow()
     self:stopStream()
 end
@@ -1021,6 +1167,7 @@ function OPDShelf:onResume()
 end
 
 function OPDShelf:onCloseDocument()
+    self:syncStatus()
     self:pushNow()
     if self.notes_task then UIManager:unschedule(self.notes_task) end
     if self:hasBook() and NetworkMgr:isOnline() then self:pushNotes() end
@@ -1104,8 +1251,13 @@ function OPDShelf:pushNotes()
     self:noteServerTime(body)
     Notes.agree(snapshot, out, body.annotations)
     self:saveNotesSnapshot()
-    -- Changes made elsewhere meanwhile
-    self:receiveNotes(body.annotations, false)
+    -- Changes made elsewhere meanwhile; and where the server kept another version of one sent
+    -- (it compares with corrected clocks) that one is taken as it is, without comparing times here
+    local rejected = {}
+    for _, id in ipairs(type(body.rejected) == "table" and body.rejected or {}) do
+        if type(id) == "string" then rejected[id] = true end
+    end
+    self:receiveNotes(body.annotations, false, rejected)
 end
 
 --- Gets the book's highlights from the server, then sends what changed here.
@@ -1144,18 +1296,20 @@ function OPDShelf:placeNote(item)
 end
 
 --- Applies highlights from the server: new ones, changed ones and deletions.
-function OPDShelf:receiveNotes(list, live)
+function OPDShelf:receiveNotes(list, live, force)
     if type(list) ~= "table" or not self:hasBook() or not self:notesEnabled() then return end
     local doc = self.ui.document
-    if doc.info.has_pages then
-        -- Highlights of PDFs and comics go to the server, but are drawn only where they were made
-        self:trackNotes()
-        Notes.merge({}, {}, self:notesSnapshot())
-        return
-    end
     self:trackNotes()
     local items = self.ui.annotation.annotations
-    local actions = Notes.merge(items, list, self:notesSnapshot())
+    local snapshot = self:notesSnapshot()
+    local actions = Notes.merge(items, list, snapshot, not live, force)
+    if doc.info.has_pages then
+        -- Highlights made in other readers are not drawn in a PDF or a comic, but the changes and
+        -- deletions the server has of the ones made here are applied (or the next change made here
+        -- would undo them everywhere)
+        for _i, server in ipairs(actions.add) do snapshot[server.id] = nil end
+        actions.add = {}
+    end
     local count = #actions.add + #actions.update + #actions.remove
     if count == 0 then
         self:saveNotesSnapshot()
@@ -1184,11 +1338,15 @@ function OPDShelf:receiveNotes(list, live)
             end
             item.datetime = datetime
             item.opdshelf_sig = Notes.signature(item)
+            -- Placed by its text, so its xpointers are not the server's: what is agreed is this
+            -- copy, or it would be sent again on every sync
+            self:notesSnapshot()[server.id] = { sig = item.opdshelf_sig, updated = server.updated }
             added = added + 1
             self.ui:handleEvent(Event:new("AnnotationsModified", { item, nb_highlights_added = 1, index_modified = index }))
         else
-            -- Its text is not in this copy of the book: forget it here, keep it on the server
-            self:notesSnapshot()[server.id] = nil
+            -- Its text is not in this copy of the book: remember that, so it is not searched for
+            -- again on every sync (until the server's version of it changes)
+            self:notesSnapshot()[server.id] = { sig = Notes.signature(server), updated = server.updated, missing = true }
         end
     end
     for _, pair in ipairs(actions.update) do
@@ -1200,6 +1358,7 @@ function OPDShelf:receiveNotes(list, live)
         item.opdshelf_updated = server.updated
         item.opdshelf_server = fresh.opdshelf_server
         item.opdshelf_sig = Notes.signature(item)
+        self:notesSnapshot()[server.id] = { sig = item.opdshelf_sig, updated = server.updated }
         local has_note = item.note ~= nil
         self.ui:handleEvent(Event:new("AnnotationsModified", { item,
             nb_notes_added = (has_note and not had_note) and 1 or ((had_note and not has_note) and -1 or nil) }))

@@ -81,6 +81,9 @@ end
   headers: extra request headers
   on_event(name, data): called for each event
   on_open(): called once the server accepted the stream
+  idle: seconds without anything from the server after which the connection is
+    given up as dead (the server sends a keep-alive every 20 s), 60 by default
+  time(): the clock, for tests
   socket, ssl: LuaSocket and LuaSec, for tests
 --]]
 function Stream.new(opts)
@@ -99,6 +102,18 @@ function Stream:run()
     port = tonumber(port) or (scheme == "https" and 443 or 80)
     if path == "" then path = "/" end
 
+    -- A network that is cut without closing leaves the socket waiting for good, so
+    -- every wait ends when nothing has arrived for too long
+    local now = self.time or os.time
+    local limit = self.idle or 60
+    local last = now()
+    local function stalled() return now() - last > limit end
+    local function wait()
+        if stalled() then return false end
+        coroutine.yield()
+        return true
+    end
+
     local sock = self.socket.tcp()
     self.sock = sock
     sock:settimeout(0)
@@ -106,10 +121,12 @@ function Stream:run()
         local ok, err = sock:connect(host, port)
         if ok or err == "already connected" then break end
         if not wouldBlock(err) then return nil, "connect: " .. tostring(err) end
-        coroutine.yield()
+        if not wait() then return nil, "timeout" end
     end
     if scheme == "https" then
         local ssl = self.ssl or require("ssl")
+        -- The same as KOReader's own HTTPS client (luasec's default), which does not
+        -- check certificates either
         local wrapped, err = ssl.wrap(sock, {
             mode = "client", protocol = "any", verify = "none",
             options = { "all", "no_sslv2", "no_sslv3" },
@@ -123,7 +140,7 @@ function Stream:run()
             local ok, herr = sock:dohandshake()
             if ok then break end
             if not wouldBlock(herr) then return nil, "tls: " .. tostring(herr) end
-            coroutine.yield()
+            if not wait() then return nil, "timeout" end
         end
     end
 
@@ -145,7 +162,7 @@ function Stream:run()
             sent = last
         elseif wouldBlock(err) then
             sent = partial or sent
-            coroutine.yield()
+            if not wait() then return nil, "timeout" end
         else
             return nil, "send: " .. tostring(err)
         end
@@ -160,6 +177,7 @@ function Stream:run()
         local data, err, partial = sock:receive(8192)
         local piece = data or partial
         if piece and #piece > 0 then
+            last = now()
             if body_feed then
                 parse(body_feed(piece))
             else
@@ -187,7 +205,7 @@ function Stream:run()
         elseif err and not wouldBlock(err) then
             return nil, "receive: " .. tostring(err)
         end
-        if not data then coroutine.yield() end
+        if not data and not wait() then return nil, "timeout" end
     end
 end
 

@@ -111,12 +111,14 @@ function encodePath(path) {
 // This browser as a device of the sync: an id kept in this browser and a name
 // such as "Firefox on Linux". The reader and the panel use the same one.
 function opdshelfDevice() {
+  // Kept in memory too: with storage blocked or full each page would otherwise be a new device
   function deviceId() {
-    let id = storeGet('opdshelf:device-id');
+    let id = storeGet('opdshelf:device-id') || window.__opdshelfDeviceId;
     if (!id) {
       id = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now()).replace(/-/g, '');
       storeSet('opdshelf:device-id', id);
     }
+    window.__opdshelfDeviceId = id;
     return id;
   }
 
@@ -135,3 +137,42 @@ function opdshelfDevice() {
   }
   return { id: deviceId(), name: deviceName() };
 }
+
+// When the session ends (the server answers 401 to a request the page makes on its own), say so
+// with a link to sign in again, instead of failing without a word. What was waiting to be sent
+// stays queued and goes out once the person is back.
+(function () {
+  if (!window.fetch || window.__opdshelfSessionWatch) return;
+  window.__opdshelfSessionWatch = true;
+  const original = window.fetch.bind(window);
+  let shown = false;
+  function tell() {
+    if (shown) return;
+    shown = true;
+    const bar = document.createElement('div');
+    bar.setAttribute('role', 'alert');
+    bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:100000;padding:10px 16px;display:flex;gap:12px;'
+      + 'justify-content:center;align-items:center;flex-wrap:wrap;background:#b45309;color:#fff;font:14px system-ui,sans-serif';
+    const text = document.createElement('span');
+    text.textContent = t('Your session has expired. Sign in again to keep your changes in sync.');
+    const link = document.createElement('a');
+    link.textContent = t('Sign in');
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.style.cssText = 'color:#fff;font-weight:600;text-decoration:underline';
+    link.href = '/user/login';
+    bar.append(text, link);
+    (document.body || document.documentElement).append(bar);
+    // Back from signing in, the bar goes away on the next request that works
+    window.addEventListener('focus', () => {
+      original('/api/progress', { headers: { Accept: 'application/json' }, cache: 'no-store' })
+        .then((r) => { if (r.status !== 401) { bar.remove(); shown = false; } }).catch(() => { });
+    });
+  }
+  window.fetch = function (...args) {
+    return original(...args).then((response) => {
+      if (response.status === 401) tell();
+      return response;
+    });
+  };
+})();

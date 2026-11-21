@@ -51,6 +51,7 @@ data class Annotation(
 data class AnnotationsResponse(
     val document: String = "",
     val annotations: List<Annotation> = emptyList(),
+    @SerialName("server_time") val serverTime: Long = 0,
 )
 
 /** A book's highlights on this device: the server's copy and the changes not sent yet. */
@@ -65,10 +66,20 @@ data class LocalAnnotations(
 
     fun find(id: String): Annotation? = pending[id] ?: list.firstOrNull { it.id == id }
 
-    /** Takes the server's list, keeping local changes it does not have yet. */
-    fun adopt(server: List<Annotation>): LocalAnnotations {
+    /**
+     * Takes the server's list, keeping local changes it does not have yet. A version of this
+     * device's own is one it sent earlier (the server counts the time a request took as clock
+     * difference, so it can look newer): the change made since still has to go.
+     */
+    fun adopt(server: List<Annotation>, deviceId: String = ""): LocalAnnotations {
         val byId = server.associateBy { it.id }
-        return LocalAnnotations(server, pending.filterValues { mine -> (byId[mine.id]?.updated ?: Long.MIN_VALUE) <= mine.updated })
+        return LocalAnnotations(
+            server,
+            pending.filterValues { mine ->
+                val theirs = byId[mine.id]
+                theirs == null || theirs.updated <= mine.updated || (deviceId.isNotEmpty() && theirs.deviceId == deviceId)
+            },
+        )
     }
 
     /** Changes that arrived from elsewhere: each one replaces an older copy. */

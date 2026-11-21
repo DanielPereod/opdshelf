@@ -106,7 +106,9 @@ impl DocumentIds {
                 index.insert(id, book.path.clone());
             }
         }
-        if changed {
+        // (An empty library may be a share that is down: nothing is forgotten then, or every
+        // id would have to be read from the files again)
+        if changed && !snapshot.books.is_empty() {
             // Forget books that are gone so the file does not grow forever
             let paths: std::collections::HashSet<&str> = snapshot.books.iter().map(|b| b.path.as_str()).collect();
             self.known
@@ -115,6 +117,16 @@ impl DocumentIds {
                 .retain(|path, _| paths.contains(path.as_str()));
             if let Err(err) = self.save() {
                 tracing::warn!("cannot save {}: {err}", self.file.display());
+            }
+        }
+        // Edited details follow their book when its file was renamed or moved outside the panel
+        if !snapshot.books.is_empty() {
+            let ids = self.ids_by_path();
+            match library.store().relink(&index, &ids) {
+                // The books already read keep the details they were read with
+                Ok(true) => library.invalidate(),
+                Ok(false) => {}
+                Err(err) => tracing::warn!("cannot save the edited details: {err}"),
             }
         }
         index

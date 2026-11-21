@@ -42,11 +42,19 @@ pub async fn get_progress(State(state): State<AppState>, Path(document): Path<St
     if !progress::valid_document(&document) {
         return bad_document();
     }
+    let current = state.progress.current(&document);
+    let mark = state.marks.get(&document);
+    let status = current
+        .as_ref()
+        .and_then(|c| crate::opds::effective_status(c, mark.as_ref()));
     Json(json!({
         "document": document,
-        "current": state.progress.current(&document),
+        "current": current,
         "history": state.progress.history(&document),
-        "mark": state.marks.get(&document),
+        "mark": mark,
+        "status": status.map(|(s, _)| s.as_str()),
+        "status_at": status.map(|(_, at)| at),
+        "finished_at": crate::opds::FINISHED,
         "server_time": now(),
     }))
     .into_response()
@@ -157,8 +165,11 @@ fn short(value: Option<String>) -> String {
 /// event (`{document, current}`) per change of position, an `annotations`
 /// event (`{document, annotations}`) with the highlights that changed, a
 /// `marks` event (`{document, mark}`) when a book is marked as read or
-/// unread (`mark` is null when cleared), and `resync` when changes were missed and the client should fetch its books'
-/// positions and highlights again.
+/// unread (`mark` is null when cleared), a `bookmarks` event (`{document, annotations}`)
+/// when a web reader's bookmarks changed, a `library` event when books or folders
+/// were added, moved, edited or removed (only to clients that listen to every
+/// book, like the panel), and `resync` when changes were missed and the client
+/// should fetch its books' positions and highlights again.
 pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQuery>) -> Response {
     let wanted: Option<HashSet<String>> = query.documents.map(|list| {
         list.split(',')
@@ -173,13 +184,18 @@ pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQue
     let changes = state.progress.subscribe();
     let notes = state.annotations.subscribe();
     let marks = state.marks.subscribe();
+    let bookmarks = state.bookmarks.subscribe();
+    let library = state.library.subscribe();
     let device_id = short(query.device_id);
     let guard = (!device_id.is_empty()).then(|| state.presence.join(&device_id, &short(query.device)));
     let stream = futures_util::stream::unfold(
-        (Some(hello), changes, notes, marks, wanted, guard),
-        |(first, mut changes, mut notes, mut marks, wanted, guard)| async move {
+        (Some(hello), changes, notes, marks, bookmarks, library, wanted, guard),
+        |(first, mut changes, mut notes, mut marks, mut bookmarks, mut library, wanted, guard)| async move {
             if let Some(event) = first {
-                return Some((Ok::<_, Infallible>(event), (None, changes, notes, marks, wanted, guard)));
+                return Some((
+                    Ok::<_, Infallible>(event),
+                    (None, changes, notes, marks, bookmarks, library, wanted, guard),
+                ));
             }
             loop {
                 let event = tokio::select! {
@@ -219,8 +235,33 @@ pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQue
                         Err(RecvError::Lagged(_)) => Event::default().event("resync").data("{}"),
                         Err(RecvError::Closed) => return None,
                     },
+                    change = bookmarks.recv() => match change {
+                        Ok(change) => {
+                            if wanted.as_ref().is_some_and(|w| !w.contains(&change.document)) {
+                                continue;
+                            }
+                            Event::default()
+                                .event("bookmarks")
+                                .data(serde_json::to_string(&change).unwrap_or_default())
+                        }
+                        Err(RecvError::Lagged(_)) => Event::default().event("resync").data("{}"),
+                        Err(RecvError::Closed) => return None,
+                    },
+                    change = library.recv() => match change {
+                        // Only the web panel (which asks for no documents) lists books
+                        Ok(()) | Err(RecvError::Lagged(_)) => {
+                            if wanted.is_some() {
+                                continue;
+                            }
+                            Event::default().event("library").data("{}")
+                        }
+                        Err(RecvError::Closed) => return None,
+                    },
                 };
-                return Some((Ok(event), (None, changes, notes, marks, wanted, guard)));
+                return Some((
+                    Ok(event),
+                    (None, changes, notes, marks, bookmarks, library, wanted, guard),
+                ));
             }
         },
     );
@@ -269,10 +310,16 @@ pub async fn list_progress(State(state): State<AppState>) -> Response {
     let books = books_by_document(&state).await;
     let mut current = state.progress.all_current();
     current.sort_by_key(|c| std::cmp::Reverse(c.1.timestamp));
+    let all_marks = state.marks.all();
     let list: Vec<_> = current
         .into_iter()
         .map(|(document, record)| {
             let mut entry = book_fields(&books, &document);
+            // Where the book is at: finished, reading or null (not started, or
+            // marked as unread since), the same for every client
+            let status = crate::opds::effective_status(&record, all_marks.get(&document));
+            entry["status"] = json!(status.map(|(s, _)| s.as_str()));
+            entry["status_at"] = json!(status.map(|(_, at)| at));
             entry["document"] = json!(document);
             entry["current"] = serde_json::to_value(record).unwrap_or_default();
             entry
@@ -290,7 +337,14 @@ pub async fn list_progress(State(state): State<AppState>) -> Response {
             entry
         })
         .collect();
-    Json(json!({ "books": list, "marks": marks, "server_time": now() })).into_response()
+    // Marks cleared, so a client holding one can drop it if the clear is newer
+    let cleared: Vec<_> = state
+        .marks
+        .cleared()
+        .into_iter()
+        .map(|(document, at)| json!({ "document": document, "at": at }))
+        .collect();
+    Json(json!({ "books": list, "marks": marks, "cleared": cleared, "finished_at": crate::opds::FINISHED, "server_time": now() })).into_response()
 }
 
 #[derive(Deserialize)]
@@ -513,10 +567,11 @@ pub async fn put_annotations(
     if batch.device_id.trim().is_empty() && batch.annotations.iter().any(|a| a.device_id.trim().is_empty()) {
         return missing_device();
     }
-    match state.annotations.merge(&document, batch, now()) {
-        Ok(changed) => Json(json!({
+    match state.annotations.merge_reporting(&document, batch, now()) {
+        Ok((changed, rejected)) => Json(json!({
             "document": document,
             "changed": changed.len(),
+            "rejected": rejected,
             "annotations": state.annotations.list(&document),
             "server_time": now(),
         }))
@@ -558,10 +613,11 @@ pub async fn put_bookmarks(
     if batch.device_id.trim().is_empty() && batch.annotations.iter().any(|a| a.device_id.trim().is_empty()) {
         return missing_device();
     }
-    match state.bookmarks.merge(&document, batch, now()) {
-        Ok(changed) => Json(json!({
+    match state.bookmarks.merge_reporting(&document, batch, now()) {
+        Ok((changed, rejected)) => Json(json!({
             "document": document,
             "changed": changed.len(),
+            "rejected": rejected,
             "bookmarks": state.bookmarks.list(&document),
             "server_time": now(),
         }))

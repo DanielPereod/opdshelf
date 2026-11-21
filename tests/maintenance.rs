@@ -126,9 +126,25 @@ async fn finds_duplicates_and_cleans_data_of_gone_books() {
     let (status, location, _) = get(&app, "/admin/maintenance?notice=Hi%20there").await;
     assert!(status.is_redirection());
     assert_eq!(location, "/admin/settings/maintenance?notice=Hi%20there");
-    let (status, _, done) = get(&app, "/admin/settings/maintenance?notice=Removed%203%20entries").await;
+    // A message this server wrote is shown
+    let written = opdshelf::auth::flash::param("notice", "Removed 3 entries");
+    let (status, _, done) = get(&app, &format!("/admin/settings/maintenance?{written}")).await;
     assert_eq!(status, StatusCode::OK);
     assert!(done.contains("Removed 3 entries"));
+    // Words in a link someone else made are not
+    let (status, _, spoofed) = get(
+        &app,
+        "/admin/settings/maintenance?notice=Your%20session%20expired%2C%20call%20555",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!spoofed.contains("call 555"));
+    let (_, _, forged) = get(
+        &app,
+        "/admin/settings/maintenance?error=Hacked&error_sig=00000000000000000000000000000000",
+    )
+    .await;
+    assert!(!forged.contains("Hacked"));
 
     // Not duplicates: the group is hidden
     let key_at = html.find(r#"name="key" value=""#).unwrap() + 18;
@@ -213,4 +229,101 @@ async fn an_empty_library_is_never_cleaned() {
     assert!(std::fs::read_to_string(data.join("metadata.json"))
         .unwrap()
         .contains("gone.epub"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn data_of_a_book_that_could_not_be_read_is_not_cleaned() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let books = dir.path().join("books");
+    let data = dir.path().join("data");
+    std::fs::create_dir_all(&books).unwrap();
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::write(books.join("One.epub"), b"book one").unwrap();
+    std::fs::write(books.join("Two.epub"), b"book two").unwrap();
+    // A share that fails, or a file that is locked, just when its id is read
+    let locked = books.join("One.epub");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::File::open(&locked).is_ok() {
+        // Running as root: permissions do not stop the read, so there is nothing to test
+        return;
+    }
+    let record = r#"{"progress":"1","percentage":0.5,"device":"d","device_id":"d","timestamp":1}"#;
+    // The id of "book one"
+    std::fs::write(
+        data.join("progress.json"),
+        format!(r#"{{"502000418ae95849b554660b1ee1d388":[{record}]}}"#),
+    )
+    .unwrap();
+    let env: HashMap<String, String> = [
+        ("BOOKS_DIR", books.to_string_lossy().into_owned()),
+        ("DATA_DIR", data.to_string_lossy().into_owned()),
+        ("WATCH", "false".into()),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v))
+    .collect();
+    let app = router(Config::from_lookup(|k| env.get(k).cloned()));
+    let html = page(&app).await;
+    assert!(
+        html.contains("could not be read just now"),
+        "the page says why it does not clean"
+    );
+    let token = csrf(&html);
+    post_to(&app, "/admin/maintenance/clean", format!("csrf={token}&what=all")).await;
+    assert!(
+        std::fs::read_to_string(data.join("progress.json"))
+            .unwrap()
+            .contains("502000418ae95849b554660b1ee1d388"),
+        "its position is still there"
+    );
+}
+
+#[tokio::test]
+async fn edited_details_follow_a_book_renamed_outside_the_panel() {
+    let dir = tempfile::tempdir().unwrap();
+    let books = dir.path().join("books");
+    let data = dir.path().join("data");
+    std::fs::create_dir_all(&books).unwrap();
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::write(books.join("One.epub"), b"book one").unwrap();
+    std::fs::write(books.join("Other.epub"), b"another book").unwrap();
+    std::fs::write(
+        data.join("metadata.json"),
+        r#"{"One.epub": {"title": "My edited title"}}"#,
+    )
+    .unwrap();
+    let env: HashMap<String, String> = [
+        ("BOOKS_DIR", books.to_string_lossy().into_owned()),
+        ("DATA_DIR", data.to_string_lossy().into_owned()),
+        ("WATCH", "false".into()),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v))
+    .collect();
+    let app = router(Config::from_lookup(|k| env.get(k).cloned()));
+    // The panel reads the books' ids, which notes which book each edit is of
+    get(&app, "/api/progress").await;
+    assert!(std::fs::read_to_string(data.join("metadata.json"))
+        .unwrap()
+        .contains("502000418ae95849b554660b1ee1d388"));
+
+    // Renamed in the NAS, or by Calibre
+    std::fs::rename(books.join("One.epub"), books.join("Renamed.epub")).unwrap();
+    get(&app, "/api/progress").await;
+    let saved = std::fs::read_to_string(data.join("metadata.json")).unwrap();
+    assert!(
+        saved.contains("Renamed.epub") && !saved.contains("\"One.epub\""),
+        "{saved}"
+    );
+    let (_, _, feed) = get(&app, "/opds/books").await;
+    assert!(feed.contains("My edited title"), "the edited title is shown again");
+
+    // And cleaning does not take it for the data of a gone book
+    let token = csrf(&page(&app).await);
+    post_to(&app, "/admin/maintenance/clean", format!("csrf={token}&what=all")).await;
+    assert!(std::fs::read_to_string(data.join("metadata.json"))
+        .unwrap()
+        .contains("My edited title"));
 }

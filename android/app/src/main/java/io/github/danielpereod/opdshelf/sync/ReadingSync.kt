@@ -14,6 +14,8 @@ import io.github.danielpereod.opdshelf.data.Annotation
 import io.github.danielpereod.opdshelf.data.Api
 import io.github.danielpereod.opdshelf.data.HttpError
 import io.github.danielpereod.opdshelf.data.LibraryProgress
+import io.github.danielpereod.opdshelf.data.ServerClock
+import io.github.danielpereod.opdshelf.data.clearedByDocument
 import io.github.danielpereod.opdshelf.data.marksByDocument
 import io.github.danielpereod.opdshelf.data.LocalPosition
 import io.github.danielpereod.opdshelf.data.LocalStore
@@ -25,6 +27,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.TimeUnit
 
 /**
@@ -40,6 +44,9 @@ data class SyncStatus(
     val failing: Boolean = false,
 )
 
+/** How long opening a book waits for the server's position, in milliseconds. */
+private const val START_WAIT_MS = 4_000L
+
 class ReadingSync(
     private val context: Context,
     private val settings: Settings,
@@ -52,6 +59,10 @@ class ReadingSync(
         store.pending().size + store.pendingAnnotations().values.sumOf { it.size } + store.pendingMarks().size
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
 
+    private val _dropped = MutableStateFlow(0)
+    /** How many queued changes the server refused for good (and were discarded) since the app started. */
+    val dropped: StateFlow<Int> = _dropped.asStateFlow()
+
     private val _library = MutableStateFlow<LibraryProgress?>(null)
     /** Every book's position and finished mark on the server, as last fetched; null until then. */
     val library: StateFlow<LibraryProgress?> = _library.asStateFlow()
@@ -63,6 +74,8 @@ class ReadingSync(
     suspend fun refreshLibrary(): Boolean = runCatching {
         val progress = api.libraryProgress()
         store.adoptMarks(progress.marksByDocument())
+        store.adoptCleared(progress.clearedByDocument())
+        store.adoptPositions(progress.books.mapNotNull { b -> b.current?.let { b.document to it } }.toMap())
         _library.value = progress
         true
     }.getOrDefault(false)
@@ -77,16 +90,19 @@ class ReadingSync(
     /** Where to open a book: the newest of this device's position and the server's. */
     suspend fun start(document: String): StartPosition {
         val local = store.position(document)
-        val answer = runCatching { api.bookProgress(document) }.getOrElse {
-            return StartPosition(local?.position, local?.locator, null)
-        }
+        // Waits for the server only a moment: the book opens on this device's position meanwhile
+        // (a server that is down or slow must not leave the reader blank for half a minute)
+        val answer = withTimeoutOrNull(START_WAIT_MS) { runCatching { api.bookProgress(document) }.getOrNull() }
+            ?: return StartPosition(local?.position, local?.locator, null)
         answer.mark?.let { store.adoptMarks(mapOf(document to it)) }
         val server = answer.current
         if (local?.pending == true) schedule()
         val start = chooseStart(local, server, settings.deviceId)
-        if (start.position != null && start.position == server) {
+        // A position of this device not sent yet is kept and sent: the server decides which one is
+        // newer (it corrects this device's clock), instead of it being dropped here
+        if (start.position != null && start.position == server && local?.pending != true) {
             store.savePosition(document, LocalPosition(server, pending = false, locator = start.locator))
-            store.setPercentage(document, server.percentage)
+            store.setPercentage(document, server.percentage, server.timestamp)
         }
         return start
     }
@@ -106,7 +122,7 @@ class ReadingSync(
 
     /** Saves a new or changed highlight (or a deletion) and sends it when possible. */
     fun annotate(document: String, annotation: Annotation): Annotation {
-        val now = System.currentTimeMillis() / 1000
+        val now = ServerClock.now()
         val before = store.annotations(document).find(annotation.id)
         val stamped = annotation.copy(
             updated = maxOf(now, before?.updated ?: 0),
@@ -123,22 +139,37 @@ class ReadingSync(
     /** Gets a book's highlights from the server, keeping changes not sent yet. */
     suspend fun refreshAnnotations(document: String): Boolean = runCatching {
         val server = api.getAnnotations(document)
-        store.updateAnnotations(document) { it.adopt(server) }
+        store.updateAnnotations(document) { it.adopt(server, settings.deviceId) }
         if (store.annotations(document).pending.isNotEmpty()) schedule(0)
         true
     }.getOrDefault(false)
 
     /** Sends every pending position now. Returns false if some could not be sent. */
-    suspend fun flush(): Boolean {
+    suspend fun flush(): Boolean = flushLock.withLock {
+        try {
+            sendPending()
+        } finally {
+            // Cancelled midway (the job was stopped): not still "syncing"
+            _status.update { it.copy(syncing = false) }
+        }
+    }
+
+    /** One sending at a time: "Sync" while the background job is working must not send everything twice. */
+    private val flushLock = kotlinx.coroutines.sync.Mutex()
+
+    private suspend fun sendPending(): Boolean {
         _status.update { it.copy(syncing = true) }
         var ok = true
         for ((document, batch) in store.pendingAnnotations()) {
             try {
                 val answer = api.putAnnotations(document, batch)
-                store.updateAnnotations(document) { it.sent(batch).adopt(answer) }
+                store.updateAnnotations(document) { it.sent(batch).adopt(answer, settings.deviceId) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: HttpError) {
-                if (e.code in 400..499 && e.code != 401 && e.code != 408 && e.code != 429) {
+                if (e.rejected) {
                     store.updateAnnotations(document) { it.sent(batch) }
+                    _dropped.update { it + 1 }
                 } else {
                     ok = false
                 }
@@ -149,9 +180,12 @@ class ReadingSync(
         for ((document, mark) in store.pendingMarks()) {
             try {
                 store.markSent(document, mark, api.putMark(document, mark))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: HttpError) {
-                if (e.code in 400..499 && e.code != 401 && e.code != 408 && e.code != 429) {
+                if (e.rejected) {
                     store.markSent(document, mark, null)
+                    _dropped.update { it + 1 }
                 } else {
                     ok = false
                 }
@@ -163,10 +197,13 @@ class ReadingSync(
             try {
                 api.putProgress(document, position)
                 store.markSent(document, position)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: HttpError) {
-                // The server will never take it (e.g. a bad request): stop retrying
-                if (e.code in 400..499 && e.code != 401 && e.code != 408 && e.code != 429) {
+                // Only OPDShelf's own refusal (a bad request) is final; anything else is tried again
+                if (e.rejected) {
                     store.markSent(document, position)
+                    _dropped.update { it + 1 }
                 } else {
                     ok = false
                 }
@@ -188,7 +225,7 @@ class ReadingSync(
             .setInitialDelay(delaySeconds, TimeUnit.SECONDS)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
-        WorkManager.getInstance(context).enqueueUniqueWork("sync-positions", ExistingWorkPolicy.REPLACE, request)
+        WorkManager.getInstance(context).enqueueUniqueWork("sync-positions", ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
 }
 

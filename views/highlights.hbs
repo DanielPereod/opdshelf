@@ -92,7 +92,8 @@
       info.title = meta.join(' · ');
       const actions = el('div', 'hl-actions');
       if (a.path) {
-        actions.append(iconBtn('fas fa-arrow-right-to-bracket', t('Go to the highlight'), null, '/read/' + enc(a.path) + '#note=' + encodeURIComponent(a.id)));
+        // Only the EPUB reader can open a book at a highlight
+        if (/\.epub$/i.test(a.path)) actions.append(iconBtn('fas fa-arrow-right-to-bracket', t('Go to the highlight'), null, '/read/' + enc(a.path) + '#note=' + encodeURIComponent(a.id)));
         actions.append(iconBtn('fas fa-highlighter', t('Highlights of this book'), null, '/info/' + enc(a.path) + '?tab=notes'));
       }
       actions.append(iconBtn('far fa-copy', t('Copy'), async () => {
@@ -225,6 +226,7 @@
       if (!$('allHlExport').contains(e.target)) { $('allHlMenu').hidden = true; $('allHlExportBtn').setAttribute('aria-expanded', 'false'); }
     });
     document.addEventListener('pagechange', (e) => { if (e.detail.page === 'highlights') load(); });
+    document.addEventListener('liveresync', () => { if (visible() || loaded) load(); });
     document.addEventListener('remoteannotations', () => {
       if (!visible() && !loaded) return;
       clearTimeout(pending);

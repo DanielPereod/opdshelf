@@ -16,7 +16,7 @@ local feed = OPDS.parse([[<?xml version="1.0" encoding="UTF-8"?>
 <!-- <entry><title>commented out</title></entry> -->
 <entry><title>El hobbit &amp; otros</title><id>urn:opdshelf:book:El%20hobbit.epub</id>
 <author><name>J. R. R. Tolkien</name></author><author><name>Otro</name></author>
-<dc:language>es</dc:language><calibre:series>La Tierra Media</calibre:series><calibre:series_index>1</calibre:series_index>
+<opdshelf:document>502000418ae95849b554660b1ee1d388</opdshelf:document><dc:language>es</dc:language><calibre:series>La Tierra Media</calibre:series><calibre:series_index>1</calibre:series_index>
 <category term="Fantasía" label="Fantasía"/>
 <summary type="text">Bilbo &lt;3 &#233;</summary>
 <link rel="http://opds-spec.org/image" href="https://books.example/cover/El%20hobbit.epub?v=1" type="image/jpeg"/>
@@ -31,6 +31,7 @@ check(feed.next == "https://books.example/opds/books?page=2", "finds the next pa
 check(feed.search == "https://books.example/opds/search?q={searchTerms}", "and the search, made absolute")
 local book = feed.entries[1]
 check(book.title == "El hobbit & otros" and book.authors[2] == "Otro", "title and authors")
+check(book.document == "502000418ae95849b554660b1ee1d388", "the id of the book for syncing")
 check(book.series == "La Tierra Media" and book.series_index == "1" and book.language == "es", "series and language")
 check(book.summary == "Bilbo <3 é" and book.categories[1] == "Fantasía", "summary with entities and subjects")
 check(book.thumbnail:match("/thumb/") and book.image:match("/cover/"), "cover and thumbnail")
@@ -53,6 +54,34 @@ check(events[3][1] == "message" and events[3][2] == "x\ny", "joins multi-line da
 local dechunk = Stream.dechunker()
 local out = dechunk("5\r\nhel") .. dechunk("lo\r\n3\r") .. dechunk("\nabc\r\n0\r\n\r\n")
 check(out == "helloabc", "decodes chunked bodies fed in pieces")
+
+-- A connection that dies without closing is given up after a while
+do
+    local clock = 100
+    local pieces = { "HTTP/1.0 200 OK\r\nContent-Type: text/event-stream\r\n\r\n", "event: hello\ndata: {}\n\n" }
+    local fake = { tcp = function()
+        return {
+            settimeout = function() end,
+            connect = function() return true end,
+            send = function(_, request) return #request end,
+            -- Two pieces arrive, then nothing, forever, with no error
+            receive = function() return nil, "timeout", table.remove(pieces, 1) end,
+            close = function() end,
+        }
+    end }
+    local got, opened = {}, false
+    local stream = Stream.new{ url = "http://books.example/events", socket = fake, idle = 60,
+        time = function() return clock end,
+        on_open = function() opened = true end,
+        on_event = function(name) got[#got + 1] = name end }
+    check(stream:step() and opened, "opens the stream")
+    check(stream:step() and got[1] == "hello", "reads what arrived")
+    clock = 150
+    check(stream:step(), "quiet for a while is fine")
+    clock = 161
+    local alive, err = stream:step()
+    check(alive == false and err == "timeout", "nothing for over a minute: the connection is given up")
+end
 
 -- Conflicts
 local now = 1000

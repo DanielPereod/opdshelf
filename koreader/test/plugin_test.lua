@@ -83,7 +83,10 @@ end } end
 package.preload["logger"] = function() return { warn = function(...) note("warn", ...) end, dbg = function() end } end
 package.preload["ltn12"] = function() return {
     source = { string = function(s) local done = false return function() if done then return nil end done = true return s end end },
-    sink = { table = function(t) return function(chunk) if chunk then t[#t+1] = chunk end return 1 end end },
+    sink = {
+        table = function(t) return function(chunk) if chunk then t[#t+1] = chunk end return 1 end end,
+        file = function(f) return function(chunk) if chunk then f:write(chunk) else f:close() end return 1 end end,
+    },
 } end
 package.preload["mime"] = function() return { b64 = function(s) return "B64(" .. s .. ")" end } end
 -- The live connection never connects in these tests
@@ -507,6 +510,16 @@ write(dir .. "/opdshelf_setup.json", setup)
 local q = OPDShelf:new{ ui = ui, dialog = {}, view = {}, path = dir }
 check(state():readSetting("server") == "https://books.example", "an account already set up stays")
 check(not exists(dir .. "/opdshelf_setup.json"), "and the setup file is removed, as it holds the password")
+-- ... unless the server turned that account down: the plugin downloaded again with the new password is used
+respond(401, { error = "Unauthorized" })
+q.client:getProgress("0123456789abcdef0123456789abcdef")
+check(state():readSetting("auth_rejected") == true, "a 401 is remembered")
+write(dir .. "/opdshelf_setup.json", setup)
+q = OPDShelf:new{ ui = ui, dialog = {}, view = {}, path = dir }
+check(state():readSetting("server") == "http://new.example" and state():readSetting("password") == "pw"
+    and not state():readSetting("auth_rejected"), "a setup replaces an account the server rejected")
+state():saveSetting("server", "https://books.example")
+state():saveSetting("password", "secret")
 state():saveSetting("server", nil)
 write(dir .. "/opdshelf_setup.json", setup)
 q = OPDShelf:new{ ui = ui, dialog = {}, view = {}, path = dir }
@@ -579,8 +592,203 @@ settings[3].callback()
 q.chooseDownloadDir = chooser
 check(heard == "folder", "the home screen hears when a setting it shows changed")
 
+-- 14. Positions are only dropped when OPDShelf itself refuses them
+doc_settings:delSetting("opdshelf_sync")
+state():saveSetting("pending", nil)
+online = true
+page_first = 120
+p = open()
+respond(200, { current = remote("KOBO-ID", 120) })
+runScheduled()
+respond(404, "<html>Not found</html>")
+p:push{ force = true }
+check(state():readSetting("pending").DOCHASH ~= nil, "a 404 page from a proxy keeps the position in the queue")
+respond(200, "<html>Sign in to the Wi-Fi</html>")
+p:flush()
+check(state():readSetting("pending").DOCHASH ~= nil, "so does a captive portal answering 200 with a page")
+respond(403, "")
+p:flush()
+check(state():readSetting("pending").DOCHASH ~= nil, "and a 403")
+respond(400, { error = "Not a document id" })
+p:flush()
+check(next(state():readSetting("pending")) == nil, "OPDShelf's own 400 drops it")
+p:onCloseDocument()
+
+-- 15. A file replaced by another one gets its own id
+state():saveSetting("live", false)
+doc_settings:saveSetting("opdshelf_sync", { synced = { timestamp = 1, device_id = "x", progress = "p" } })
+local util_lib = require("util")
+util_lib.partialMD5 = function() return "OTHERHASH" end
+page_first = 10
+p = open()
+check(p.document == "OTHERHASH", "the id is worked out from the file, not taken from the sidecar")
+check(doc_settings:readSetting("partial_md5_checksum") == "OTHERHASH" and doc_settings:readSetting("opdshelf_sync") == nil,
+    "and what the plugin knew of the old book is forgotten")
+p:onCloseDocument()
+util_lib.partialMD5 = nil
+doc_settings:saveSetting("partial_md5_checksum", "DOCHASH")
+
+-- 16. Highlights: what is agreed on, what the server lost, what cannot be placed
+do
+    local Notes = dofile(plugin_dir .. "/opdshelf_notes.lua")
+    local function item(id, note)
+        return { opdshelf_id = id, text = "text of " .. id, note = note, color = "yellow", drawer = "lighten",
+            pos0 = xp(1), pos1 = xp(2), datetime = "2026-11-01 10:00:00" }
+    end
+    local extra = function() return { device = "Kobo", device_id = "KOBO-ID" } end
+    -- A highlight agreed on that the server no longer has (another server, a lost file) goes out again
+    local mine = item("h1")
+    local snapshot = { h1 = { sig = Notes.signature(mine), updated = 10 } }
+    check(#Notes.outgoing({ mine }, snapshot, extra) == 0, "an agreed highlight is not sent")
+    Notes.merge({ mine }, {}, snapshot, false)
+    check(#Notes.outgoing({ mine }, snapshot, extra) == 0, "a partial list (a live event) does not make it forget")
+    Notes.merge({ mine }, {}, snapshot, true)
+    local out = Notes.outgoing({ mine }, snapshot, extra)
+    check(#out == 1 and out[1].id == "h1", "the server's full list without it makes it go out again")
+    -- One of another device that is not in this book is not searched for again, until it changes
+    local theirs = { id = "w9", text = "elsewhere", color = "green", style = "lighten", pos0 = "/body/x", pos1 = "/body/y", updated = 20 }
+    snapshot = {}
+    local actions = Notes.merge({}, { theirs }, snapshot, true)
+    check(#actions.add == 1, "a new highlight of another device is offered to place")
+    snapshot[theirs.id] = { sig = Notes.signature(theirs), updated = theirs.updated, missing = true }
+    check(#Notes.merge({}, { theirs }, snapshot, true).add == 0, "once it could not be placed it is not offered again")
+    check(not Notes.track({}, snapshot, 30, function() return "x" end) and not snapshot.w9.deleted, "nor deleted for not being in the book")
+    local changed = { id = "w9", text = "elsewhere", color = "red", style = "lighten", pos0 = "/body/x", pos1 = "/body/y", updated = 40 }
+    check(#Notes.merge({}, { changed }, snapshot, true).add == 1, "but it is when the server's version changes")
+end
+
+-- 17. Highlights with a clock that is wrong: times are compared in the server's clock
+do
+    local Notes = dofile(plugin_dir .. "/opdshelf_notes.lua")
+    local function edited(note)
+        return { opdshelf_id = "h1", text = "t", note = note, color = "yellow", drawer = "lighten",
+            pos0 = xp(1), pos1 = xp(2), datetime = "2026-11-01 10:00:00" }
+    end
+    local function server(note, updated)
+        return { id = "h1", text = "t", note = note, color = "yellow", style = "lighten", pos0 = xp(1), pos1 = xp(2), updated = updated }
+    end
+    local extra = function() return { device = "Kobo", device_id = "KOBO-ID" } end
+    local base = os.time()
+    for _i, skew in ipairs({ 3600, -3600 }) do
+        -- The server's clock is `skew` behind this device's (the Kobo's is ahead when skew > 0)
+        Notes.setOffset(-skew)
+        local item = edited("from the Kobo")
+        local agreed = { h1 = { sig = Notes.signature(edited(nil)), updated = base - 100 } }
+        -- Edited on the Kobo at server time base; its clock says base + skew
+        Notes.track({ item }, agreed, base + skew, function() return "x" end)
+        check(item.opdshelf_updated == base, "the change is kept in the server's time (" .. skew .. ")")
+        -- The web changed it later, by the server's clock
+        local actions = Notes.merge({ item }, { server("from the web", base + 300) }, agreed, true)
+        check(#actions.update == 1, "the later change on the web wins, whatever the Kobo's clock (" .. skew .. ")")
+        -- And an earlier one on the web does not undo the Kobo's
+        item = edited("from the Kobo")
+        agreed = { h1 = { sig = Notes.signature(edited(nil)), updated = base - 100 } }
+        Notes.track({ item }, agreed, base + skew, function() return "x" end)
+        actions = Notes.merge({ item }, { server("from the web", base - 30) }, agreed, true)
+        check(#actions.update == 0, "an earlier change on the web does not undo it (" .. skew .. ")")
+        local out = Notes.outgoing({ item }, agreed, extra)
+        check(#out == 1 and out[1].updated == base + skew, "it is sent in the Kobo's own clock for the server to correct (" .. skew .. ")")
+    end
+    Notes.setOffset(0)
+    -- The server says it kept another version: that one is taken, without comparing times
+    local item = edited("from the Kobo")
+    item.opdshelf_updated = base + 5000
+    local agreed = { h1 = { sig = Notes.signature(edited(nil)), updated = base - 100 } }
+    local actions = Notes.merge({ item }, { server("from the web", base) }, agreed, true, { h1 = true })
+    check(#actions.update == 1 and agreed.h1.updated == base, "the server's version wins when it says it kept it")
+    -- Also a deletion made here that lost to a later edit elsewhere
+    agreed = { h1 = { sig = "x", updated = base - 100, deleted = true, deleted_at = base + 5000 } }
+    actions = Notes.merge({}, { server("from the web", base) }, agreed, true, { h1 = true })
+    check(#actions.add == 1, "a deletion that lost brings the highlight back")
+end
+
+-- 18. A book downloaded again does not lose the one that is there if it cannot be put in place
+do
+    local base = os.tmpname()
+    os.remove(base)
+    os.execute("mkdir -p '" .. base .. "'")
+    local file = base .. "/book.epub"
+    local function put(path, text) local f = assert(io.open(path, "wb")) f:write(text) f:close() end
+    local function get(path) local f = io.open(path, "rb") if not f then return nil end local t = f:read("*a") f:close() return t end
+    put(file, "old copy")
+    respond(200, "new copy")
+    local ok = p.client:download("https://books.example/download/book.epub", file)
+    check(ok and get(file) == "new copy" and not get(file .. ".old") and not get(file .. ".part"), "the new book replaces it and nothing is left over")
+    -- The new file cannot be moved (here the .part is gone): the old one is still there
+    respond(200, "other copy")
+    local real_rename = os.rename
+    os.rename = function(from, to) if from:match("%.part$") then return nil, "no space left" end return real_rename(from, to) end
+    ok = p.client:download("https://books.example/download/book.epub", file)
+    os.rename = real_rename
+    check(ok == false and get(file) == "new copy" and not get(file .. ".old"), "when it cannot be put in place the one there is kept")
+    os.execute("rm -rf '" .. base .. "'")
+end
+
 -- Every text of the plugin speaks Spanish
 local missing = {}
+-- 13. Finished books: KOReader's "Finished" status is synced as a mark
+state():saveSetting("live", false)
+doc_settings:delSetting("opdshelf_sync")
+doc_settings:delSetting("summary")
+state():saveSetting("pending", nil)
+state():saveSetting("pending_marks", nil)
+online = true
+page_first = 100
+p = open()
+respond(200, { current = remote("KOBO-ID", 100) })
+runScheduled()
+local before_marks = #requests
+doc_settings:saveSetting("summary", { status = "complete" })
+respond(200, { marks = { DOCHASH = { state = "read", at = os.time() } }, server_time = os.time() })
+p:onCloseDocument()
+local mark_put
+for i = before_marks + 1, #requests do if requests[i].url:match("/api/marks$") then mark_put = requests[i] end end
+check(mark_put and mark_put.method == "PUT" and mark_put.body.documents[1] == "DOCHASH" and mark_put.body.state == "read"
+    and mark_put.body.at and mark_put.body.sent_at, "marking the book Finished in KOReader sends a read mark")
+check(next(state():readSetting("pending_marks")) == nil, "and the queue is empty once the server took it")
+
+-- Not finished any more, read to 25 %: the mark is cleared (no state), not set to unread
+p = open()
+respond(200, { current = remote("KOBO-ID", 100), mark = { state = "read", at = os.time() - 5 } })
+runScheduled()
+doc_settings:saveSetting("summary", { status = "reading" })
+respond(200, { marks = {}, server_time = os.time() })
+p:onCloseDocument()
+mark_put = nil
+for i = #requests, 1, -1 do if requests[i].url:match("/api/marks$") then mark_put = requests[i] break end end
+check(mark_put and mark_put.body.state == nil and mark_put.body.documents[1] == "DOCHASH", "no longer Finished below the threshold clears the mark")
+
+-- A 404 from a proxy (the server is restarting) keeps the mark in the queue
+doc_settings:delSetting("opdshelf_sync")
+doc_settings:saveSetting("summary", { status = "complete" })
+p = open()
+respond(200, { current = remote("KOBO-ID", 100) })
+runScheduled()
+respond(404, "<html>Not found</html>")
+p:onCloseDocument()
+check(state():readSetting("pending_marks").DOCHASH and state():readSetting("pending_marks").DOCHASH.state == "read", "a 404 in HTML keeps the mark to send later")
+respond(200, { marks = { DOCHASH = { state = "read", at = os.time() } }, server_time = os.time() })
+p:flush()
+check(next(state():readSetting("pending_marks")) == nil, "and it is sent when the network is back")
+
+-- The server's marks are applied to the open book
+doc_settings:delSetting("opdshelf_sync")
+doc_settings:saveSetting("summary", { status = "reading" })
+state():saveSetting("pending_marks", nil)
+p = open()
+respond(200, { current = remote("KOBO-ID", 100), mark = { state = "read", at = os.time() } })
+runScheduled()
+check(doc_settings:readSetting("summary").status == "complete", "a book marked as read elsewhere is Finished here")
+p:onStreamEvent("marks", cjson.encode({ document = "DOCHASH", mark = { state = "unread", at = os.time() + 10 } }))
+check(doc_settings:readSetting("summary").status == "reading", "and no longer when it is marked as unread")
+p:onStreamEvent("marks", cjson.encode({ document = "DOCHASH", mark = { state = "read", at = os.time() + 20 } }))
+check(doc_settings:readSetting("summary").status == "complete", "marked as read again")
+p:onStreamEvent("marks", cjson.encode({ document = "DOCHASH", cleared_at = os.time() + 30 }))
+check(doc_settings:readSetting("summary").status == "reading", "a cleared mark also unfinishes it")
+p:onStreamEvent("marks", cjson.encode({ document = "DOCHASH", mark = { state = "read", at = os.time() + 5 } }))
+check(doc_settings:readSetting("summary").status == "reading", "an older mark changes nothing")
+p:onCloseDocument()
+
 local I18n = dofile(plugin_dir .. "/opdshelf_i18n.lua")
 for _i, name in ipairs({ "main", "opdshelf_browser", "opdshelf_home", "opdshelf_menu", "opdshelf_notes", "opdshelf_update", "opdshelf_sync", "opdshelf_client", "opdshelf_stream" }) do
     local f = io.open(plugin_dir .. "/" .. name .. ".lua")

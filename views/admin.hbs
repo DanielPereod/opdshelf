@@ -496,7 +496,8 @@
     const libraryRoot = t('the library root');
     // Book path → its current position, from /api/progress
     const progress = new Map();
-    const FINISHED = 0.98;
+    // The server says where a book is at and from how far on it counts as finished
+    let FINISHED = 0.99;
     const isReading = (p) => p && p.percentage > 0 && p.percentage < FINISHED;
     const isFinished = (p) => p && p.percentage >= FINISHED;
     const isNotStarted = (p) => !p || !(p.percentage > 0);
@@ -970,17 +971,14 @@
         if (!response.ok) throw new Error(response.statusText);
         const data = await response.json();
         progress.clear();
-        data.books.forEach((b) => { if (b.path) progress.set(b.path, b.current); });
-        // Marks made in the panel: "read" shows the book finished, "unread"
-        // hides the positions saved before it
+        if (data.finished_at) FINISHED = data.finished_at;
+        // A book marked as unread after its last position (status null) has no progress
+        data.books.forEach((b) => { if (b.path && b.status) progress.set(b.path, b.current); });
+        // Books marked as read in the panel or an app: finished, whatever was read
         (data.marks || []).forEach((m) => {
-          if (!m.path) return;
+          if (!m.path || m.state !== 'read') return;
           const p = progress.get(m.path);
-          if (m.state === 'read') {
-            progress.set(m.path, { ...(p || {}), percentage: 1, timestamp: Math.max(m.at, (p && p.timestamp) || 0), device: t('Marked as read'), marked: true });
-          } else if (p && p.timestamp <= m.at) {
-            progress.delete(m.path);
-          }
+          progress.set(m.path, { ...(p || {}), percentage: Math.max((p && p.percentage) || 0, 1), timestamp: Math.max(m.at, (p && p.timestamp) || 0), device: t('Marked as read'), marked: true });
         });
         paintProgress();
         refresh(true);
@@ -1337,6 +1335,8 @@
     // ------------------------------------------------------------ inspector
     const insp = $('insp');
     let editDirty = false;
+    // The address of what is on screen, to come back to it if "Back" would lose unsaved edits
+    let shownUrl = location.pathname + location.search;
     function markSelected(path) {
       selectedPath = path;
       rows.forEach((r) => { if (r.el) r.el.classList.toggle('selected', r.dataset.path === path); });
@@ -1362,6 +1362,7 @@
         paintReading();
         paintNotes();
         if (push) history.pushState({ panel: href }, '', href);
+        shownUrl = location.pathname + location.search;
         insp.querySelector('.tab[aria-current="page"]')?.focus({ preventScroll: true });
       } catch (err) {
         location.href = href;
@@ -1378,6 +1379,7 @@
         if (state.shelf === 'folder' && currentPage() === 'library') url.searchParams.set('folder', state.value);
         history.pushState({ panel: null }, '', url);
       }
+      shownUrl = location.pathname + location.search;
     }
 
     // How far the book in the panel was read, on every device
@@ -1476,8 +1478,9 @@
       const box = insp.querySelector('[data-notes]');
       if (!box || !box.dataset.notes) return;
       const notes = Notes.store(box.dataset.notes);
-      const readable = box.dataset.readable === 'true';
       const path = box.dataset.path;
+      // Only the EPUB reader can open a book at a highlight
+      const readable = box.dataset.readable === 'true' && /\.epub$/i.test(path || '');
       Notes.view(box, notes, {
         open: readable ? (a) => { location.href = '/read/' + encodePath(path) + '#note=' + encodeURIComponent(a.id); } : null,
         toast: (message, action) => showToast(message, action),
@@ -1538,7 +1541,12 @@
       const copy = e.target.closest('[data-copy]');
       if (copy) copyText($(copy.dataset.copy), copy);
     });
-    window.addEventListener('popstate', () => {
+    window.addEventListener('popstate', async () => {
+      // "Back" with changes not saved asks first, and stays on the book if they are kept
+      if (editDirty && !(await leaveEdit())) {
+        history.pushState({ panel: shownUrl }, '', shownUrl);
+        return;
+      }
       const path = location.pathname;
       editDirty = false;
       if (path.startsWith('/info/') || path.startsWith('/admin/edit/')) openPanel(path + location.search, false);
@@ -1547,6 +1555,7 @@
         const { page, tab } = pageFromPath(path);
         showPage(page, tab);
       }
+      shownUrl = location.pathname + location.search;
     });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !insp.hidden && !document.querySelector('dialog[open]') && !Menu.isOpen()) closePanel(true);
@@ -1561,6 +1570,8 @@
     if (clean.searchParams.has('notice') || clean.searchParams.has('error')) {
       clean.searchParams.delete('notice');
       clean.searchParams.delete('error');
+      clean.searchParams.delete('notice_sig');
+      clean.searchParams.delete('error_sig');
       history.replaceState(history.state, '', clean);
     }
 
@@ -1576,7 +1587,7 @@
       try {
         const response = await fetch('/admin/lookup?isbn=' + encodeURIComponent(isbn));
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || response.statusText);
+        if (!response.ok) throw new Error(data.error ? t(data.error) : response.statusText);
         found = data;
         $('lookupSource').textContent = t('Found on {source}', { source: data.source });
         $('lookupTitle').textContent = [data.title || t('(no title)'), data.authors.join(', ')].filter(Boolean).join(' · ');
@@ -1687,8 +1698,8 @@
         case 'not_empty': return t('Only empty folders can be deleted');
         case 'read_only': return t(data.error);
         default:
-          if (data.failed && data.failed.length) return data.failed.join('; ');
-          return data.error || (response.status + ' ' + response.statusText);
+          if (data.failed && data.failed.length) return data.failed.map((f) => t(f)).join('; ');
+          return data.error ? t(data.error) : (response.status + ' ' + response.statusText);
       }
     }
     // A name typed for a folder or a file, checked before it is sent
@@ -2450,7 +2461,7 @@
       if (xhr.status === 415) return t('Not a supported format');
       if (data.code === 'read_only') return t(data.error);
       if (xhr.status === 413 || /upload limit/i.test(data.error || '')) return t('Larger than the upload limit');
-      return data.error || (xhr.status + ' ' + xhr.statusText);
+      return data.error ? t(data.error) : (xhr.status + ' ' + xhr.statusText);
     }
     function nextUpload() {
       if (uploadXhr) return;
@@ -2594,17 +2605,35 @@
       let source = null;
       let retry = 1000;
       let pending = null;
+      let connectedBefore = false;
+      let libraryToast = null;
+      // Everything the panel shows may have changed while the connection was down
+      function catchUp() {
+        loadProgress();
+        if (panelNotes) panelNotes.load();
+        document.dispatchEvent(new CustomEvent('liveresync'));
+      }
       function setLive(live) {
         document.querySelectorAll('[data-live-state]').forEach((el) => { el.dataset.liveState = live; });
         $('navLive').dataset.on = live === 'on';
         $('navLive').title = live === 'on' ? t('Live: changes arrive at once') : t('Connecting…');
         document.dispatchEvent(new CustomEvent('livechange', { detail: { live } }));
       }
+      function libraryChanged() {
+        clearTimeout(libraryToast);
+        libraryToast = setTimeout(() => {
+          libraryToast = null;
+          // Nothing is reloaded under the hands of someone who is editing
+          showToast(t('The library changed on another device.'), { label: t('Reload'), run: () => location.reload() });
+        }, 1500);
+      }
       function connect() {
         source = new EventSource('/api/progress/events');
         source.addEventListener('hello', (e) => {
           retry = 1000;
           setLive('on');
+          if (connectedBefore) { catchUp(); libraryChanged(); }
+          connectedBefore = true;
           try { window.serverOffset = JSON.parse(e.data).server_time - Date.now() / 1000; } catch { }
         });
         source.addEventListener('progress', (e) => {
@@ -2621,7 +2650,9 @@
           clearTimeout(pending);
           pending = setTimeout(loadProgress, 300);
         });
-        source.addEventListener('resync', () => { loadProgress(); if (panelNotes) panelNotes.load(); });
+        // Books added, moved, edited or removed by another client: the list on this page is old
+        source.addEventListener('library', libraryChanged);
+        source.addEventListener('resync', catchUp);
         source.onerror = () => {
           source.close();
           setLive('off');

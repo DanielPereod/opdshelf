@@ -162,6 +162,8 @@ fun Main(library: LibraryViewModel, link: io.github.danielpereod.opdshelf.data.C
         }
     }
     LaunchedEffect(Unit) { library.openRoot() }
+    // Back in the app: send what is waiting and read what changed on other devices
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) { library.syncNow() }
     val upload by library.upload.collectAsState()
     upload?.let { UploadDialog(it, library) }
 

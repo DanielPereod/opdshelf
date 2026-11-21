@@ -33,7 +33,7 @@
     let timer = null;
     let sending = null;
     let state;
-    try { state = JSON.parse(storeGet(key)) || null; } catch { state = null; }
+    try { state = documentId ? JSON.parse(storeGet(key)) || null : null; } catch { state = null; }
     if (!state || !Array.isArray(state.list)) state = { list: [], pending: {} };
     // Changes this tab already sent (id → `updated`), so they are not taken back from storage
     const done = {};
@@ -42,14 +42,14 @@
       // Another tab with the same book may have queued changes (offline): keep them, as
       // writing this tab's copy over the key would erase them
       try {
-        const other = JSON.parse(storeGet(key));
+        const other = documentId ? JSON.parse(storeGet(key)) : null;
         Object.values((other && other.pending) || {}).forEach((a) => {
           const mine = state.pending[a.id];
           if ((done[a.id] || 0) >= a.updated) return;
           if (!mine || mine.updated < a.updated) state.pending[a.id] = a;
         });
       } catch { }
-      storeSet(key, JSON.stringify(state));
+      if (documentId) storeSet(key, JSON.stringify(state));
     };
     const emit = (changed) => listeners.forEach((fn) => fn(changed || null));
 

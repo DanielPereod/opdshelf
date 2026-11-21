@@ -61,12 +61,13 @@
     let seq = 0;
     let retryDelay = 5000;
     const readLocal = () => {
-      if (memory) return memory;
+      if (memory || !documentId) return memory;
       try { return JSON.parse(storeGet(localKey)) || null; } catch { return null; }
     };
     const writeLocal = (entry) => {
       memory = { ...entry, seq: ++seq };
-      storeSet(localKey, JSON.stringify(memory));
+      // A book without an id has no place of its own in storage: it would share one with every other
+      if (documentId) storeSet(localKey, JSON.stringify(memory));
     };
 
     async function request(method, body, keepalive) {

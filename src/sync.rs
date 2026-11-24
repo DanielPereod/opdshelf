@@ -170,7 +170,11 @@ fn short(value: Option<String>) -> String {
 /// were added, moved, edited or removed (only to clients that listen to every
 /// book, like the panel), and `resync` when changes were missed and the client
 /// should fetch its books' positions and highlights again.
-pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQuery>) -> Response {
+pub async fn events(
+    State(state): State<AppState>,
+    key: Option<axum::Extension<crate::api_keys::KeyUse>>,
+    Query(query): Query<EventsQuery>,
+) -> Response {
     let wanted: Option<HashSet<String>> = query.documents.map(|list| {
         list.split(',')
             .map(str::trim)
@@ -186,8 +190,18 @@ pub async fn events(State(state): State<AppState>, Query(query): Query<EventsQue
     let marks = state.marks.subscribe();
     let bookmarks = state.bookmarks.subscribe();
     let library = state.library.subscribe();
-    let device_id = short(query.device_id);
-    let guard = (!device_id.is_empty()).then(|| state.presence.join(&device_id, &short(query.device)));
+    let mut device_id = short(query.device_id);
+    let mut device = short(query.device);
+    // A program reading with an API key shows up on the devices page with the key's name
+    if let Some(axum::Extension(key)) = key {
+        if device_id.is_empty() {
+            device_id = format!("api-key-{}", key.id);
+        }
+        if device.is_empty() {
+            device = key.name;
+        }
+    }
+    let guard = (!device_id.is_empty()).then(|| state.presence.join(&device_id, &device));
     let stream = futures_util::stream::unfold(
         (Some(hello), changes, notes, marks, bookmarks, library, wanted, guard),
         |(first, mut changes, mut notes, mut marks, mut bookmarks, mut library, wanted, guard)| async move {
@@ -634,14 +648,35 @@ pub async fn put_bookmarks(
 }
 
 /// Every book with highlights: how many, how many with notes, and the last change.
+/// Every book with highlights, newest change first: how many highlights and
+/// notes it has, when they last changed, and the book's title, authors, cover
+/// and where its reading is at, so a program can tell what changed with one call.
 pub async fn list_annotations(State(state): State<AppState>) -> Response {
     let books = books_by_document(&state).await;
+    let snapshot = state.library.snapshot().await;
+    let by_path: HashMap<&str, &crate::library::Book> = snapshot.books.iter().map(|b| (b.path.as_str(), b)).collect();
+    let marks = state.marks.all();
     let mut list: Vec<_> = state
         .annotations
         .all()
         .into_iter()
         .map(|(document, notes)| {
             let mut entry = book_fields(&books, &document);
+            let book = books.get(&document).and_then(|(path, _)| by_path.get(path.as_str()));
+            entry["authors"] = json!(book.map(|b| b.author_line()));
+            entry["cover"] = json!(book
+                .filter(|b| b.has_cover)
+                .map(|b| format!("/cover/{}", crate::paths::url_encode(&b.path))));
+            let current = state.progress.current(&document);
+            let mark = marks.get(&document);
+            let status = match &current {
+                Some(record) => crate::opds::effective_status(record, mark).map(|(s, _)| s),
+                None => mark
+                    .filter(|m| m.state == crate::marks::State::Read)
+                    .map(|_| crate::opds::Status::Finished),
+            };
+            entry["status"] = json!(status.map(|s| s.as_str()));
+            entry["percentage"] = json!(current.map(|r| r.percentage));
             entry["document"] = json!(document);
             entry["highlights"] = json!(notes.len());
             entry["notes"] = json!(notes.iter().filter(|a| !a.note.trim().is_empty()).count());

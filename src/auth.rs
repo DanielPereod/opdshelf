@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use subtle::ConstantTimeEq;
 
+use crate::api_keys::{ApiKeys, KeyUse};
 use crate::config::Config;
 
 pub const SESSION_COOKIE: &str = "opdshelf_session";
@@ -21,6 +22,17 @@ pub struct Auth {
     /// DATA_DIR so it survives restarts.
     generation: Arc<AtomicU64>,
     generation_file: Option<PathBuf>,
+    /// Read-only keys for other programs. Not derived from the password, so changing it
+    /// leaves them working.
+    pub keys: ApiKeys,
+}
+
+/// What an `Authorization: Bearer` header says.
+pub enum Bearer {
+    /// No key in the request.
+    Missing,
+    Valid(KeyUse),
+    Invalid,
 }
 
 impl Auth {
@@ -38,6 +50,7 @@ impl Auth {
             secret,
             generation: Arc::default(),
             generation_file: None,
+            keys: ApiKeys::in_memory(),
         }
     }
 
@@ -70,6 +83,7 @@ impl Auth {
             .unwrap_or(0);
         auth.generation.store(saved, Ordering::SeqCst);
         auth.generation_file = Some(file);
+        auth.keys = ApiKeys::open(dir);
         auth
     }
 
@@ -130,6 +144,22 @@ impl Auth {
         let session_ok = cookie(headers, SESSION_COOKIE)
             .is_some_and(|value| bool::from(value.as_bytes().ct_eq(self.session_token().as_bytes())));
         session_ok || basic_credentials(headers).is_some_and(|(u, p)| self.check_credentials(&u, &p))
+    }
+
+    /// The API key in an `Authorization: Bearer <key>` header, if there is one.
+    pub fn bearer(&self, headers: &HeaderMap) -> Bearer {
+        let Some(value) = headers.get(header::AUTHORIZATION) else {
+            return Bearer::Missing;
+        };
+        let value = value.to_str().unwrap_or_default().trim();
+        let (scheme, key) = value.split_once(' ').unwrap_or((value, ""));
+        if !scheme.eq_ignore_ascii_case("bearer") {
+            return Bearer::Missing;
+        }
+        match self.keys.check(key.trim()) {
+            Some(key) => Bearer::Valid(key),
+            None => Bearer::Invalid,
+        }
     }
 
     pub fn session_cookie(&self, secure: bool) -> String {
@@ -303,6 +333,28 @@ mod tests {
         assert_eq!(flash::verified(Some("Saved"), Some("abc")), None);
         assert_eq!(flash::verified(Some("Saved"), None), None);
         assert_eq!(flash::verified(None, Some(signature)), None);
+    }
+
+    #[test]
+    fn api_keys_in_a_bearer_header() {
+        let a = auth(Some("a"), Some("b"));
+        assert!(matches!(a.bearer(&HeaderMap::new()), Bearer::Missing));
+        assert!(matches!(
+            a.bearer(&headers(header::AUTHORIZATION, "Basic eDp5")),
+            Bearer::Missing
+        ));
+        assert!(matches!(
+            a.bearer(&headers(header::AUTHORIZATION, "Bearer opds_nope")),
+            Bearer::Invalid
+        ));
+        let (_, key) = a.keys.create("Notes").unwrap();
+        let header_value = format!("bearer {key}");
+        match a.bearer(&headers(header::AUTHORIZATION, &header_value)) {
+            Bearer::Valid(used) => assert_eq!(used.name, "Notes"),
+            _ => panic!("the key should be valid"),
+        }
+        // A key is not a session: the panel still asks to sign in
+        assert!(!a.is_authorized(&headers(header::AUTHORIZATION, &header_value)));
     }
 
     #[test]

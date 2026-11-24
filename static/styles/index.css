@@ -4740,6 +4740,20 @@ a.top-book:hover {
   flex: none;
 }
 
+.api-key-form .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.api-key-new .setting-text {
+  flex: 1;
+}
+
+.setting-row > .btn {
+  margin-left: auto;
+  flex: none;
+}
+
 .setting-text {
   display: flex;
   flex-direction: column;

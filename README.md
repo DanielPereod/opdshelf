@@ -40,6 +40,7 @@
 - **Android app** and **KOReader plugin**, downloadable from the panel.
 - EPUB, PDF, FB2, MOBI, AZW, CBZ, CBR, DJVU, RTF, TXT and more. Metadata and covers are read from the files, which are never modified.
 - Optional username and password (Basic auth for readers, a login form for the panel).
+- Read-only API keys, so other apps can read your highlights, positions and covers without your password ([docs/sync.md](docs/sync.md#api-keys)).
 
 ## Real-time sync
 

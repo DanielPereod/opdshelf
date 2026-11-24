@@ -158,6 +158,37 @@
           </div>
           <p class="connect-note muted">{{#if apkLocal}}{{t "The app is downloaded from this server."}}{{else}}{{t "The app and the plugin are downloaded from the latest release on GitHub, so they stay up to date without updating the server."}}{{/if}}{{#if appsBeta}} {{t "This server is on the beta channel, so it offers the beta builds."}}{{/if}}</p>
         </section>
+
+        <section class="panel-section" aria-labelledby="apiKeysTitle">
+          <div class="section-head"><h2 id="apiKeysTitle">{{t "API keys"}}</h2></div>
+          <div class="settings-card" id="apiKeys">
+            <div class="setting-row">
+              <span class="device-icon" aria-hidden="true"><i class="fas fa-key"></i></span>
+              <div class="setting-text">
+                <strong>{{t "Read-only access for other apps"}}</strong>
+                <span class="muted">{{t "A connector, such as a notes app, can read your highlights, reading positions and covers with a key instead of your password. A key can only read, and keeps working until you revoke it."}}</span>
+                {{#unless authEnabled}}<span class="muted">{{t "Sign-in is off, so the API is open to anyone who can reach this server, with or without a key."}}</span>{{/unless}}
+              </div>
+            </div>
+            <form class="setting-row api-key-form" id="apiKeyForm">
+              <input class="input" name="name" maxlength="80" required autocomplete="off"
+                placeholder="{{t "Name, for example Notes app"}}" aria-label="{{t "Name of the key"}}">
+              <button type="submit" class="btn btn-primary"><i class="fas fa-plus"></i>{{t "Create key"}}</button>
+            </form>
+            <div class="setting-row api-key-new" id="apiKeyNew" hidden>
+              <div class="setting-text">
+                <strong>{{t "Copy the key now: it will not be shown again."}}</strong>
+                <div class="copy-row"><code class="mono" id="apiKeyValue"></code>
+                  <button type="button" class="icon-btn" data-copy="apiKeyValue" title="{{t "Copy key"}}"
+                    aria-label="{{t "Copy key"}}"><i class="far fa-copy"></i></button></div>
+                <span class="muted">{{{t "Send it in the {header} header." header="<code>Authorization: Bearer</code>"}}}</span>
+              </div>
+            </div>
+            <div class="setting-row" id="apiKeyEmpty" hidden>
+              <span class="muted">{{t "No API keys yet."}}</span>
+            </div>
+          </div>
+        </section>
       </div>
 
       <div class="settings-panel" data-settings-panel="maintenance" {{#unless maintenanceTab}}hidden{{/unless}}>
@@ -213,6 +244,89 @@
       if (e.target.open) img.src = '/apps/connect.svg?' + Date.now();
       else img.removeAttribute('src');
     });
+
+    // API keys: made and revoked here, listed with when they were last used
+    const keysCard = $('apiKeys');
+    const csrf = $('app') ? $('app').dataset.csrf : '';
+    async function keysRequest(method, url, body) {
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-Token': csrf },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      let data = {};
+      try { data = await response.json(); } catch { }
+      if (!response.ok) throw new Error(t(data.error || response.statusText));
+      return data;
+    }
+    function keyRow(key) {
+      const row = document.createElement('div');
+      row.className = 'setting-row';
+      row.dataset.apiKey = key.id;
+      const icon = document.createElement('span');
+      icon.className = 'device-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML = '<i class="fas fa-key"></i>';
+      const text = document.createElement('div');
+      text.className = 'setting-text';
+      const name = document.createElement('strong');
+      name.textContent = key.name;
+      const when = document.createElement('span');
+      when.className = 'muted';
+      when.textContent = t('Created {when}', { when: timeAgo(key.created) }) + ' · '
+        + (key.last_used ? t('Last used {when}', { when: timeAgo(key.last_used) }) : t('Never used'));
+      text.append(name, when);
+      const revoke = document.createElement('button');
+      revoke.type = 'button';
+      revoke.className = 'btn btn-small';
+      revoke.innerHTML = '<i class="fas fa-ban"></i>';
+      revoke.append(t('Revoke'));
+      revoke.addEventListener('click', async () => {
+        const ok = await confirmAction(t('Revoke the key “{name}”?', { name: key.name }),
+          t('Apps that use it stop reading at once. This cannot be undone.'), t('Revoke'), true);
+        if (!ok) return;
+        try {
+          await keysRequest('DELETE', '/api/keys/' + encodeURIComponent(key.id));
+          row.remove();
+          $('apiKeyEmpty').hidden = !!keysCard.querySelector('[data-api-key]');
+          showToast(t('Key revoked'));
+        } catch (err) { showToast(t('Cannot revoke the key: {reason}', { reason: err.message })); }
+      });
+      row.append(icon, text, revoke);
+      return row;
+    }
+    function showKeys(keys) {
+      keysCard.querySelectorAll('[data-api-key]').forEach((r) => r.remove());
+      // Newest first
+      keys.slice().reverse().forEach((k) => keysCard.append(keyRow(k)));
+      $('apiKeyEmpty').hidden = keys.length > 0;
+    }
+    async function loadKeys() {
+      try { showKeys((await keysRequest('GET', '/api/keys')).keys || []); } catch { }
+    }
+    $('apiKeyForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const button = form.querySelector('button');
+      button.disabled = true;
+      try {
+        const made = await keysRequest('POST', '/api/keys', { name: form.elements.name.value });
+        form.reset();
+        $('apiKeyValue').textContent = made.secret;
+        $('apiKeyNew').hidden = false;
+        $('apiKeyEmpty').hidden = true;
+        $('apiKeyNew').after(keyRow(made.key));
+      } catch (err) { showToast(t('Cannot create the key: {reason}', { reason: err.message })); }
+      button.disabled = false;
+    });
+    document.addEventListener('pagechange', (e) => {
+      if (!e.detail.changed || e.detail.page !== 'settings' || e.detail.tab !== 'apps') return;
+      // The key shown once does not stay on the page
+      $('apiKeyNew').hidden = true;
+      $('apiKeyValue').textContent = '';
+      loadKeys();
+    });
+    loadKeys();
 
     // Theme: the same choice as the button of the sidebar
     document.querySelectorAll('[data-theme-set]').forEach((b) => b.addEventListener('click', () => {

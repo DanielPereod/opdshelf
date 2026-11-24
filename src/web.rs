@@ -15,7 +15,7 @@ use tower::ServiceExt;
 use tower_http::compression::CompressionLayer;
 use tower_http::services::ServeFile;
 
-use crate::auth::Auth;
+use crate::auth::{Auth, Bearer};
 use crate::config::Config;
 use crate::documents::DocumentIds;
 use crate::i18n::Lang;
@@ -146,6 +146,11 @@ pub fn router(config: Config) -> Router {
         .route("/admin/maintenance/undismiss", post(crate::maintenance::undismiss))
         .route("/admin/maintenance/clean", post(crate::maintenance::clean))
         .route("/admin/lookup", get(edit::lookup))
+        .route(
+            "/api/keys",
+            get(crate::api_keys::list_keys).post(crate::api_keys::create_key),
+        )
+        .route("/api/keys/{id}", axum::routing::delete(crate::api_keys::revoke_key))
         .route("/user/login", get(login_page).post(login))
         .route("/user/logout", post(logout))
         .route("/api/progress", get(sync::list_progress))
@@ -185,6 +190,9 @@ pub fn router(config: Config) -> Router {
         .layer(middleware::from_fn_with_state(state.clone(), require_auth))
         .with_state(state)
 }
+
+pub const INVALID_KEY: &str = "This API key is not valid: it may have been revoked";
+pub const KEY_SCOPE: &str = "API keys can only read highlights, reading positions, covers and book details";
 
 pub const READ_ONLY: &str = "The books folder is read-only: books cannot be uploaded, moved, renamed or deleted";
 
@@ -271,13 +279,28 @@ async fn not_found_page(State(state): State<AppState>, request: Request, next: N
     page
 }
 
-async fn require_auth(State(state): State<AppState>, request: Request, next: Next) -> Response {
+async fn require_auth(State(state): State<AppState>, mut request: Request, next: Next) -> Response {
     let path = request.uri().path();
     // KOReader's sync plugin logs in with its own headers, checked by each /kosync handler
     let public =
         path.starts_with("/static/") || path.starts_with("/kosync/") || path == "/user/login" || path == "/healthz";
     if public {
         return next.run(request).await;
+    }
+    // An API key (`Authorization: Bearer`) only reads. It answers in JSON, never with the
+    // browser's sign-in window, and makes no session.
+    if state.auth.enabled() {
+        match state.auth.bearer(request.headers()) {
+            Bearer::Missing => {}
+            Bearer::Invalid => return api_error(StatusCode::UNAUTHORIZED, "api_key", INVALID_KEY),
+            Bearer::Valid(key) => {
+                if !crate::api_keys::allowed(request.method(), request.uri().path()) {
+                    return api_error(StatusCode::FORBIDDEN, "scope", KEY_SCOPE);
+                }
+                request.extensions_mut().insert(key);
+                return next.run(request).await;
+            }
+        }
     }
     if state.auth.is_authorized(request.headers()) {
         // Using the site keeps the session alive, so it only ends after 15 days without use
@@ -1107,7 +1130,7 @@ async fn api_book_rows(State(state): State<AppState>, Json(request): Json<PathsR
 
 /// A JSON error for the apps and the panel: `code` says what went wrong in
 /// a way a program can tell apart, `error` says it in words.
-fn api_error(status: StatusCode, code: &str, error: &str) -> Response {
+pub(crate) fn api_error(status: StatusCode, code: &str, error: &str) -> Response {
     (status, Json(json!({ "error": error, "code": code }))).into_response()
 }
 

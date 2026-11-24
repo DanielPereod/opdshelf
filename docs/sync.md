@@ -75,11 +75,35 @@ KOReader's own **Progress sync** also works without the plugin: set its custom s
 | `DELETE` | `/api/devices/<device_id>` | Forget a device: removes its positions. Needs the panel's `X-CSRF-Token` header |
 | `GET` | `/api/annotations/<document>` | Every highlight of a book in reading order: `id`, `text`, `note`, `color` (`yellow`, `orange`, `red`, `purple`, `blue`, `cyan`, `green`, `olive`, `gray`), `style` (`lighten`, `underscore`, `strikeout`, `invert`), `pos0`, `pos1`, `cfi`, `context`, `chapter`, `page`, `percentage`, `created`, `updated`, `device`, `device_id`. Deleted ones come as `{id, deleted: true, updated}` |
 | `PUT` | `/api/annotations/<document>` | Send new, changed or deleted highlights: `annotations`, `device`, `device_id`, `sent_at`. The newest change of each one wins (times are corrected with `sent_at`, so keep them in the device's clock). Answers every highlight of the book, `server_time`, and `rejected`: the ids of the changes sent that lost against a newer one, whose server version the device should take without comparing times |
-| `GET` | `/api/annotations` | Books with highlights: `highlights`, `notes`, last `updated`, `path` and `title` |
+| `GET` | `/api/annotations` | Books with highlights, last changed first: `document`, `highlights`, `notes`, last `updated`, and the book's `path`, `title`, `authors`, `cover` (the relative URL of the cover, `/cover/<path>`, or `null`), `status` (`finished`, `reading` or `null`) and current `percentage` (`null` without a position). The fields of the book are `null` when its file is not in the library |
 | `GET` | `/api/annotations/<document>/export` | The highlights as a file: Markdown by chapter, or JSON with `?format=json` |
 | `GET` | `/api/highlights` | Every highlight of the library, newest first, each with its `document`, `path`, `title` and `authors` |
 | `GET` | `/api/highlights/review?date=YYYY-MM-DD` | The daily review: 5 highlights at random, from different books when possible, the same all day on every device |
 | `GET` | `/api/highlights/export` | Every book's highlights in one file: Markdown, or JSON with `?format=json` |
 | `*` | `/kosync/...` | KOReader sync protocol (`users/auth`, `syncs/progress`) |
+| `GET` | `/api/keys` | The API keys: `id`, `name`, `created` and `last_used` (Unix seconds, `null` if never used). Needs a session or the admin user |
+| `POST` | `/api/keys` | Make a key: `{"name": "…"}`. Answers the `key` and, only this once, its `secret`. Needs the panel's `X-CSRF-Token` header |
+| `DELETE` | `/api/keys/<id>` | Revoke a key. Needs the panel's `X-CSRF-Token` header |
+
+## API keys
+
+Another app (a notes app, a script, a connector) can read the highlights, the positions and the covers without the admin password, with a read-only key. Make one in **Settings › Apps and connections › API keys**: the key (`opds_…`) is shown only once, with a button to copy it, and the list shows when each key was made and last used. Only the SHA-256 of each key is kept, in `DATA_DIR/api-keys.json`.
+
+Send it in a header:
+
+```
+Authorization: Bearer opds_…
+```
+
+A key can only make `GET` and `HEAD` requests to:
+
+- `/api/annotations`, `/api/annotations/<document>` and `/api/annotations/<document>/export`
+- `/api/highlights`, `/api/highlights/review` and `/api/highlights/export`
+- `/api/progress`, `/api/progress/<document>` and `/api/progress/events` (its live connection shows up on the devices page with the key's name)
+- `/cover/<path>`, `/thumb/<path>` and `/info/<path>`
+
+Anything else answers `403` with `{"error": "…", "code": "scope"}`. A key that is wrong or was revoked answers `401` with `{"error": "…", "code": "api_key"}`, without asking the browser for a password. A key makes no session, and changing the admin password does not affect it: it only stops working when it is revoked. Without `ADMIN_USERNAME` and `ADMIN_PASSWORD` the API stays open to anyone, with or without a key.
+
+A typical connector polls `GET /api/annotations` every few minutes (or listens to the `annotations` events of `/api/progress/events`), and fetches `GET /api/annotations/<document>` for the books whose `updated` changed. Each highlight's `id` stays the same across edits, and deleted ones come with `deleted: true`. Links such as `/read/<path>#note=<id>` open the highlight in the web reader, with the person's own session.
 
 `<document>` is KOReader's partial MD5 of the file. `progress` is an xpointer for reflowable books and the page number (from 1) for PDFs and comics.

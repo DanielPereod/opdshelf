@@ -1,4 +1,5 @@
 pub mod annotations;
+pub mod api_keys;
 pub mod apps;
 pub mod archive;
 pub mod auth;
